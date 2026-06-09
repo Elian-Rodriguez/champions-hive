@@ -1,4 +1,7 @@
-export default function LeagueStandings() {
+export default function LeagueStandings({ data }: { data?: any }) {
+  const standingsRows: any[] = data?.standingsFlat ?? [];
+  const hasData = standingsRows.length > 0;
+  const tournamentName = data?.tournament?.name;
   return (
     <body className="bg-background text-on-background font-body-md min-h-screen">
       <header className="fixed top-0 w-full z-50 border-b border-outline-variant/30 bg-surface/95 backdrop-blur-md shadow-sm">
@@ -56,7 +59,7 @@ export default function LeagueStandings() {
         <main className="flex-1 p-margin overflow-hidden">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-gutter mb-xl">
             <div>
-              <h1 className="font-display-xl text-display-xl text-on-surface mb-xs uppercase tracking-tight">Pro Division <span className="text-secondary">Standings</span></h1>
+              <h1 className="font-display-xl text-display-xl text-on-surface mb-xs uppercase tracking-tight">{tournamentName ? <>{tournamentName} <span className="text-secondary">Standings</span></> : <>Pro Division <span className="text-secondary">Standings</span></>}</h1>
               <p className="text-on-surface-variant font-body-lg text-body-lg">Season 12 • Global Championship Series</p>
             </div>
             <div className="w-full md:w-auto">
@@ -89,6 +92,28 @@ export default function LeagueStandings() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant/30">
+                      {hasData ? (
+                        standingsRows.map((row: any, i: number) => (
+                          <tr key={row?.team_name ?? i} className="hover:bg-surface-container-highest/30 transition-colors">
+                            <td className="p-4 font-stats-numeric text-stats-numeric text-on-surface">{String(row?.position ?? i + 1).padStart(2, "0")}</td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-sm">
+                                <div className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center border-2 border-outline">
+                                  <span className="material-symbols-outlined text-outline" data-icon="shield">shield</span>
+                                </div>
+                                <span className="font-headline-md text-headline-md text-on-surface">{row?.team_name ?? "—"}</span>
+                              </div>
+                            </td>
+                            <td className="p-4 text-center font-stats-numeric">{row?.matches_played ?? 0}</td>
+                            <td className="p-4 text-center font-stats-numeric">{row?.wins ?? 0}</td>
+                            <td className="p-4 text-center font-stats-numeric">{row?.draws ?? 0}</td>
+                            <td className="p-4 text-center font-stats-numeric">{row?.losses ?? 0}</td>
+                            <td className="p-4 text-center font-stats-numeric">{(row?.points_scored ?? 0)}:{(row?.points_conceded ?? 0)} <span className="text-on-surface-variant">({(row?.diff ?? 0) > 0 ? "+" : ""}{row?.diff ?? 0})</span></td>
+                            <td className="p-4 text-right font-stats-numeric text-secondary text-2xl">{row?.league_points ?? 0}</td>
+                          </tr>
+                        ))
+                      ) : (
+                      <>
                       <tr className="hover:bg-surface-container-highest/30 transition-colors">
                         <td className="p-4 font-stats-numeric text-stats-numeric text-on-surface">01</td>
                         <td className="p-4">
@@ -160,6 +185,8 @@ export default function LeagueStandings() {
                         </td>
                         <td className="p-4 text-right font-stats-numeric text-secondary text-2xl">36</td>
                       </tr>
+                      </>
+                      )}
                     </tbody>
                   </table>
                 </div>

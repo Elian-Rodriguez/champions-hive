@@ -1,4 +1,5 @@
-export default function RefereeSchedule() {
+export default function RefereeSchedule({ data }: { data?: any }) {
+  const matches = data?.matches ?? [];
   return (
     <div className="bg-background text-on-background font-body-md min-h-screen">
       {/* TopNavBar */}
@@ -150,102 +151,140 @@ export default function RefereeSchedule() {
             </button>
           </div>
           <div className="space-y-sm">
-            {/* Match Entry 1 */}
-            <div className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
-              <div className="flex items-center gap-lg w-full md:w-auto">
-                <div className="text-center min-w-[60px]">
-                  <p className="text-on-surface font-headline-md leading-none">24</p>
-                  <p className="text-on-surface-variant text-label-sm uppercase">OCT</p>
+            {matches.length ? (
+              matches.map((m: any) => (
+                <div key={m?.id} className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
+                  <div className="flex items-center gap-lg w-full md:w-auto">
+                    <div className="text-center min-w-[60px]">
+                      <p className="text-on-surface font-headline-md leading-none">{m?.scheduled_start ? String(m.scheduled_start).slice(0, 16).replace('T', ' ') : 'Por programar'}</p>
+                      <p className="text-on-surface-variant text-label-sm uppercase">{m?.status}</p>
+                    </div>
+                    <div className="h-10 w-[1px] bg-outline-variant"></div>
+                    <div>
+                      <p className="text-on-surface font-bold">{m?.home_team_name} vs {m?.away_team_name}</p>
+                      <p className="text-on-surface-variant text-label-sm">{m?.status}</p>
+                    </div>
+                  </div>
+                  <div className="hidden lg:flex items-center gap-xl">
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
+                      <span className="text-on-surface-variant text-label-sm">Central Stadium</span>
+                    </div>
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">article</span>
+                      <span className="text-on-surface-variant text-label-sm">Briefing Ready</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-sm ml-auto">
+                    <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
+                      <span className="material-symbols-outlined">edit_calendar</span>
+                    </button>
+                    <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
+                      Details
+                    </button>
+                  </div>
                 </div>
-                <div className="h-10 w-[1px] bg-outline-variant"></div>
-                <div>
-                  <p className="text-on-surface font-bold">Phoenix FC vs Iron Wolves</p>
-                  <p className="text-on-surface-variant text-label-sm">Premier Division • 20:00</p>
+              ))
+            ) : (
+              <>
+                {/* Match Entry 1 */}
+                <div className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
+                  <div className="flex items-center gap-lg w-full md:w-auto">
+                    <div className="text-center min-w-[60px]">
+                      <p className="text-on-surface font-headline-md leading-none">24</p>
+                      <p className="text-on-surface-variant text-label-sm uppercase">OCT</p>
+                    </div>
+                    <div className="h-10 w-[1px] bg-outline-variant"></div>
+                    <div>
+                      <p className="text-on-surface font-bold">Phoenix FC vs Iron Wolves</p>
+                      <p className="text-on-surface-variant text-label-sm">Premier Division • 20:00</p>
+                    </div>
+                  </div>
+                  <div className="hidden lg:flex items-center gap-xl">
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
+                      <span className="text-on-surface-variant text-label-sm">Central Stadium</span>
+                    </div>
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">article</span>
+                      <span className="text-on-surface-variant text-label-sm">Briefing Ready</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-sm ml-auto">
+                    <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
+                      <span className="material-symbols-outlined">edit_calendar</span>
+                    </button>
+                    <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
+                      Details
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="hidden lg:flex items-center gap-xl">
-                <div className="flex items-center gap-xs">
-                  <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
-                  <span className="text-on-surface-variant text-label-sm">Central Stadium</span>
+                {/* Match Entry 2 */}
+                <div className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
+                  <div className="flex items-center gap-lg w-full md:w-auto">
+                    <div className="text-center min-w-[60px]">
+                      <p className="text-on-surface font-headline-md leading-none">26</p>
+                      <p className="text-on-surface-variant text-label-sm uppercase">OCT</p>
+                    </div>
+                    <div className="h-10 w-[1px] bg-outline-variant"></div>
+                    <div>
+                      <p className="text-on-surface font-bold">Titan Academy vs Rising Stars</p>
+                      <p className="text-on-surface-variant text-label-sm">Youth Elite Cup • 14:30</p>
+                    </div>
+                  </div>
+                  <div className="hidden lg:flex items-center gap-xl">
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
+                      <span className="text-on-surface-variant text-label-sm">Field 4 - Sports Park</span>
+                    </div>
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">pending</span>
+                      <span className="text-on-surface-variant text-label-sm">Pending Team Sheets</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-sm ml-auto">
+                    <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
+                      <span className="material-symbols-outlined">edit_calendar</span>
+                    </button>
+                    <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
+                      Details
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-xs">
-                  <span className="material-symbols-outlined text-outline text-[20px]">article</span>
-                  <span className="text-on-surface-variant text-label-sm">Briefing Ready</span>
+                {/* Match Entry 3 */}
+                <div className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
+                  <div className="flex items-center gap-lg w-full md:w-auto">
+                    <div className="text-center min-w-[60px]">
+                      <p className="text-on-surface font-headline-md leading-none">29</p>
+                      <p className="text-on-surface-variant text-label-sm uppercase">OCT</p>
+                    </div>
+                    <div className="h-10 w-[1px] bg-outline-variant"></div>
+                    <div>
+                      <p className="text-on-surface font-bold">Zenith Warriors vs Storm United</p>
+                      <p className="text-on-surface-variant text-label-sm">Pro League - Week 6 • 21:00</p>
+                    </div>
+                  </div>
+                  <div className="hidden lg:flex items-center gap-xl">
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
+                      <span className="text-on-surface-variant text-label-sm">Arena of Light</span>
+                    </div>
+                    <div className="flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-outline text-[20px]">article</span>
+                      <span className="text-on-surface-variant text-label-sm">Briefing Ready</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-sm ml-auto">
+                    <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
+                      <span className="material-symbols-outlined">edit_calendar</span>
+                    </button>
+                    <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
+                      Details
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-sm ml-auto">
-                <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
-                  <span className="material-symbols-outlined">edit_calendar</span>
-                </button>
-                <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
-                  Details
-                </button>
-              </div>
-            </div>
-            {/* Match Entry 2 */}
-            <div className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
-              <div className="flex items-center gap-lg w-full md:w-auto">
-                <div className="text-center min-w-[60px]">
-                  <p className="text-on-surface font-headline-md leading-none">26</p>
-                  <p className="text-on-surface-variant text-label-sm uppercase">OCT</p>
-                </div>
-                <div className="h-10 w-[1px] bg-outline-variant"></div>
-                <div>
-                  <p className="text-on-surface font-bold">Titan Academy vs Rising Stars</p>
-                  <p className="text-on-surface-variant text-label-sm">Youth Elite Cup • 14:30</p>
-                </div>
-              </div>
-              <div className="hidden lg:flex items-center gap-xl">
-                <div className="flex items-center gap-xs">
-                  <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
-                  <span className="text-on-surface-variant text-label-sm">Field 4 - Sports Park</span>
-                </div>
-                <div className="flex items-center gap-xs">
-                  <span className="material-symbols-outlined text-outline text-[20px]">pending</span>
-                  <span className="text-on-surface-variant text-label-sm">Pending Team Sheets</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-sm ml-auto">
-                <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
-                  <span className="material-symbols-outlined">edit_calendar</span>
-                </button>
-                <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
-                  Details
-                </button>
-              </div>
-            </div>
-            {/* Match Entry 3 */}
-            <div className="glass-card rounded-xl p-md flex flex-wrap md:flex-nowrap items-center justify-between gap-md border-l-4 border-secondary group hover:border-l-8 transition-all">
-              <div className="flex items-center gap-lg w-full md:w-auto">
-                <div className="text-center min-w-[60px]">
-                  <p className="text-on-surface font-headline-md leading-none">29</p>
-                  <p className="text-on-surface-variant text-label-sm uppercase">OCT</p>
-                </div>
-                <div className="h-10 w-[1px] bg-outline-variant"></div>
-                <div>
-                  <p className="text-on-surface font-bold">Zenith Warriors vs Storm United</p>
-                  <p className="text-on-surface-variant text-label-sm">Pro League - Week 6 • 21:00</p>
-                </div>
-              </div>
-              <div className="hidden lg:flex items-center gap-xl">
-                <div className="flex items-center gap-xs">
-                  <span className="material-symbols-outlined text-outline text-[20px]">location_on</span>
-                  <span className="text-on-surface-variant text-label-sm">Arena of Light</span>
-                </div>
-                <div className="flex items-center gap-xs">
-                  <span className="material-symbols-outlined text-outline text-[20px]">article</span>
-                  <span className="text-on-surface-variant text-label-sm">Briefing Ready</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-sm ml-auto">
-                <button className="p-xs text-on-surface-variant hover:text-secondary hover:bg-surface-container-highest rounded-lg transition-colors">
-                  <span className="material-symbols-outlined">edit_calendar</span>
-                </button>
-                <button className="border border-secondary text-secondary px-md py-1 rounded-lg text-label-sm font-bold hover:bg-secondary hover:text-on-secondary transition-all">
-                  Details
-                </button>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </section>
         {/* Past Matches (Bento Section) */}

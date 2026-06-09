@@ -1,4 +1,5 @@
-export default function ElitePlatform() {
+export default function ElitePlatform({ data }: { data?: any }) {
+  const tournaments = data?.tournaments ?? [];
   return (
     <div className="bg-background text-on-background font-body-md selection:bg-secondary selection:text-on-secondary">
       <header className="fixed top-0 w-full z-50 border-b border-outline-variant/30 bg-surface/95 backdrop-blur-md shadow-sm">
@@ -58,95 +59,135 @@ export default function ElitePlatform() {
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
-            <div className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-secondary">
-              <div className="relative h-48">
-                <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A dynamic high-action sports photography shot of an intense basketball game under neon stadium lights. The players are captured in mid-air motion with dramatic motion blur and high contrast shadows. The atmosphere is energetic and professional, dominated by deep blues and vibrant green lighting accents that match the Champion Hive brand identity." src="https://lh3.googleusercontent.com/aida/ADBb0ugAslubqau1if-Y7ldh0EkOQy0DB96ef6kXXkQ3470IVP0Gepn5A7WdGmZFd22WhVaEvNxmFG6CGsSdebIi-BDS6sdQ2wKMjuxW8OSNXiqGxY9dvQRqnmmHYe6rbP5etCHFmemp9D1zRPBqKXrNaTZqWNJgsVfcTiPUkptifYp9LaFDmrvbVJk0Zcg-nt1zMaVQdSWYMXoIvp_PzX4-cuWUf-V1WJcDxe5a-R2WuWiRnmlFlkn2FOCI63qm" />
-                <div className="absolute top-4 left-4 bg-error-container text-on-error-container px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
-                  <span className="w-2 h-2 rounded-full bg-error pulse-live"></span>
-                  Live
-                </div>
-              </div>
-              <div className="p-lg">
-                <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">Apex Pro League S4</h3>
-                <div className="flex items-center gap-md text-on-surface-variant mb-md">
-                  <div className="flex items-center gap-xs">
-                    <span className="material-symbols-outlined text-[18px]">groups</span>
-                    <span className="text-label-sm">16 Teams</span>
+            {tournaments.length ? (
+              tournaments.map((t: any, i: number) => (
+                <div key={t?.id ?? i} className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-secondary">
+                  <div className="relative h-48">
+                    <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={t?.name ?? ''} src={t?.banner_url ?? t?.logo_url ?? "https://lh3.googleusercontent.com/aida/ADBb0ugAslubqau1if-Y7ldh0EkOQy0DB96ef6kXXkQ3470IVP0Gepn5A7WdGmZFd22WhVaEvNxmFG6CGsSdebIi-BDS6sdQ2wKMjuxW8OSNXiqGxY9dvQRqnmmHYe6rbP5etCHFmemp9D1zRPBqKXrNaTZqWNJgsVfcTiPUkptifYp9LaFDmrvbVJk0Zcg-nt1zMaVQdSWYMXoIvp_PzX4-cuWUf-V1WJcDxe5a-R2WuWiRnmlFlkn2FOCI63qm"} />
+                    <div className="absolute top-4 left-4 bg-error-container text-on-error-container px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
+                      <span className="w-2 h-2 rounded-full bg-error pulse-live"></span>
+                      {t?.status ?? 'Live'}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-xs">
-                    <span className="material-symbols-outlined text-[18px]">payments</span>
-                    <span className="text-label-sm">$25,000 Prize</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
-                  <div className="flex -space-x-3">
-                    <img className="w-10 h-10 rounded-full border-2 border-surface" data-alt="A minimalist esports team logo featuring a stylized predator bird in deep forest green and sharp white. The design is modern, sleek, and high-contrast, set against a dark neutral background for a premium competitive feel." src="https://lh3.googleusercontent.com/aida/ADBb0ujiyZTtEyuJw5dUzrZG_h0Gh05bJMaJU52DnY2Axa5RdR_AaeQ0hQgE4TZ9GiruoMU8aMdteDTPqD7fQYpS-RS2zYsSUT5kc_NxFWc2lKLWDpL_yjsESNxQGsGlCxH9GxeNY3V8yo5clI3vK9K7kMB8NbD7VZbRigqX-IFG_uPOwkje9_Rym8EaCMSR2Mkj0Ce_CKo9OzMMpwXOmHQzgexPJkle26gSvtHnqguOm9FCLXcojYi0t3MfJ4g8" />
-                    <img className="w-10 h-10 rounded-full border-2 border-surface" data-alt="A vibrant esports team emblem with a futuristic neon green shield design. The logo is clean and bold, utilizing geometric shapes and high-saturation colors to evoke energy and precision." src="https://lh3.googleusercontent.com/aida/ADBb0ujO9yJ1mf1lHIQtA4IQCj-ZKj5djUf_yDNzld5sL4dvz_uJBjYxegv9MgvIn5o-wxsIy_1TEmxwmx_jRIvneDWgDhvmeSxqBO-namYhpnkAjoxvWgBMXPC3wwrBciF4_W8ULBwr9-Uc9nnKI4ajbq45ZsdKT2gCc8JW1FSY3bxlumBglhuYxQLIZZXq_qY9Cuz9D3k55wy7StbZ7HgZM7PAcrbhTrSqvFRHcGQ14DtwYbHyq22E9wiHHBtC" />
-                    <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest flex items-center justify-center text-label-sm">+14</div>
-                  </div>
-                  <button className="bg-secondary/10 text-secondary border border-secondary/30 px-4 py-1.5 rounded-lg hover:bg-secondary hover:text-on-secondary transition-all font-label-sm text-label-sm">Watch Stream</button>
-                </div>
-              </div>
-            </div>
-            <div className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-tertiary">
-              <div className="relative h-48">
-                <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A cinematic wide shot of a professional football stadium at night, illuminated by massive floodlights that create a dramatic lens flare effect. The grass is a deep lush green, and the atmosphere is filled with a sense of anticipation and grandeur. The color palette emphasizes deep navy blue shadows and bright electric highlights." src="https://lh3.googleusercontent.com/aida/ADBb0uhXHOsDYIg8Ce-sVc08yTmMfkdyY0VE_YZDjIYZQpF3TwInIyGMSxcg4FbaoZ8I2FoWhkmP2KklaMAlHm6jfu0kdKUgOoUgHIa67ZUQNS_xRY6ACqkVdcLeZ9c3FFtyIQpgGVJtbEAIFh6F9PmgrCufvrrzGCeVPfvJmKv7Us3hxvTBWIHOCZk-60mZ_9_cpHWNyO-hLPZRRshCii3wPq_qL2HjdNGb75ayXLrCIOZlu2Bd_PjYB_Uil4Q" />
-                <div className="absolute top-4 left-4 bg-surface-container-high text-on-surface-variant px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
-                  <span className="material-symbols-outlined text-[16px]">schedule</span>
-                  Finals Tomorrow
-                </div>
-              </div>
-              <div className="p-lg">
-                <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">European Masters Invitational</h3>
-                <div className="flex items-center gap-md text-on-surface-variant mb-md">
-                  <div className="flex items-center gap-xs">
-                    <span className="material-symbols-outlined text-[18px]">groups</span>
-                    <span className="text-label-sm">32 Teams</span>
-                  </div>
-                  <div className="flex items-center gap-xs">
-                    <span className="material-symbols-outlined text-[18px]">emoji_events</span>
-                    <span className="text-label-sm">Major Status</span>
+                  <div className="p-lg">
+                    <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">{t?.name ?? 'Tournament'}</h3>
+                    <div className="flex items-center gap-md text-on-surface-variant mb-md">
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">sports</span>
+                        <span className="text-label-sm">{t?.sport_type ?? ''}</span>
+                      </div>
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">emoji_events</span>
+                        <span className="text-label-sm">{t?.status ?? ''}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
+                      <div className="flex -space-x-3">
+                        {t?.logo_url ? (
+                          <img className="w-10 h-10 rounded-full border-2 border-surface" alt={t?.name ?? ''} src={t.logo_url} />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full border-2 border-surface bg-secondary-container"></div>
+                        )}
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
+                      </div>
+                      <button className="bg-secondary/10 text-secondary border border-secondary/30 px-4 py-1.5 rounded-lg hover:bg-secondary hover:text-on-secondary transition-all font-label-sm text-label-sm">Enter Hub</button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
-                  <div className="flex -space-x-3">
-                    <div className="w-10 h-10 rounded-full border-2 border-surface bg-tertiary-container flex items-center justify-center"><span className="material-symbols-outlined text-tertiary text-sm" data-weight="fill">shield</span></div>
-                    <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
-                    <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
+              ))
+            ) : (
+              <>
+                <div className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-secondary">
+                  <div className="relative h-48">
+                    <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A dynamic high-action sports photography shot of an intense basketball game under neon stadium lights. The players are captured in mid-air motion with dramatic motion blur and high contrast shadows. The atmosphere is energetic and professional, dominated by deep blues and vibrant green lighting accents that match the Champion Hive brand identity." src="https://lh3.googleusercontent.com/aida/ADBb0ugAslubqau1if-Y7ldh0EkOQy0DB96ef6kXXkQ3470IVP0Gepn5A7WdGmZFd22WhVaEvNxmFG6CGsSdebIi-BDS6sdQ2wKMjuxW8OSNXiqGxY9dvQRqnmmHYe6rbP5etCHFmemp9D1zRPBqKXrNaTZqWNJgsVfcTiPUkptifYp9LaFDmrvbVJk0Zcg-nt1zMaVQdSWYMXoIvp_PzX4-cuWUf-V1WJcDxe5a-R2WuWiRnmlFlkn2FOCI63qm" />
+                    <div className="absolute top-4 left-4 bg-error-container text-on-error-container px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
+                      <span className="w-2 h-2 rounded-full bg-error pulse-live"></span>
+                      Live
+                    </div>
                   </div>
-                  <button className="bg-surface-container-high text-on-surface px-4 py-1.5 rounded-lg hover:bg-on-surface hover:text-surface transition-all font-label-sm text-label-sm">View Bracket</button>
-                </div>
-              </div>
-            </div>
-            <div className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-secondary">
-              <div className="relative h-48">
-                <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A gritty, urban photography style capture of a street basketball court at sunset. The long shadows and orange-to-purple sky contrast with the harsh artificial court lighting. The focus is on the intensity of the game, with a modern, high-contrast aesthetic that fits a premium sports management brand." src="https://lh3.googleusercontent.com/aida/ADBb0ujlA1I4-0eqo5nUdBuHbXtCvmJQbRK4FbJ72DYUxHAE-xXo0KYtMsNJKBakYbrpyAB9o0ejxHvl0Z6SUP4-cjjDHwGye4gJaLBuOLQ2Em5qUFZJlb1_Jp12v2zrkoOa5A6csX4cMYPaOaXPhX5XrWmTQB5HjlJzx8KwRs8JAvbXHx-Udq7xQJVVU56m3m5Y8xIekDyV6UU4M6dDufyWWaEDxsSuUvl8txYqCxbwdoLJXWNlOoLPpPi1XNDK" />
-                <div className="absolute top-4 left-4 bg-error-container text-on-error-container px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
-                  <span className="w-2 h-2 rounded-full bg-error pulse-live"></span>
-                  Live
-                </div>
-              </div>
-              <div className="p-lg">
-                <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">Urban Clash: Summer Open</h3>
-                <div className="flex items-center gap-md text-on-surface-variant mb-md">
-                  <div className="flex items-center gap-xs">
-                    <span className="material-symbols-outlined text-[18px]">groups</span>
-                    <span className="text-label-sm">8 Teams</span>
-                  </div>
-                  <div className="flex items-center gap-xs">
-                    <span className="material-symbols-outlined text-[18px]">location_on</span>
-                    <span className="text-label-sm">New York</span>
+                  <div className="p-lg">
+                    <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">Apex Pro League S4</h3>
+                    <div className="flex items-center gap-md text-on-surface-variant mb-md">
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">groups</span>
+                        <span className="text-label-sm">16 Teams</span>
+                      </div>
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">payments</span>
+                        <span className="text-label-sm">$25,000 Prize</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
+                      <div className="flex -space-x-3">
+                        <img className="w-10 h-10 rounded-full border-2 border-surface" data-alt="A minimalist esports team logo featuring a stylized predator bird in deep forest green and sharp white. The design is modern, sleek, and high-contrast, set against a dark neutral background for a premium competitive feel." src="https://lh3.googleusercontent.com/aida/ADBb0ujiyZTtEyuJw5dUzrZG_h0Gh05bJMaJU52DnY2Axa5RdR_AaeQ0hQgE4TZ9GiruoMU8aMdteDTPqD7fQYpS-RS2zYsSUT5kc_NxFWc2lKLWDpL_yjsESNxQGsGlCxH9GxeNY3V8yo5clI3vK9K7kMB8NbD7VZbRigqX-IFG_uPOwkje9_Rym8EaCMSR2Mkj0Ce_CKo9OzMMpwXOmHQzgexPJkle26gSvtHnqguOm9FCLXcojYi0t3MfJ4g8" />
+                        <img className="w-10 h-10 rounded-full border-2 border-surface" data-alt="A vibrant esports team emblem with a futuristic neon green shield design. The logo is clean and bold, utilizing geometric shapes and high-saturation colors to evoke energy and precision." src="https://lh3.googleusercontent.com/aida/ADBb0ujO9yJ1mf1lHIQtA4IQCj-ZKj5djUf_yDNzld5sL4dvz_uJBjYxegv9MgvIn5o-wxsIy_1TEmxwmx_jRIvneDWgDhvmeSxqBO-namYhpnkAjoxvWgBMXPC3wwrBciF4_W8ULBwr9-Uc9nnKI4ajbq45ZsdKT2gCc8JW1FSY3bxlumBglhuYxQLIZZXq_qY9Cuz9D3k55wy7StbZ7HgZM7PAcrbhTrSqvFRHcGQ14DtwYbHyq22E9wiHHBtC" />
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest flex items-center justify-center text-label-sm">+14</div>
+                      </div>
+                      <button className="bg-secondary/10 text-secondary border border-secondary/30 px-4 py-1.5 rounded-lg hover:bg-secondary hover:text-on-secondary transition-all font-label-sm text-label-sm">Watch Stream</button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
-                  <div className="flex -space-x-3">
-                    <div className="w-10 h-10 rounded-full border-2 border-surface bg-secondary-container"></div>
-                    <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
+                <div className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-tertiary">
+                  <div className="relative h-48">
+                    <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A cinematic wide shot of a professional football stadium at night, illuminated by massive floodlights that create a dramatic lens flare effect. The grass is a deep lush green, and the atmosphere is filled with a sense of anticipation and grandeur. The color palette emphasizes deep navy blue shadows and bright electric highlights." src="https://lh3.googleusercontent.com/aida/ADBb0uhXHOsDYIg8Ce-sVc08yTmMfkdyY0VE_YZDjIYZQpF3TwInIyGMSxcg4FbaoZ8I2FoWhkmP2KklaMAlHm6jfu0kdKUgOoUgHIa67ZUQNS_xRY6ACqkVdcLeZ9c3FFtyIQpgGVJtbEAIFh6F9PmgrCufvrrzGCeVPfvJmKv7Us3hxvTBWIHOCZk-60mZ_9_cpHWNyO-hLPZRRshCii3wPq_qL2HjdNGb75ayXLrCIOZlu2Bd_PjYB_Uil4Q" />
+                    <div className="absolute top-4 left-4 bg-surface-container-high text-on-surface-variant px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
+                      <span className="material-symbols-outlined text-[16px]">schedule</span>
+                      Finals Tomorrow
+                    </div>
                   </div>
-                  <button className="bg-secondary/10 text-secondary border border-secondary/30 px-4 py-1.5 rounded-lg hover:bg-secondary hover:text-on-secondary transition-all font-label-sm text-label-sm">Enter Hub</button>
+                  <div className="p-lg">
+                    <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">European Masters Invitational</h3>
+                    <div className="flex items-center gap-md text-on-surface-variant mb-md">
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">groups</span>
+                        <span className="text-label-sm">32 Teams</span>
+                      </div>
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">emoji_events</span>
+                        <span className="text-label-sm">Major Status</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
+                      <div className="flex -space-x-3">
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-tertiary-container flex items-center justify-center"><span className="material-symbols-outlined text-tertiary text-sm" data-weight="fill">shield</span></div>
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
+                      </div>
+                      <button className="bg-surface-container-high text-on-surface px-4 py-1.5 rounded-lg hover:bg-on-surface hover:text-surface transition-all font-label-sm text-label-sm">View Bracket</button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+                <div className="glass-card rounded-xl overflow-hidden group border-l-4 border-l-secondary">
+                  <div className="relative h-48">
+                    <img className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A gritty, urban photography style capture of a street basketball court at sunset. The long shadows and orange-to-purple sky contrast with the harsh artificial court lighting. The focus is on the intensity of the game, with a modern, high-contrast aesthetic that fits a premium sports management brand." src="https://lh3.googleusercontent.com/aida/ADBb0ujlA1I4-0eqo5nUdBuHbXtCvmJQbRK4FbJ72DYUxHAE-xXo0KYtMsNJKBakYbrpyAB9o0ejxHvl0Z6SUP4-cjjDHwGye4gJaLBuOLQ2Em5qUFZJlb1_Jp12v2zrkoOa5A6csX4cMYPaOaXPhX5XrWmTQB5HjlJzx8KwRs8JAvbXHx-Udq7xQJVVU56m3m5Y8xIekDyV6UU4M6dDufyWWaEDxsSuUvl8txYqCxbwdoLJXWNlOoLPpPi1XNDK" />
+                    <div className="absolute top-4 left-4 bg-error-container text-on-error-container px-3 py-1 rounded-full flex items-center gap-xs font-label-sm text-label-sm uppercase">
+                      <span className="w-2 h-2 rounded-full bg-error pulse-live"></span>
+                      Live
+                    </div>
+                  </div>
+                  <div className="p-lg">
+                    <h3 className="font-headline-md text-headline-md text-on-surface mb-xs">Urban Clash: Summer Open</h3>
+                    <div className="flex items-center gap-md text-on-surface-variant mb-md">
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">groups</span>
+                        <span className="text-label-sm">8 Teams</span>
+                      </div>
+                      <div className="flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[18px]">location_on</span>
+                        <span className="text-label-sm">New York</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-md border-t border-outline-variant/30">
+                      <div className="flex -space-x-3">
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-secondary-container"></div>
+                        <div className="w-10 h-10 rounded-full border-2 border-surface bg-surface-container-highest"></div>
+                      </div>
+                      <button className="bg-secondary/10 text-secondary border border-secondary/30 px-4 py-1.5 rounded-lg hover:bg-secondary hover:text-on-secondary transition-all font-label-sm text-label-sm">Enter Hub</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </section>
         <section className="py-xl bg-surface-container-low">
