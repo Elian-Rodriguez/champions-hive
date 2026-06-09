@@ -1,9 +1,20 @@
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.core.config import settings
 
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+# La cadena del pooler de Supabase suele traer "?pgbouncer=true", una opción de
+# Prisma que psycopg2 no entiende. La quitamos para que la URL sea válida.
+if SQLALCHEMY_DATABASE_URL and "pgbouncer" in SQLALCHEMY_DATABASE_URL:
+    _p = urlsplit(SQLALCHEMY_DATABASE_URL)
+    _q = [(k, v) for k, v in parse_qsl(_p.query, keep_blank_values=True) if k != "pgbouncer"]
+    SQLALCHEMY_DATABASE_URL = urlunsplit(
+        (_p.scheme, _p.netloc, _p.path, urlencode(_q), _p.fragment)
+    )
 
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
