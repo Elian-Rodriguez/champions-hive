@@ -1,0 +1,28 @@
+# Control de versiones / CI
+.git
+.github
+
+# Entornos y dependencias (se reinstalan en el build)
+**/.venv
+**/node_modules
+**/dist
+**/dist-ssr
+
+# Artefactos de Python
+**/__pycache__
+**/*.py[cod]
+
+# Bases de datos y secretos
+*.db
+**/*.db
+.env
+**/.env
+
+# Sistema / editor
+**/.DS_Store
+.idea
+.vscode
+
+# Documentación que no entra en la imagen
+CLAUDE.md
+deploy/README.md
