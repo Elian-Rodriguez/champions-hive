@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
-import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
+import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 
 type Disc = { type: string; label: string; short: string; color: string }
@@ -152,103 +152,142 @@ export default function RefereeView() {
     )
 
   if (match) {
+    const isLive = match.status === 'live'
+    const meta = [match.stage_name, match.group_name ? `Grupo ${match.group_name}` : null]
+      .filter(Boolean)
+      .join(' · ')
+    const eventStyle = (type: string) => {
+      if (type === 'GOL') return { border: 'border-secondary', icon: 'sports_soccer', tone: 'text-secondary' }
+      if (type === 'CAMBIO') return { border: 'border-primary', icon: 'swap_horiz', tone: 'text-primary' }
+      if (type === 'ROJA' || type === 'ANTIDEPORTIVA')
+        return { border: 'border-red-500', icon: 'style', tone: 'text-red-400' }
+      if (type === 'AMARILLA') return { border: 'border-yellow-400', icon: 'style', tone: 'text-yellow-400' }
+      if (type === 'AZUL') return { border: 'border-blue-500', icon: 'style', tone: 'text-blue-400' }
+      return { border: 'border-tertiary', icon: 'sports', tone: 'text-tertiary' }
+    }
     return (
-      <div className="mx-auto max-w-3xl">
-        <button onClick={() => setMatch(null)} className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
+      <div className="mx-auto max-w-5xl">
+        <button
+          onClick={() => setMatch(null)}
+          className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant transition hover:text-on-surface"
+        >
           <Icon name="arrow_back" className="text-base" /> Volver a partidos
         </button>
-        <Card className="p-4 sm:p-6">
-          <div className="mb-4 flex items-center justify-center gap-3">
-            <Badge className="bg-surface-container-highest text-on-surface-variant">
-              {STATUS_LABEL[match.status] || match.status}
-            </Badge>
-            <span className="flex items-center gap-1 text-sm text-on-surface-variant">
-              <Icon name="timer" className="text-base" />
-              <input
-                type="number"
-                min={0}
-                value={minute}
-                onChange={(e) => setMinute(e.target.value)}
-                placeholder="min"
-                className="w-16 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-center text-on-surface"
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {/* Tablero principal */}
+          <Card accent="green" className="p-4 sm:p-6 lg:col-span-2">
+            <div className="mb-5 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                {isLive ? (
+                  <LiveChip />
+                ) : (
+                  <Badge className="bg-surface-container-highest text-on-surface-variant">
+                    {STATUS_LABEL[match.status] || match.status}
+                  </Badge>
+                )}
+                {meta && (
+                  <span className="hidden truncate text-xs uppercase tracking-wide text-on-surface-variant sm:inline">
+                    {meta}
+                  </span>
+                )}
+              </div>
+              <label className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-surface-container-low px-3 py-1 text-sm">
+                <Icon name="timer" className="text-base text-secondary" />
+                <input
+                  type="number"
+                  min={0}
+                  value={minute}
+                  onChange={(e) => setMinute(e.target.value)}
+                  placeholder="min"
+                  className="w-12 bg-transparent text-center text-on-surface focus:outline-none"
+                />
+                <span className="text-on-surface-variant">'</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-3 items-start gap-2 text-center">
+              <SideColumn
+                name={match.home_team_name}
+                score={home}
+                colors={teamColors[String(match.home_team_id)]}
+                cards={cards}
+                players={homePlayers}
+                selected={selHome}
+                onSelect={setSelHome}
+                onInc={() => setHome((h) => h + 1)}
+                onDec={() => setHome((h) => Math.max(0, h - 1))}
+                onGoal={() => goal('home')}
+                onCard={(t) => card('home', t)}
               />
-              '
-            </span>
-          </div>
-          <div className="grid grid-cols-3 items-start gap-2 text-center">
-            <SideColumn
-              name={match.home_team_name}
-              score={home}
-              colors={teamColors[String(match.home_team_id)]}
-              cards={cards}
-              players={homePlayers}
-              selected={selHome}
-              onSelect={setSelHome}
-              onInc={() => setHome((h) => h + 1)}
-              onDec={() => setHome((h) => Math.max(0, h - 1))}
-              onGoal={() => goal('home')}
-              onCard={(t) => card('home', t)}
-            />
-            <div className="pt-10 font-display text-2xl text-on-surface-variant">VS</div>
-            <SideColumn
-              name={match.away_team_name}
-              score={away}
-              colors={teamColors[String(match.away_team_id)]}
-              cards={cards}
-              players={awayPlayers}
-              selected={selAway}
-              onSelect={setSelAway}
-              onInc={() => setAway((a) => a + 1)}
-              onDec={() => setAway((a) => Math.max(0, a - 1))}
-              onGoal={() => goal('away')}
-              onCard={(t) => card('away', t)}
-            />
-          </div>
-
-          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 text-center text-xs uppercase text-on-surface-variant">Cambio local</p>
-              <SubControl players={homePlayers} onSub={(o, i) => sub('home', o, i)} />
+              <div className="pt-12 font-display text-xl font-bold text-on-surface-variant">VS</div>
+              <SideColumn
+                name={match.away_team_name}
+                score={away}
+                colors={teamColors[String(match.away_team_id)]}
+                cards={cards}
+                players={awayPlayers}
+                selected={selAway}
+                onSelect={setSelAway}
+                onInc={() => setAway((a) => a + 1)}
+                onDec={() => setAway((a) => Math.max(0, a - 1))}
+                onGoal={() => goal('away')}
+                onCard={(t) => card('away', t)}
+                scoreClass="text-tertiary"
+              />
             </div>
-            <div>
-              <p className="mb-1 text-center text-xs uppercase text-on-surface-variant">Cambio visitante</p>
-              <SubControl players={awayPlayers} onSub={(o, i) => sub('away', o, i)} />
+
+            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-center text-xs uppercase tracking-wide text-on-surface-variant">Cambio local</p>
+                <SubControl players={homePlayers} onSub={(o, i) => sub('home', o, i)} />
+              </div>
+              <div>
+                <p className="mb-1 text-center text-xs uppercase tracking-wide text-on-surface-variant">Cambio visitante</p>
+                <SubControl players={awayPlayers} onSub={(o, i) => sub('away', o, i)} />
+              </div>
             </div>
-          </div>
 
-          {msg && <p className="mt-4 text-center text-sm text-secondary">{msg}</p>}
+            {msg && <p className="mt-4 text-center text-sm text-secondary">{msg}</p>}
 
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <Button variant="outline" onClick={() => persist('live')}>
-              <Icon name="play_circle" /> En vivo
-            </Button>
-            <Button variant="ghost" onClick={() => persist('live')}>
-              <Icon name="save" /> Guardar
-            </Button>
-            <Button onClick={() => persist('finished')}>
-              <Icon name="flag" /> Finalizar
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                exportMatchReportPDF(
-                  { ...match, home_score: home, away_score: away },
-                  events,
-                  playerName,
-                  { tournamentName: tournament?.name, homePlayers, awayPlayers },
-                )
-              }
-            >
-              <Icon name="picture_as_pdf" /> Acta
-            </Button>
-          </div>
+            <div className="mt-6 flex flex-wrap justify-center gap-2 border-t border-outline-variant/30 pt-5">
+              <Button variant="outline" onClick={() => persist('live')}>
+                <Icon name="play_circle" /> En vivo
+              </Button>
+              <Button variant="ghost" onClick={() => persist('live')}>
+                <Icon name="save" /> Guardar
+              </Button>
+              <Button onClick={() => persist('finished')}>
+                <Icon name="flag" /> Finalizar
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  exportMatchReportPDF(
+                    { ...match, home_score: home, away_score: away },
+                    events,
+                    playerName,
+                    { tournamentName: tournament?.name, homePlayers, awayPlayers },
+                  )
+                }
+              >
+                <Icon name="picture_as_pdf" /> Acta
+              </Button>
+            </div>
+          </Card>
 
-          {events.length > 0 && (
-            <div className="mt-6 border-t border-outline-variant/30 pt-4">
-              <h4 className="mb-2 font-display text-sm font-semibold text-on-surface-variant">Eventos</h4>
-              <ul className="space-y-1 text-sm">
-                {events.map((ev) => {
+          {/* Registro en vivo */}
+          <Card className="flex max-h-[72vh] flex-col p-4">
+            <h4 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold">
+              <Icon name="bolt" className="text-secondary" /> Registro en vivo
+            </h4>
+            {events.length === 0 ? (
+              <p className="py-10 text-center text-sm text-on-surface-variant">Sin eventos todavía.</p>
+            ) : (
+              <ul className="space-y-2 overflow-y-auto pr-1">
+                {[...events].reverse().map((ev) => {
                   const isSub = ev.event_type === 'CAMBIO'
+                  const st = eventStyle(ev.event_type)
                   const teamName =
                     ev.event_data?.team === 'home'
                       ? match.home_team_name
@@ -257,30 +296,32 @@ export default function RefereeView() {
                         : ''
                   const min = ev.event_data?.minute
                   return (
-                    <li key={ev.id} className="flex items-center gap-2">
-                      <Icon
-                        name={isSub ? 'swap_horiz' : ev.event_type === 'GOL' ? 'sports_soccer' : 'style'}
-                        className="text-base text-secondary"
-                      />
-                      <span className="w-8 text-right text-on-surface-variant">
-                        {min != null ? `${min}'` : ''}
+                    <li
+                      key={ev.id}
+                      className={`flex items-start gap-2 rounded-lg border-l-2 bg-surface-container-high px-3 py-2 text-sm ${st.border}`}
+                    >
+                      <span className="mt-0.5 w-9 shrink-0 text-right font-display font-bold tabular-nums text-on-surface-variant">
+                        {min != null ? `${min}'` : '—'}
                       </span>
-                      <span className="font-medium">{ev.event_type}</span>
-                      <span className="text-on-surface-variant">
-                        {teamName}
-                        {isSub
-                          ? ` · entra ${playerName(ev.player_id) || '?'} / sale ${playerName(ev.event_data?.player_out) || '?'}`
-                          : playerName(ev.player_id)
-                            ? ` · ${playerName(ev.player_id)}`
-                            : ''}
+                      <Icon name={st.icon} className={`mt-0.5 text-base ${st.tone}`} />
+                      <span className="min-w-0">
+                        <span className={`font-semibold ${st.tone}`}>{ev.event_type}</span>
+                        <span className="block truncate text-xs text-on-surface-variant">
+                          {teamName}
+                          {isSub
+                            ? ` · entra ${playerName(ev.player_id) || '?'} / sale ${playerName(ev.event_data?.player_out) || '?'}`
+                            : playerName(ev.player_id)
+                              ? ` · ${playerName(ev.player_id)}`
+                              : ''}
+                        </span>
                       </span>
                     </li>
                   )
                 })}
               </ul>
-            </div>
-          )}
-        </Card>
+            )}
+          </Card>
+        </div>
       </div>
     )
   }
@@ -338,8 +379,12 @@ export default function RefereeView() {
                           />
                         </span>
                       </div>
-                      <div className="mt-2 text-center">
-                        <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
+                      <div className="mt-2 flex justify-center">
+                        {m.status === 'live' ? (
+                          <LiveChip />
+                        ) : (
+                          <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
+                        )}
                       </div>
                     </Card>
                   </button>
@@ -365,6 +410,7 @@ function SideColumn({
   onDec,
   onGoal,
   onCard,
+  scoreClass = 'text-secondary',
 }: {
   name: string | null
   score: number
@@ -377,17 +423,27 @@ function SideColumn({
   onDec: () => void
   onGoal: () => void
   onCard: (type: string) => void
+  scoreClass?: string
 }) {
   const kit = colors && colors.length ? colors : ['#64748b']
+  const initial = (name || '?').trim().charAt(0).toUpperCase()
   return (
     <div>
-      <div className="mx-auto mb-1.5 flex w-14 justify-center gap-0.5" title="Uniformes">
+      <div
+        className="mx-auto grid h-12 w-12 place-items-center rounded-full border-2 font-display text-lg font-bold"
+        style={{ borderColor: kit[0], color: kit[0] }}
+      >
+        {initial}
+      </div>
+      <div className="mx-auto mb-1.5 mt-2 flex w-14 justify-center gap-0.5" title="Uniformes">
         {kit.map((col, i) => (
           <div key={i} className="h-1.5 flex-1 rounded-full" style={{ background: col }} />
         ))}
       </div>
       <p className="mb-2 truncate font-display font-semibold">{name || 'Por definir'}</p>
-      <div className="font-display text-5xl font-extrabold tabular-nums text-secondary">{score}</div>
+      <div className={`font-display text-4xl font-extrabold tabular-nums sm:text-5xl ${scoreClass}`}>
+        {score}
+      </div>
       <div className="mt-2 flex justify-center gap-2">
         <button onClick={onDec} className="grid h-8 w-8 place-items-center rounded-full bg-surface-container-high hover:bg-surface-bright">
           <Icon name="remove" className="text-base" />
