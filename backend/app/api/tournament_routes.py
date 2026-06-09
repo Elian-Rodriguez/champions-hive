@@ -33,6 +33,7 @@ from app.schemas import (
     StatusUpdate,
     TournamentCreate,
     TournamentResponse,
+    TournamentUpdate,
 )
 from app.services.strategy import TIEBREAKER_LABELS, calculate_standings
 
@@ -868,6 +869,25 @@ def get_tournament(tournament_id: UUID, db: Session = Depends(get_db)):
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    return tournament
+
+
+@router.put("/{tournament_id}", response_model=TournamentResponse)
+def update_tournament(
+    tournament_id: UUID,
+    payload_in: TournamentUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_staff),
+):
+    """Actualiza la configuración del torneo: puntos, criterios de desempate,
+    duración/espera de partidos, categoría y branding."""
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    for key, value in payload_in.model_dump(exclude_unset=True).items():
+        setattr(tournament, key, value)
+    db.commit()
+    db.refresh(tournament)
     return tournament
 
 

@@ -17,7 +17,15 @@ const STAGE_TYPES = [
   { value: 'knockout', label: 'Eliminación' },
   { value: 'swiss', label: 'Suizo' },
 ]
-type Tab = 'resumen' | 'equipos' | 'fases' | 'posiciones' | 'avance' | 'marca'
+type Tab =
+  | 'resumen'
+  | 'config'
+  | 'equipos'
+  | 'fases'
+  | 'calendario'
+  | 'posiciones'
+  | 'avance'
+  | 'marca'
 type Section = 'torneos' | 'sedes' | 'usuarios'
 
 const SECTIONS: { key: Section; label: string; icon: string }[] = [
@@ -155,7 +163,7 @@ export default function AdminView() {
                   <Badge className="bg-secondary-container/40 text-secondary">{selected.sport_type}</Badge>
                 </div>
                 <div className="mb-5 flex flex-wrap gap-2 border-b border-outline-variant/30 pb-3">
-                  {(['resumen', 'equipos', 'fases', 'posiciones', 'avance', 'marca'] as Tab[]).map((t) => (
+                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'marca'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
@@ -169,8 +177,10 @@ export default function AdminView() {
                 </div>
 
                 {tab === 'resumen' && <ResumenTab tournament={selected} onChanged={refresh} />}
+                {tab === 'config' && <ConfigTab tournament={selected} onChanged={refresh} />}
                 {tab === 'equipos' && <EquiposTab tournament={selected} />}
                 {tab === 'fases' && <FasesTab tournament={selected} />}
+                {tab === 'calendario' && <CalendarioTab tournament={selected} />}
                 {tab === 'posiciones' && <PosicionesTab tournament={selected} />}
                 {tab === 'avance' && <AvanceTab tournament={selected} />}
                 {tab === 'marca' && <MarcaTab tournament={selected} />}
@@ -513,6 +523,8 @@ function AvanceTab({ tournament }: { tournament: any }) {
   const [sourceId, setSourceId] = useState('')
   const [targetId, setTargetId] = useState('')
   const [groups, setGroups] = useState<string[]>([])
+  const [standings, setStandings] = useState<Record<string, any[]>>({})
+  const [thirds, setThirds] = useState<any[]>([])
   const [rows, setRows] = useState<any[]>([{ hg: '', hp: 1, ag: '', ap: 2 }])
   const [msg, setMsg] = useState<string | null>(null)
   useEffect(() => {
@@ -520,9 +532,13 @@ function AvanceTab({ tournament }: { tournament: any }) {
   }, [tournament.id])
   async function onSource(id: string) {
     setSourceId(id)
+    setStandings({})
+    setThirds([])
     if (!id) return setGroups([])
     const gs = await api.standingsByGroup(id)
     setGroups(Object.keys(gs))
+    setStandings(gs)
+    api.bestThirds(id, 4).then((r) => setThirds(r.best_thirds || [])).catch(() => setThirds([]))
   }
   const groupOpts = [...groups, '__best_thirds__']
 
@@ -591,6 +607,28 @@ function AvanceTab({ tournament }: { tournament: any }) {
         </div>
       </div>
 
+      {Object.keys(standings).length > 0 && (
+        <div className="space-y-3 rounded-lg bg-surface-container-low p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+            Posiciones de la fase origen
+          </p>
+          {Object.entries(standings).map(([group, rws]) => (
+            <div key={group}>
+              <h4 className="mb-1 text-sm font-medium">
+                {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
+              </h4>
+              <StandingsTable rows={rws} />
+            </div>
+          ))}
+          {thirds.length > 0 && (
+            <p className="text-xs text-on-surface-variant">
+              Mejores terceros:{' '}
+              {thirds.map((t, i) => `${t.team_name || t.team_id} (${t.from_group})`).join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
         {rows.map((c, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high p-2">
@@ -642,6 +680,230 @@ function AvanceTab({ tournament }: { tournament: any }) {
         </Button>
       </div>
       {msg && <p className="text-sm text-secondary">{msg}</p>}
+    </div>
+  )
+}
+
+function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () => void }) {
+  const [options, setOptions] = useState<any[]>([])
+  const pc = tournament.points_config || {}
+  const [win, setWin] = useState(pc.win ?? 3)
+  const [draw, setDraw] = useState(pc.draw ?? 1)
+  const [loss, setLoss] = useState(pc.loss ?? 0)
+  const [category, setCategory] = useState(tournament.category || 'masculino')
+  const [duration, setDuration] = useState(tournament.match_duration ?? 60)
+  const [waiting, setWaiting] = useState(tournament.waiting_time ?? 10)
+  const [rules, setRules] = useState<string[]>(
+    tournament.tiebreaker_rules || ['PUNTOS', 'DIF_GOLES', 'GOLES_FAVOR', 'PARTIDO_DIRECTO'],
+  )
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.getTiebreakerOptions().then(setOptions).catch(() => setOptions([]))
+  }, [])
+
+  const labelOf = (k: string) => options.find((o) => o.key === k)?.label || k
+  const available = options.filter((o) => !rules.includes(o.key))
+  function move(i: number, dir: number) {
+    const j = i + dir
+    if (j < 0 || j >= rules.length) return
+    const r = [...rules]
+    ;[r[i], r[j]] = [r[j], r[i]]
+    setRules(r)
+  }
+
+  async function save() {
+    try {
+      await api.updateTournament(tournament.id, {
+        category,
+        match_duration: Number(duration),
+        waiting_time: Number(waiting),
+        points_config: { win: Number(win), draw: Number(draw), loss: Number(loss) },
+        tiebreaker_rules: rules,
+      })
+      setMsg('Configuración guardada')
+      onChanged()
+    } catch (e: any) {
+      setMsg(e.message)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Categoría</label>
+          <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="masculino" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="mb-1 block text-xs text-on-surface-variant">Pts victoria</label>
+            <Input type="number" value={win} onChange={(e) => setWin(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-on-surface-variant">Empate</label>
+            <Input type="number" value={draw} onChange={(e) => setDraw(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-on-surface-variant">Derrota</label>
+            <Input type="number" value={loss} onChange={(e) => setLoss(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Duración partido (min)</label>
+          <Input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Espera entre partidos (min)</label>
+          <Input type="number" value={waiting} onChange={(e) => setWaiting(e.target.value)} />
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-1 font-display font-semibold">Criterios de desempate (en orden)</h3>
+        <p className="mb-2 text-xs text-on-surface-variant">
+          Define cómo se clasifican los equipos empatados. El primero tiene mayor prioridad.
+        </p>
+        <ul className="space-y-1.5">
+          {rules.map((r, i) => (
+            <li key={r} className="flex items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2">
+              <span className="w-5 text-on-surface-variant">{i + 1}.</span>
+              <span className="flex-1">{labelOf(r)}</span>
+              <span className="text-xs text-on-surface-variant/60">{r}</span>
+              <button onClick={() => move(i, -1)} className="text-on-surface-variant hover:text-on-surface">
+                <Icon name="arrow_upward" className="text-base" />
+              </button>
+              <button onClick={() => move(i, 1)} className="text-on-surface-variant hover:text-on-surface">
+                <Icon name="arrow_downward" className="text-base" />
+              </button>
+              <button onClick={() => setRules(rules.filter((x) => x !== r))} className="text-error/80 hover:text-error">
+                <Icon name="close" className="text-base" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        {available.length > 0 && (
+          <Select
+            value=""
+            onChange={(e) => e.target.value && setRules([...rules, e.target.value])}
+            className="mt-2"
+          >
+            <option value="">+ Agregar criterio…</option>
+            {available.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label} ({o.key})
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button onClick={save}>
+          <Icon name="save" /> Guardar configuración
+        </Button>
+        {msg && <span className="text-sm text-secondary">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
+function CalendarioTab({ tournament }: { tournament: any }) {
+  const [stages, setStages] = useState<any[]>([])
+  const [active, setActive] = useState<any>(null)
+  const [matches, setMatches] = useState<any[]>([])
+  const [courts, setCourts] = useState<any[]>([])
+  const [start, setStart] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.getStages(tournament.id).then(setStages)
+    api.getVenues().then((vs: any[]) =>
+      setCourts(vs.flatMap((v) => (v.courts || []).map((c: any) => ({ ...c, venue: v.name })))),
+    )
+  }, [tournament.id])
+
+  async function pick(s: any) {
+    setActive(s)
+    setMatches(await api.stageMatches(s.id))
+  }
+  async function autoSchedule() {
+    try {
+      const r = await api.scheduleCalendar(tournament.id, {
+        start: start || undefined,
+        match_duration: tournament.match_duration,
+        waiting_time: tournament.waiting_time,
+      })
+      setMsg(r.message)
+      if (active) pick(active)
+    } catch (e: any) {
+      setMsg(e.message)
+    }
+  }
+  async function patch(m: any, field: string, value: any) {
+    await api.updateMatchSchedule(m.id, { [field]: value || null })
+    if (active) pick(active)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-2 rounded-lg bg-surface-container-high p-3">
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Inicio (auto-programación)</label>
+          <input
+            type="datetime-local"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface"
+          />
+        </div>
+        <Button variant="outline" onClick={autoSchedule}>
+          <Icon name="schedule" /> Programar todos los partidos
+        </Button>
+        {msg && <span className="text-sm text-secondary">{msg}</span>}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {stages.map((s) => (
+          <Button key={s.id} variant={active?.id === s.id ? 'primary' : 'ghost'} onClick={() => pick(s)}>
+            {s.name}
+          </Button>
+        ))}
+      </div>
+
+      {!active ? (
+        <EmptyState icon="calendar_month" title="Elige una fase para ver/editar fechas" />
+      ) : matches.length === 0 ? (
+        <EmptyState icon="event_busy" title="Sin partidos" hint="Genera el fixture primero." />
+      ) : (
+        <ul className="space-y-2">
+          {matches.map((m) => (
+            <li key={m.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm">
+              <span className="min-w-[160px] flex-1 truncate">
+                {m.home_team_name || 'Por definir'} <span className="text-on-surface-variant">vs</span> {m.away_team_name || 'Por definir'}
+              </span>
+              <input
+                type="datetime-local"
+                value={m.scheduled_start ? String(m.scheduled_start).slice(0, 16) : ''}
+                onChange={(e) => patch(m, 'scheduled_start', e.target.value)}
+                className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface"
+              />
+              <select
+                value={m.court_id || ''}
+                onChange={(e) => patch(m, 'court_id', e.target.value)}
+                className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface"
+              >
+                <option value="">Cancha…</option>
+                {courts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.venue} · {c.name}
+                  </option>
+                ))}
+              </select>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

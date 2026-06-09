@@ -181,6 +181,18 @@ class ImageUpdate(BaseModel):
     url: str
 
 
+class TournamentUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    points_config: Optional[Dict[str, Any]] = None
+    tiebreaker_rules: Optional[List[str]] = None
+    match_duration: Optional[int] = None
+    waiting_time: Optional[int] = None
+    logo_url: Optional[str] = None
+    banner_url: Optional[str] = None
+    status: Optional[str] = None
+
+
 # --------------------------------------------------------------------------- #
 #  Sponsors & Photos
 # --------------------------------------------------------------------------- #

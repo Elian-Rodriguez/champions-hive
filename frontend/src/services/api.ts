@@ -53,6 +53,8 @@ export const api = {
   getTournament: (id: string) => req(`/tournaments/${id}`),
   createTournament: (data: any) =>
     req('/tournaments', { method: 'POST', body: JSON.stringify(data) }),
+  updateTournament: (id: string, data: any) =>
+    req(`/tournaments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   updateStatus: (id: string, status: string) =>
     req(`/tournaments/${id}/status`, {
       method: 'PUT',
@@ -172,6 +174,11 @@ export const api = {
   listMatches: (query = '') => req(`/matches${query}`),
   scheduleMatch: (data: any) =>
     req('/matches/schedule', { method: 'POST', body: JSON.stringify(data) }),
+  updateMatchSchedule: (matchId: string, data: any) =>
+    req(`/matches/${matchId}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
   updateMatchStatus: (matchId: string, data: any) =>
     req(`/matches/${matchId}/status`, {
       method: 'PUT',
