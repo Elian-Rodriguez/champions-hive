@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
-import { Button, Card, EmptyState, Icon, Spinner } from './ui'
+import { exportStandingsPDF } from '../utils/pdf'
+import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 
@@ -11,20 +12,26 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
   const [activeStage, setActiveStage] = useState<any>(null)
   const [standings, setStandings] = useState<Record<string, any[]>>({})
   const [bracket, setBracket] = useState<any>(null)
+  const [stats, setStats] = useState<any>(null)
+  const [sponsors, setSponsors] = useState<any[]>([])
+  const [photos, setPhotos] = useState<any[]>([])
+  const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api
-      .getTournaments()
-      .then(setTournaments)
-      .catch(() => setTournaments([]))
-      .finally(() => setLoading(false))
+    api.getTournaments().then(setTournaments).catch(() => setTournaments([])).finally(() => setLoading(false))
   }, [])
 
   async function openTournament(t: any) {
     setSelected(t)
+    setStats(null)
+    setSponsors([])
+    setPhotos([])
     const st = await api.getStages(t.id)
     setStages(st)
+    api.tournamentStats(t.id).then(setStats).catch(() => {})
+    api.getSponsors(t.id).then(setSponsors).catch(() => {})
+    api.getPhotos(t.id).then(setPhotos).catch(() => {})
     if (st[0]) selectStage(st[0])
     else {
       setActiveStage(null)
@@ -40,6 +47,19 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
     if (s.type === 'knockout') setBracket(await api.bracketTree(s.id))
     else setStandings(await api.standingsByGroup(s.id))
   }
+
+  async function openProfile(row: any) {
+    if (!row.team_id) return
+    let players: any[] = []
+    try {
+      players = await api.getPlayers(row.team_id)
+    } catch {
+      /* sin plantilla */
+    }
+    setProfile({ name: row.team_name || 'Equipo', row, players })
+  }
+
+  const hasStandings = Object.keys(standings).length > 0
 
   return (
     <div className="min-h-screen bg-surface text-on-surface">
@@ -68,14 +88,12 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
                 <button key={t.id} onClick={() => openTournament(t)} className="text-left">
                   <Card className="h-full p-5 transition hover:border-secondary/60">
                     <div className="flex items-center gap-3">
-                      <span className="grid h-10 w-10 place-items-center rounded-lg bg-secondary-container/40 text-secondary">
-                        <Icon name="emoji_events" />
+                      <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg bg-secondary-container/40 text-secondary">
+                        {t.logo_url ? <img src={t.logo_url} alt="" className="h-full w-full object-cover" /> : <Icon name="emoji_events" />}
                       </span>
                       <div>
                         <h3 className="font-display font-semibold">{t.name}</h3>
-                        <p className="text-xs uppercase tracking-wide text-on-surface-variant">
-                          {t.sport_type} · {t.status}
-                        </p>
+                        <p className="text-xs uppercase tracking-wide text-on-surface-variant">{t.sport_type} · {t.status}</p>
                       </div>
                     </div>
                   </Card>
@@ -88,18 +106,55 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
             <button onClick={() => setSelected(null)} className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
               <Icon name="arrow_back" className="text-base" /> Todos los torneos
             </button>
+
+            {selected.banner_url && (
+              <img src={selected.banner_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />
+            )}
             <h2 className="font-display text-2xl font-bold">{selected.name}</h2>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            {/* Stats */}
+            {stats && (
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { k: 'teams', label: 'Equipos', icon: 'groups' },
+                  { k: 'stages', label: 'Fases', icon: 'account_tree' },
+                  { k: 'matches', label: 'Partidos', icon: 'sports_soccer' },
+                  { k: 'finished_matches', label: 'Jugados', icon: 'check_circle' },
+                ].map((s) => (
+                  <div key={s.k} className="rounded-xl bg-surface-container p-4">
+                    <Icon name={s.icon} className="text-secondary" />
+                    <p className="mt-1 font-display text-2xl font-bold">{stats[s.k]}</p>
+                    <p className="text-xs text-on-surface-variant">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Sponsors */}
+            {sponsors.length > 0 && (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <span className="text-xs uppercase text-on-surface-variant">Patrocinan:</span>
+                {sponsors.map((sp) => (
+                  <a key={sp.id} href={sp.website_url || '#'} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm text-on-surface hover:text-secondary">
+                    {sp.logo_url ? <img src={sp.logo_url} alt={sp.name} className="h-6" /> : <Icon name="handshake" className="text-base" />}
+                    {sp.name}
+                  </a>
+                ))}
+              </div>
+            )}
+
+            {/* Stage tabs */}
+            <div className="mt-5 flex flex-wrap items-center gap-2">
               {stages.map((s) => (
-                <Button
-                  key={s.id}
-                  variant={activeStage?.id === s.id ? 'primary' : 'ghost'}
-                  onClick={() => selectStage(s)}
-                >
+                <Button key={s.id} variant={activeStage?.id === s.id ? 'primary' : 'ghost'} onClick={() => selectStage(s)}>
                   {s.name}
                 </Button>
               ))}
+              {hasStandings && (
+                <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(selected.name, standings)}>
+                  <Icon name="picture_as_pdf" /> Exportar PDF
+                </Button>
+              )}
             </div>
 
             <div className="mt-6">
@@ -116,15 +171,64 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
                       <h3 className="mb-2 font-display font-semibold">
                         {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
                       </h3>
-                      <StandingsTable rows={rows} />
+                      <StandingsTable rows={rows} onRowClick={openProfile} />
                     </Card>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* Photos */}
+            {photos.length > 0 && (
+              <div className="mt-8">
+                <h3 className="mb-2 font-display font-semibold">Galería</h3>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {photos.map((p) => (
+                    <figure key={p.id}>
+                      <img src={p.url} alt={p.caption || ''} className="h-28 w-full rounded-lg object-cover" />
+                      {p.caption && <figcaption className="mt-1 text-xs text-on-surface-variant">{p.caption}</figcaption>}
+                    </figure>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
+
+      {/* Perfil de equipo */}
+      {profile && (
+        <div className="fixed inset-0 z-30 grid place-items-center bg-black/60 p-4" onClick={() => setProfile(null)}>
+          <Card className="w-full max-w-md p-6" >
+            <div className="mb-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+              <h3 className="font-display text-xl font-bold">{profile.name}</h3>
+              <button onClick={() => setProfile(null)}>
+                <Icon name="close" />
+              </button>
+            </div>
+            <div onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex gap-2">
+                <Badge className="bg-surface-container-highest text-on-surface-variant">Pts: {profile.row?.league_points ?? 0}</Badge>
+                <Badge className="bg-surface-container-highest text-on-surface-variant">PJ: {profile.row?.matches_played ?? 0}</Badge>
+                <Badge className="bg-surface-container-highest text-on-surface-variant">DIF: {profile.row?.diff ?? 0}</Badge>
+              </div>
+              <h4 className="mb-1 text-sm font-semibold text-on-surface-variant">Plantilla</h4>
+              {profile.players.length === 0 ? (
+                <p className="text-sm text-on-surface-variant">Sin jugadores registrados.</p>
+              ) : (
+                <ul className="space-y-1 text-sm">
+                  {profile.players.map((p: any) => (
+                    <li key={p.id} className="flex items-center gap-2">
+                      {p.number != null && <span className="w-6 text-on-surface-variant">#{p.number}</span>}
+                      {p.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

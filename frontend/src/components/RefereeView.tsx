@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
+import { exportMatchReportPDF } from '../utils/pdf'
 
 const CARDS = [
   { type: 'AMARILLA', label: 'Amarilla', color: 'bg-yellow-400 text-black' },
@@ -149,6 +150,14 @@ export default function RefereeView() {
             </Button>
             <Button onClick={() => persist('finished')}>
               <Icon name="flag" /> Finalizar
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                exportMatchReportPDF({ ...match, home_score: home, away_score: away }, events, playerName)
+              }
+            >
+              <Icon name="picture_as_pdf" /> Reporte
             </Button>
           </div>
 

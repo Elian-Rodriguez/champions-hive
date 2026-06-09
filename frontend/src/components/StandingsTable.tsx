@@ -1,4 +1,10 @@
-export default function StandingsTable({ rows }: { rows: any[] }) {
+export default function StandingsTable({
+  rows,
+  onRowClick,
+}: {
+  rows: any[]
+  onRowClick?: (row: any) => void
+}) {
   if (!rows || rows.length === 0) {
     return (
       <p className="px-2 py-3 text-sm text-on-surface-variant">
@@ -27,7 +33,10 @@ export default function StandingsTable({ rows }: { rows: any[] }) {
           {rows.map((r, i) => (
             <tr
               key={r.team_id || i}
-              className="border-t border-outline-variant/30 hover:bg-surface-container-high/50"
+              onClick={() => onRowClick && onRowClick(r)}
+              className={`border-t border-outline-variant/30 hover:bg-surface-container-high/50 ${
+                onRowClick ? 'cursor-pointer' : ''
+              }`}
             >
               <td className="px-2 py-2 text-on-surface-variant">
                 {r.position ?? i + 1}

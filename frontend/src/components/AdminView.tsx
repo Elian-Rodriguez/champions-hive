@@ -5,6 +5,7 @@ import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
+import { exportStandingsPDF } from '../utils/pdf'
 
 const SPORTS = [
   { value: 'football', label: 'Fútbol' },
@@ -499,6 +500,11 @@ function PosicionesTab({ tournament }: { tournament: any }) {
             {s.name}
           </Button>
         ))}
+        {Object.keys(standings).length > 0 && (
+          <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(tournament.name, standings)}>
+            <Icon name="picture_as_pdf" /> PDF
+          </Button>
+        )}
       </div>
       {!active ? (
         <EmptyState icon="leaderboard" title="Crea una fase para ver posiciones" />
