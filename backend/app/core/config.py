@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     SECRET_KEY: str = "dev-insecure-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 720  # 12 h: cubre una jornada completa de torneo
     DATABASE_URL: str = "sqlite:///./champion_hive_local.db"
 
     # Admin inicial sembrado al arrancar (si no existe). Cambia esto en .env.

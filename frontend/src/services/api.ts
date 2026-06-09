@@ -14,6 +14,14 @@ async function req(path: string, options: RequestInit = {}): Promise<any> {
       ...(options.headers || {}),
     },
   })
+  if (res.status === 401 && localStorage.getItem('token')) {
+    // Sesión expirada o token inválido: limpiar y volver al inicio de sesión.
+    localStorage.removeItem('token')
+    localStorage.removeItem('role')
+    localStorage.removeItem('username')
+    if (typeof window !== 'undefined') window.location.reload()
+    throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.')
+  }
   if (!res.ok) {
     let detail: any = res.statusText
     try {
