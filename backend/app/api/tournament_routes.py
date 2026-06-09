@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_staff
+from app.core.deps import require_staff, require_admin
 from app.db.database import get_db
 from app.db.models import (
     Court,
@@ -192,6 +192,26 @@ def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
 def get_tiebreaker_options():
     """Devuelve los criterios de desempate disponibles con sus etiquetas."""
     return [{"key": k, "label": v} for k, v in TIEBREAKER_LABELS.items()]
+
+
+@router.delete("/reset_all")
+def reset_all(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Elimina TODOS los torneos y sus datos (equipos, jugadores, partidos,
+    eventos, fases). Conserva sedes, canchas y usuarios. Solo admin."""
+    n = db.query(Tournament).count()
+    db.query(StageSlot).delete(synchronize_session=False)
+    db.query(MatchStat).delete(synchronize_session=False)
+    db.query(Match).delete(synchronize_session=False)
+    db.query(Stage).delete(synchronize_session=False)
+    db.query(TeamPlayer).delete(synchronize_session=False)
+    db.query(Player).delete(synchronize_session=False)
+    db.query(TournamentTeam).delete(synchronize_session=False)
+    db.query(Team).delete(synchronize_session=False)
+    db.query(Sponsor).delete(synchronize_session=False)
+    db.query(TournamentPhoto).delete(synchronize_session=False)
+    db.query(Tournament).delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"{n} torneo(s) eliminados", "deleted": n}
 
 
 @router.get("/dashboard")

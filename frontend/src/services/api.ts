@@ -73,6 +73,7 @@ export const api = {
     }),
   deleteTournament: (id: string) =>
     req(`/tournaments/${id}`, { method: 'DELETE' }),
+  resetAll: () => req('/tournaments/reset_all', { method: 'DELETE' }),
   getTiebreakerOptions: () => req('/tournaments/tiebreaker_options'),
   tournamentStats: (id: string) => req(`/tournaments/${id}/stats`),
   playerStats: (id: string) => req(`/tournaments/${id}/player_stats`),

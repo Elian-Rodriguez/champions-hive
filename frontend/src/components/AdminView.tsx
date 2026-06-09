@@ -46,6 +46,7 @@ export default function AdminView() {
   const [error, setError] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [newSport, setNewSport] = useState('football')
+  const [helpOpen, setHelpOpen] = useState(false)
 
   async function refresh() {
     setLoading(true)
@@ -73,9 +74,28 @@ export default function AdminView() {
     }
   }
 
+  async function resetAll() {
+    if (
+      !confirm(
+        '¿Eliminar TODOS los torneos creados? Se borrarán equipos, jugadores, fases y partidos. Esta acción NO se puede deshacer.',
+      )
+    )
+      return
+    if (!confirm('Confirmación final: el listado de torneos quedará vacío. ¿Continuar?')) return
+    try {
+      const r = await api.resetAll()
+      setSelected(null)
+      setSection('dashboard')
+      await refresh()
+      alert(r?.message || 'Torneos eliminados')
+    } catch (e: any) {
+      setError(e.message)
+    }
+  }
+
   return (
     <div className="space-y-5">
-      <nav className="flex gap-2">
+      <nav className="flex flex-wrap items-center gap-2">
         {SECTIONS.map((s) => (
           <button
             key={s.key}
@@ -89,6 +109,19 @@ export default function AdminView() {
             <Icon name={s.icon} className="text-base" /> {s.label}
           </button>
         ))}
+        <button
+          onClick={() => setHelpOpen(true)}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-secondary/40 bg-secondary/10 px-4 py-2 text-sm font-semibold text-secondary transition hover:bg-secondary/20"
+        >
+          <Icon name="help" className="text-base" /> Ayuda
+        </button>
+        <button
+          onClick={resetAll}
+          title="Eliminar todos los torneos"
+          className="flex items-center gap-1.5 rounded-lg border border-error/40 bg-error-container/30 px-4 py-2 text-sm font-semibold text-error transition hover:bg-error-container/50"
+        >
+          <Icon name="delete_sweep" className="text-base" /> Reset
+        </button>
       </nav>
 
       {section === 'dashboard' ? (
@@ -194,6 +227,112 @@ export default function AdminView() {
           </div>
         </div>
       )}
+
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+    </div>
+  )
+}
+
+const HELP_STEPS: { icon: string; title: string; body: string }[] = [
+  {
+    icon: 'add_circle',
+    title: '1. Crea el torneo',
+    body: 'En la pestaña Torneos escribe el nombre, elige el deporte (fútbol, microfútbol o baloncesto) y pulsa Crear.',
+  },
+  {
+    icon: 'tune',
+    title: '2. Configura puntos y desempates',
+    body: 'Abre el torneo → pestaña Config. Define puntos por victoria/empate/derrota, ordena los criterios de desempate y, si quieres, el máximo de partidos por día.',
+  },
+  {
+    icon: 'stadium',
+    title: '3. Registra sedes y canchas',
+    body: 'En la sección Sedes crea las sedes y sus canchas. Son necesarias para generar el fixture y el calendario.',
+  },
+  {
+    icon: 'groups',
+    title: '4. Inscribe equipos y jugadores',
+    body: 'Pestaña Equipos: añade cada equipo con su color de uniforme y despliégalo para cargar los jugadores con su dorsal.',
+  },
+  {
+    icon: 'shuffle',
+    title: '5. Arma los grupos',
+    body: 'Usa «Sortear en N grupos» para repartirlos al azar, o asigna el grupo de cada equipo a mano.',
+  },
+  {
+    icon: 'account_tree',
+    title: '6. Crea las fases y el fixture',
+    body: 'Pestaña Fases: crea fases de Grupos, Liga, Eliminación o Suizo y pulsa Fixture para generar los partidos de cada fase.',
+  },
+  {
+    icon: 'calendar_month',
+    title: '7. Programa el calendario',
+    body: 'Pestaña Calendario: elige fecha de inicio y recurrencia (días de la semana o cada N días), define máx/día y asigna canchas a cada partido.',
+  },
+  {
+    icon: 'sports',
+    title: '8. Crea los árbitros',
+    body: 'En Usuarios crea cuentas de árbitro. Ellos cargan los marcadores en vivo desde su panel, incluso desde el celular.',
+  },
+  {
+    icon: 'scoreboard',
+    title: '9. Carga los resultados',
+    body: 'A medida que se juega, marcadores, tarjetas y faltas actualizan solos las posiciones, las estadísticas y la tabla de juego limpio.',
+  },
+  {
+    icon: 'emoji_events',
+    title: '10. Avanza a eliminatorias',
+    body: 'Pestaña Avance: siembra el bracket desde las posiciones de los grupos (con 3er puesto si quieres). Los ganadores avanzan automáticamente.',
+  },
+]
+
+function HelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-outline-variant/40 bg-surface-container p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 font-display text-2xl font-bold">
+              <Icon name="help" className="text-secondary" /> Cómo configurar un torneo
+            </h2>
+            <p className="mt-1 text-sm text-on-surface-variant">
+              Sigue estos pasos en orden. Puedes reabrir esta guía cuando quieras.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+        <ol className="space-y-3">
+          {HELP_STEPS.map((s) => (
+            <li key={s.title} className="flex gap-3 rounded-xl bg-surface-container-high p-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary/15 text-secondary">
+                <Icon name={s.icon} />
+              </span>
+              <div>
+                <p className="font-display font-semibold">{s.title}</p>
+                <p className="text-sm text-on-surface-variant">{s.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-secondary/30 bg-secondary/10 p-3 text-sm">
+          <span className="flex items-center gap-2 text-on-surface-variant">
+            <Icon name="lightbulb" className="text-secondary" />
+            El marcador público no necesita inicio de sesión: comparte el enlace del torneo.
+          </span>
+          <Button onClick={onClose}>Entendido</Button>
+        </div>
+      </div>
     </div>
   )
 }
