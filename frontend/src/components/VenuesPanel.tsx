@@ -8,6 +8,8 @@ export default function VenuesPanel() {
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
   const [courtName, setCourtName] = useState<Record<string, string>>({})
+  const [editing, setEditing] = useState<string | null>(null)
+  const [edit, setEdit] = useState<{ name: string; location: string }>({ name: '', location: '' })
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
@@ -54,25 +56,74 @@ export default function VenuesPanel() {
             <Spinner />
           </div>
         ) : venues.length === 0 ? (
-          <EmptyState icon="stadium" title="Sin sedes" hint="Crea una sede y sus canchas para poder generar fixtures." />
+          <EmptyState icon="stadium" title="Sin sedes" hint="Crea una sede y sus canchas para generar fixtures." />
         ) : (
           venues.map((v) => (
             <Card key={v.id} className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-display font-semibold">{v.name}</h3>
-                  {v.location && <p className="text-sm text-on-surface-variant">{v.location}</p>}
+              {editing === v.id ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className="flex-1" />
+                  <Input value={edit.location} onChange={(e) => setEdit({ ...edit, location: e.target.value })} className="flex-1" placeholder="Ubicación" />
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      await api.updateVenue(v.id, edit)
+                      setEditing(null)
+                      load()
+                    }}
+                  >
+                    <Icon name="save" />
+                  </Button>
+                  <button onClick={() => setEditing(null)} className="text-on-surface-variant hover:text-on-surface">
+                    <Icon name="close" />
+                  </button>
                 </div>
-                <Badge className="bg-surface-container-highest text-on-surface-variant">
-                  {(v.courts || []).length} cancha(s)
-                </Badge>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-display font-semibold">{v.name}</h3>
+                    {v.location && <p className="text-sm text-on-surface-variant">{v.location}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-surface-container-highest text-on-surface-variant">{(v.courts || []).length} cancha(s)</Badge>
+                    <button
+                      onClick={() => {
+                        setEditing(v.id)
+                        setEdit({ name: v.name, location: v.location || '' })
+                      }}
+                      className="text-on-surface-variant hover:text-on-surface"
+                    >
+                      <Icon name="edit" className="text-lg" />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (confirm(`¿Eliminar la sede "${v.name}" y sus canchas?`)) {
+                          await api.deleteVenue(v.id)
+                          load()
+                        }
+                      }}
+                      className="text-error/80 hover:text-error"
+                    >
+                      <Icon name="delete" className="text-lg" />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {(v.courts || []).map((c: any) => (
-                  <Badge key={c.id} className="bg-secondary-container/30 text-secondary">
-                    <Icon name="sports_soccer" className="mr-1 text-sm" /> {c.name}
-                  </Badge>
+                  <span key={c.id} className="inline-flex items-center gap-1 rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-xs font-semibold text-secondary">
+                    <Icon name="sports_soccer" className="text-sm" /> {c.name}
+                    <button
+                      onClick={async () => {
+                        await api.deleteCourt(c.id)
+                        load()
+                      }}
+                      className="ml-1 text-secondary/70 hover:text-error"
+                    >
+                      <Icon name="close" className="text-sm" />
+                    </button>
+                  </span>
                 ))}
               </div>
 

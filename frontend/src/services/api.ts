@@ -93,6 +93,11 @@ export const api = {
     }),
   deleteSponsor: (tid: string, sponsorId: string) =>
     req(`/tournaments/${tid}/sponsors/${sponsorId}`, { method: 'DELETE' }),
+  updateSponsor: (tid: string, sponsorId: string, data: any) =>
+    req(`/tournaments/${tid}/sponsors/${sponsorId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
 
   // ---- Photos ----
   getPhotos: (tid: string) => req(`/tournaments/${tid}/photos`),
@@ -103,6 +108,11 @@ export const api = {
     }),
   deletePhoto: (tid: string, photoId: string) =>
     req(`/tournaments/${tid}/photos/${photoId}`, { method: 'DELETE' }),
+  updatePhoto: (tid: string, photoId: string, data: any) =>
+    req(`/tournaments/${tid}/photos/${photoId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
 
   // ---- Stages / fixtures / brackets ----
   getStages: (tid: string) => req(`/tournaments/${tid}/stages`),
@@ -115,6 +125,8 @@ export const api = {
     req(`/tournaments/stages/${sid}`, { method: 'DELETE' }),
   generateFixture: (sid: string) =>
     req(`/tournaments/stages/${sid}/generate_fixture`, { method: 'POST' }),
+  swissRound: (sid: string) =>
+    req(`/tournaments/stages/${sid}/swiss_round`, { method: 'POST' }),
   standingsByGroup: (sid: string) =>
     req(`/tournaments/stages/${sid}/standings_by_group`),
   stageMatches: (sid: string) => req(`/tournaments/stages/${sid}/matches`),
@@ -153,6 +165,8 @@ export const api = {
     }),
   removeTeam: (tid: string, teamId: string) =>
     req(`/tournaments/${tid}/teams/${teamId}`, { method: 'DELETE' }),
+  updateTeam: (teamId: string, data: any) =>
+    req(`/teams/${teamId}`, { method: 'PUT', body: JSON.stringify(data) }),
   getPlayers: (teamId: string) => req(`/teams/${teamId}/players`),
   addPlayer: (teamId: string, data: any) =>
     req(`/teams/${teamId}/players`, {
@@ -161,6 +175,11 @@ export const api = {
     }),
   removePlayer: (teamId: string, playerId: string) =>
     req(`/teams/${teamId}/players/${playerId}`, { method: 'DELETE' }),
+  updatePlayer: (teamId: string, playerId: string, data: any) =>
+    req(`/teams/${teamId}/players/${playerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
 
   // ---- Venues & courts ----
   getVenues: () => req('/venues'),
@@ -171,6 +190,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  updateVenue: (venueId: string, data: any) =>
+    req(`/venues/${venueId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteVenue: (venueId: string) =>
+    req(`/venues/${venueId}`, { method: 'DELETE' }),
+  updateCourt: (courtId: string, data: any) =>
+    req(`/venues/courts/${courtId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteCourt: (courtId: string) =>
+    req(`/venues/courts/${courtId}`, { method: 'DELETE' }),
 
   // ---- Matches & events ----
   listMatches: (query = '') => req(`/matches${query}`),

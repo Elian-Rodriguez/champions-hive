@@ -283,15 +283,31 @@ function PlayersBlock({ teamId }: { teamId: string }) {
               {p.number != null && <span className="mr-2 text-on-surface-variant">#{p.number}</span>}
               {p.name}
             </span>
-            <button
-              onClick={async () => {
-                await api.removePlayer(teamId, p.id)
-                load()
-              }}
-              className="text-error/80 hover:text-error"
-            >
-              <Icon name="close" className="text-base" />
-            </button>
+            <span className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const n = prompt('Nombre del jugador', p.name) || p.name
+                  const num = prompt('Dorsal', p.number != null ? String(p.number) : '')
+                  await api.updatePlayer(teamId, p.id, {
+                    name: n,
+                    number: num ? parseInt(num) : null,
+                  })
+                  load()
+                }}
+                className="text-on-surface-variant hover:text-on-surface"
+              >
+                <Icon name="edit" className="text-base" />
+              </button>
+              <button
+                onClick={async () => {
+                  await api.removePlayer(teamId, p.id)
+                  load()
+                }}
+                className="text-error/80 hover:text-error"
+              >
+                <Icon name="close" className="text-base" />
+              </button>
+            </span>
           </li>
         ))}
         {players.length === 0 && <li className="text-xs text-on-surface-variant">Sin jugadores.</li>}
@@ -369,6 +385,18 @@ function EquiposTab({ tournament }: { tournament: any }) {
                 </button>
                 <span className="flex items-center gap-2">
                   <Badge className="bg-surface-container-highest text-on-surface-variant">{t.group_name || 'Sin grupo'}</Badge>
+                  <button
+                    onClick={async () => {
+                      const n = prompt('Nuevo nombre del equipo', t.name)
+                      if (n && n.trim()) {
+                        await api.updateTeam(t.id, { name: n.trim() })
+                        load()
+                      }
+                    }}
+                    className="text-on-surface-variant hover:text-on-surface"
+                  >
+                    <Icon name="edit" className="text-lg" />
+                  </button>
                   <button
                     onClick={async () => {
                       await api.removeTeam(tournament.id, t.id)
@@ -456,6 +484,22 @@ function FasesTab({ tournament }: { tournament: any }) {
                 >
                   <Icon name="event" /> Fixture
                 </Button>
+                {s.type === 'swiss' && (
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      setMsg(null)
+                      try {
+                        const r = await api.swissRound(s.id)
+                        setMsg(r.message)
+                      } catch (e: any) {
+                        setMsg(e.message)
+                      }
+                    }}
+                  >
+                    <Icon name="casino" /> Ronda suiza
+                  </Button>
+                )}
                 <button
                   onClick={async () => {
                     await api.deleteStage(s.id)

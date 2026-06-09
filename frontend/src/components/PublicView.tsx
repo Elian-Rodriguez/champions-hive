@@ -65,6 +65,21 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
     setProfile({ name: row.team_name || 'Equipo', row, players })
   }
 
+  // Auto-refresco (tiempo real ligero) cada 15s del torneo abierto
+  useEffect(() => {
+    if (!selected) return
+    const id = setInterval(() => {
+      if (activeStage) {
+        if (activeStage.type === 'knockout')
+          api.bracketTree(activeStage.id).then(setBracket).catch(() => {})
+        else api.standingsByGroup(activeStage.id).then(setStandings).catch(() => {})
+      }
+      api.playerStats(selected.id).then(setPlayerStats).catch(() => {})
+      api.teamStats(selected.id).then(setTeamStats).catch(() => {})
+    }, 15000)
+    return () => clearInterval(id)
+  }, [selected, activeStage])
+
   const hasStandings = Object.keys(standings).length > 0
 
   return (

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_staff
 from app.db.database import get_db
-from app.db.models import Match, MatchStat, MatchStatus
+from app.db.models import Match, MatchStat, MatchStatus, SlotType, StageSlot
 from app.schemas import (
     EventCreate,
     EventResponse,
@@ -78,6 +78,37 @@ def update_match_status(
         match.home_score = payload_in.home_score
     if payload_in.away_score is not None:
         match.away_score = payload_in.away_score
+
+    # Auto-avance del bracket: al finalizar, resuelve los cruces "ganador de…"
+    # que dependen de este partido (cascada por ronda).
+    if (
+        match.status == MatchStatus.FINISHED
+        and match.home_score is not None
+        and match.away_score is not None
+    ):
+        winner = (
+            match.home_team_id
+            if match.home_score >= match.away_score
+            else match.away_team_id
+        )
+        slots = (
+            db.query(StageSlot)
+            .filter(
+                StageSlot.source_match_id == match.id,
+                StageSlot.slot_type == SlotType.WINNER_OF,
+                StageSlot.resolved == False,  # noqa: E712
+            )
+            .all()
+        )
+        for slot in slots:
+            target = db.query(Match).filter(Match.id == slot.match_id).first()
+            if target:
+                if slot.is_home:
+                    target.home_team_id = winner
+                else:
+                    target.away_team_id = winner
+                slot.resolved = True
+
     db.commit()
     db.refresh(match)
     return match

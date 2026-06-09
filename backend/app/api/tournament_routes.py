@@ -1,3 +1,4 @@
+import random
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
@@ -339,6 +340,99 @@ def generate_fixture(
     return {
         "total_teams": len(groups),
         "message": f"Se han generado {created} partidos exitosamente",
+    }
+
+
+@router.post("/stages/{stage_id}/swiss_round")
+def generate_swiss_round(
+    stage_id: UUID, db: Session = Depends(get_db), _=Depends(require_staff)
+):
+    """Genera la siguiente ronda de sistema suizo: ronda 1 al azar; las
+    siguientes emparejan por posición actual evitando repetir enfrentamientos."""
+    stage = db.query(Stage).filter(Stage.id == stage_id).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    tournament = (
+        db.query(Tournament).filter(Tournament.id == stage.tournament_id).first()
+    )
+    courts = db.query(Court).all()
+    if not courts:
+        raise HTTPException(status_code=400, detail="No hay canchas registradas")
+
+    team_ids = list(_team_groups(db, stage.tournament_id).keys())
+    if len(team_ids) < 2:
+        raise HTTPException(status_code=400, detail="Se necesitan al menos 2 equipos")
+
+    existing = db.query(Match).filter(Match.stage_id == stage_id).all()
+    if any(_status_str(m) == "live" for m in existing):
+        raise HTTPException(
+            status_code=400, detail="Hay partidos en vivo; finalízalos antes de emparejar"
+        )
+    played = {
+        frozenset({str(m.home_team_id), str(m.away_team_id)})
+        for m in existing
+        if m.home_team_id and m.away_team_id
+    }
+
+    if not existing:
+        order = team_ids[:]
+        random.shuffle(order)
+    else:
+        standings = calculate_standings(
+            _matches_to_dicts(db, existing),
+            _sport_type_str(tournament),
+            tournament.tiebreaker_rules or None,
+        )
+        order = [r["team_id"] for r in standings]
+        for t in team_ids:
+            if t not in order:
+                order.append(t)
+
+    used: set = set()
+    pairs = []
+    for i, t in enumerate(order):
+        if t in used:
+            continue
+        opp = None
+        for j in range(i + 1, len(order)):
+            o = order[j]
+            if o in used or frozenset({t, o}) in played:
+                continue
+            opp = o
+            break
+        if opp is None:  # todos ya jugados: permite repetir
+            for j in range(i + 1, len(order)):
+                if order[j] not in used:
+                    opp = order[j]
+                    break
+        if opp:
+            used.add(t)
+            used.add(opp)
+            pairs.append((t, opp))
+
+    rnd = max([m.bracket_round or 0 for m in existing], default=0) + 1
+    ci, created = 0, 0
+    for home, away in pairs:
+        court = courts[ci % len(courts)]
+        ci += 1
+        db.add(
+            Match(
+                stage_id=stage_id,
+                home_team_id=home,
+                away_team_id=away,
+                court_id=court.id,
+                status=MatchStatus.SCHEDULED,
+                home_score=0,
+                away_score=0,
+                bracket_round=rnd,
+            )
+        )
+        created += 1
+    db.commit()
+    return {
+        "message": f"Ronda suiza {rnd}: {created} partido(s) creados",
+        "round": rnd,
+        "created": created,
     }
 
 

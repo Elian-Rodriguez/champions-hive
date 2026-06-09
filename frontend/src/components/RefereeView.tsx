@@ -35,6 +35,16 @@ export default function RefereeView() {
     api.getTournaments().then(setTournaments).finally(() => setLoading(false))
   }, [])
 
+  // Auto-refresco cada 15s: eventos del partido abierto, o la lista de partidos.
+  // No toca el marcador local en edición.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (match) api.matchEvents(match.id).then(setEvents).catch(() => {})
+      else if (stage) api.stageMatches(stage.id).then(setMatches).catch(() => {})
+    }, 15000)
+    return () => clearInterval(id)
+  }, [match, stage])
+
   async function pickTournament(t: any) {
     setTournament(t)
     setStage(null)
