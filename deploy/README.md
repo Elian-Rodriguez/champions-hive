@@ -42,6 +42,8 @@ Solo se publica el **puerto 80**. El frontend llama al backend en el **mismo ori
 | `SECRET_KEY` | backend | *(clave de dev insegura)* | Firma de los JWT. **Obligatoria en producción.** |
 | `ALGORITHM` | backend | `HS256` | Algoritmo de firma JWT. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | backend | `60` | Expiración del token. |
+| `ADMIN_EMAIL` | backend | `admin@championhive.com` | Admin creado al arrancar (si no existe). |
+| `ADMIN_PASSWORD` | backend | `admin1234` | Clave del admin inicial. **Cámbiala.** |
 | `DATABASE_URL` | backend | `sqlite:////data/champion_hive.db` | Conexión a BD. PostgreSQL: `postgresql+psycopg2://user:pass@db:5432/champion_hive`. |
 | `VITE_API_URL` | frontend (build) | `/api/v1` | Base del API horneada en el frontend. |
 | `APP_PORT` | compose | `8080` | Puerto del host → 80 del contenedor. |

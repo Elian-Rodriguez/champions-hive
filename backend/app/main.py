@@ -11,13 +11,39 @@ from app.api import (
     tournament_routes,
     venue_routes,
 )
+from app.core.config import settings
 from app.core.limiter import limiter
+from app.core.security import get_password_hash
 from app.db import models  # noqa: F401  (registra los modelos en Base.metadata)
-from app.db.database import Base, engine, run_sqlite_migrations
+from app.db.database import Base, SessionLocal, engine, run_sqlite_migrations
+from app.db.models import User
 
 # Crea las tablas y aplica las migraciones ligeras de SQLite al arrancar.
 Base.metadata.create_all(bind=engine)
 run_sqlite_migrations()
+
+
+def seed_admin():
+    """Crea el usuario administrador definido en el .env si aún no existe."""
+    if not settings.ADMIN_EMAIL or not settings.ADMIN_PASSWORD:
+        return
+    db = SessionLocal()
+    try:
+        if not db.query(User).filter(User.email == settings.ADMIN_EMAIL).first():
+            db.add(
+                User(
+                    email=settings.ADMIN_EMAIL,
+                    hashed_password=get_password_hash(settings.ADMIN_PASSWORD),
+                    role="admin",
+                    is_active=True,
+                )
+            )
+            db.commit()
+    finally:
+        db.close()
+
+
+seed_admin()
 
 app = FastAPI(
     title="Champion Hive API",

@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     DATABASE_URL: str = "sqlite:///./champion_hive_local.db"
 
+    # Admin inicial sembrado al arrancar (si no existe). Cambia esto en .env.
+    ADMIN_EMAIL: str = "admin@championhive.com"
+    ADMIN_PASSWORD: str = "admin1234"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

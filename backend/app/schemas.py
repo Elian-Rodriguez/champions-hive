@@ -154,6 +154,7 @@ class TournamentBase(BaseModel):
     waiting_time: Optional[int] = None
     logo_url: Optional[str] = None
     banner_url: Optional[str] = None
+    max_matches_per_day: Optional[int] = None
 
 
 class TournamentCreate(TournamentBase):
@@ -190,6 +191,7 @@ class TournamentUpdate(BaseModel):
     waiting_time: Optional[int] = None
     logo_url: Optional[str] = None
     banner_url: Optional[str] = None
+    max_matches_per_day: Optional[int] = None
     status: Optional[str] = None
 
 

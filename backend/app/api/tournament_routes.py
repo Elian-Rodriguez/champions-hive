@@ -876,25 +876,32 @@ def schedule_tournament_calendar(
     duration = payload.get("match_duration") or tournament.match_duration or 60
     waiting = payload.get("waiting_time") or tournament.waiting_time or 0
     step = duration + waiting
+    max_per_day = payload.get("max_matches_per_day") or tournament.max_matches_per_day or 0
 
     stage_ids = [s.id for s in tournament.stages]
     matches = (
-        db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
+        db.query(Match)
+        .filter(Match.stage_id.in_(stage_ids))
+        .order_by(Match.bracket_round, Match.id)
+        .all()
+        if stage_ids
+        else []
     )
-    per_court: Dict[str, List[Match]] = defaultdict(list)
-    for m in matches:
-        per_court[str(m.court_id)].append(m)
 
+    # Reparte los partidos en días respetando el máximo por día (si se define).
     count = 0
-    for _court, ms in per_court.items():
-        cur = start_dt
-        for m in ms:
-            m.scheduled_start = cur
-            m.scheduled_end = cur + timedelta(minutes=duration)
-            cur = cur + timedelta(minutes=step)
-            count += 1
+    for i, m in enumerate(matches):
+        if max_per_day and max_per_day > 0:
+            day, slot = divmod(i, max_per_day)
+        else:
+            day, slot = 0, i
+        when = start_dt + timedelta(days=day, minutes=slot * step)
+        m.scheduled_start = when
+        m.scheduled_end = when + timedelta(minutes=duration)
+        count += 1
     db.commit()
-    return {"message": f"{count} partido(s) programados", "scheduled": count}
+    days = (max(1, -(-count // max_per_day)) if max_per_day else 1) if count else 0
+    return {"message": f"{count} partido(s) programados en {days} día(s)", "scheduled": count}
 
 
 @router.get("/{tournament_id}/stats")

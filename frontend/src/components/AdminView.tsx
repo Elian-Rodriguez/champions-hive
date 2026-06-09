@@ -743,6 +743,7 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
   const [category, setCategory] = useState(tournament.category || 'masculino')
   const [duration, setDuration] = useState(tournament.match_duration ?? 60)
   const [waiting, setWaiting] = useState(tournament.waiting_time ?? 10)
+  const [maxPerDay, setMaxPerDay] = useState(tournament.max_matches_per_day ?? '')
   const [rules, setRules] = useState<string[]>(
     tournament.tiebreaker_rules || ['PUNTOS', 'DIF_GOLES', 'GOLES_FAVOR', 'PARTIDO_DIRECTO'],
   )
@@ -768,6 +769,7 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
         category,
         match_duration: Number(duration),
         waiting_time: Number(waiting),
+        max_matches_per_day: maxPerDay ? Number(maxPerDay) : null,
         points_config: { win: Number(win), draw: Number(draw), loss: Number(loss) },
         tiebreaker_rules: rules,
       })
@@ -806,6 +808,16 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
         <div>
           <label className="mb-1 block text-xs text-on-surface-variant">Espera entre partidos (min)</label>
           <Input type="number" value={waiting} onChange={(e) => setWaiting(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Máx. partidos por día (opcional)</label>
+          <Input
+            type="number"
+            min={0}
+            value={maxPerDay}
+            onChange={(e) => setMaxPerDay(e.target.value)}
+            placeholder="sin límite"
+          />
         </div>
       </div>
 

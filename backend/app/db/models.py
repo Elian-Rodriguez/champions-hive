@@ -96,6 +96,7 @@ class Tournament(Base):
     tiebreaker_rules = Column(JSON)
     match_duration = Column(Integer)
     waiting_time = Column(Integer)
+    max_matches_per_day = Column(Integer)
 
     stages = relationship(
         "Stage", back_populates="tournament", cascade="all, delete-orphan"
