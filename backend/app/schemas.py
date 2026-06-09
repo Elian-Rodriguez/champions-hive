@@ -63,6 +63,7 @@ class TeamBase(BaseModel):
     name: str
     logo_url: Optional[str] = None
     photo_url: Optional[str] = None
+    color: Optional[str] = None
 
 
 class TeamCreate(TeamBase):

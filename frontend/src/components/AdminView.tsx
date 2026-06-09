@@ -320,6 +320,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
   const [teams, setTeams] = useState<any[]>([])
   const [name, setName] = useState('')
   const [group, setGroup] = useState('')
+  const [color, setColor] = useState('#39d353')
   const [numGroups, setNumGroups] = useState(2)
   const [expanded, setExpanded] = useState<string | null>(null)
   async function load() {
@@ -334,7 +335,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
         onSubmit={async (e) => {
           e.preventDefault()
           if (!name.trim()) return
-          await api.addTeam(tournament.id, { name, group_name: group || null })
+          await api.addTeam(tournament.id, { name, group_name: group || null, color })
           setName('')
           setGroup('')
           load()
@@ -348,6 +349,16 @@ function EquiposTab({ tournament }: { tournament: any }) {
         <div className="w-24">
           <label className="mb-1 block text-xs text-on-surface-variant">Grupo</label>
           <Input value={group} onChange={(e) => setGroup(e.target.value)} placeholder="A" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Color</label>
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            className="h-9 w-12 cursor-pointer rounded border border-outline-variant bg-surface-container-low"
+            title="Color del uniforme"
+          />
         </div>
         <Button type="submit">
           <Icon name="add" /> Añadir
@@ -381,10 +392,24 @@ function EquiposTab({ tournament }: { tournament: any }) {
                   className="flex items-center gap-2 font-medium"
                 >
                   <Icon name={expanded === t.id ? 'expand_more' : 'chevron_right'} className="text-base text-on-surface-variant" />
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full border border-outline-variant"
+                    style={{ background: t.color || '#64748b' }}
+                  />
                   {t.name}
                 </button>
                 <span className="flex items-center gap-2">
                   <Badge className="bg-surface-container-highest text-on-surface-variant">{t.group_name || 'Sin grupo'}</Badge>
+                  <input
+                    type="color"
+                    value={t.color || '#39d353'}
+                    onChange={async (e) => {
+                      await api.updateTeam(t.id, { color: e.target.value })
+                      load()
+                    }}
+                    className="h-6 w-6 shrink-0 cursor-pointer rounded border border-outline-variant bg-transparent"
+                    title="Color del uniforme"
+                  />
                   <button
                     onClick={async () => {
                       const n = prompt('Nuevo nombre del equipo', t.name)

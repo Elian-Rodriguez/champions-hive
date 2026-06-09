@@ -29,6 +29,7 @@ export default function RefereeView() {
   const [selAway, setSelAway] = useState('')
   const [events, setEvents] = useState<any[]>([])
   const [minute, setMinute] = useState('')
+  const [teamColors, setTeamColors] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -51,6 +52,10 @@ export default function RefereeView() {
     setStage(null)
     setMatch(null)
     setStages(await api.getStages(t.id))
+    const teams = await api.getTeams(t.id).catch(() => [])
+    setTeamColors(
+      Object.fromEntries(teams.map((x: any) => [String(x.id), x.color])),
+    )
   }
   async function pickStage(s: any) {
     setStage(s)
@@ -133,7 +138,7 @@ export default function RefereeView() {
         <button onClick={() => setMatch(null)} className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
           <Icon name="arrow_back" className="text-base" /> Volver a partidos
         </button>
-        <Card className="p-6">
+        <Card className="p-4 sm:p-6">
           <div className="mb-4 flex items-center justify-center gap-3">
             <Badge className="bg-surface-container-highest text-on-surface-variant">
               {STATUS_LABEL[match.status] || match.status}
@@ -155,6 +160,7 @@ export default function RefereeView() {
             <SideColumn
               name={match.home_team_name}
               score={home}
+              color={teamColors[String(match.home_team_id)]}
               players={homePlayers}
               selected={selHome}
               onSelect={setSelHome}
@@ -167,6 +173,7 @@ export default function RefereeView() {
             <SideColumn
               name={match.away_team_name}
               score={away}
+              color={teamColors[String(match.away_team_id)]}
               players={awayPlayers}
               selected={selAway}
               onSelect={setSelAway}
@@ -287,11 +294,23 @@ export default function RefereeView() {
                   <button onClick={() => openMatch(m)} className="w-full text-left">
                     <Card className="p-4 transition hover:border-secondary/60">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="flex-1 truncate font-medium">{m.home_team_name || 'Por definir'}</span>
+                        <span className="flex flex-1 items-center gap-1.5 truncate font-medium">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ background: teamColors[String(m.home_team_id)] || '#64748b' }}
+                          />
+                          {m.home_team_name || 'Por definir'}
+                        </span>
                         <span className="font-display font-bold tabular-nums">
                           {m.home_score ?? 0} - {m.away_score ?? 0}
                         </span>
-                        <span className="flex-1 truncate text-right font-medium">{m.away_team_name || 'Por definir'}</span>
+                        <span className="flex flex-1 items-center justify-end gap-1.5 truncate text-right font-medium">
+                          {m.away_team_name || 'Por definir'}
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ background: teamColors[String(m.away_team_id)] || '#64748b' }}
+                          />
+                        </span>
                       </div>
                       <div className="mt-2 text-center">
                         <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
@@ -311,6 +330,7 @@ export default function RefereeView() {
 function SideColumn({
   name,
   score,
+  color,
   players,
   selected,
   onSelect,
@@ -321,6 +341,7 @@ function SideColumn({
 }: {
   name: string | null
   score: number
+  color?: string
   players: any[]
   selected: string
   onSelect: (id: string) => void
@@ -331,6 +352,10 @@ function SideColumn({
 }) {
   return (
     <div>
+      <div
+        className="mx-auto mb-1.5 h-1.5 w-12 rounded-full"
+        style={{ background: color || '#64748b' }}
+      />
       <p className="mb-2 truncate font-display font-semibold">{name || 'Por definir'}</p>
       <div className="font-display text-5xl font-extrabold tabular-nums text-secondary">{score}</div>
       <div className="mt-2 flex justify-center gap-2">

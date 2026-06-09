@@ -135,6 +135,7 @@ class Team(Base):
     name = Column(String, nullable=False)
     logo_url = Column(String)
     photo_url = Column(String)
+    color = Column(String)  # color del uniforme (hex), p.ej. "#e11d48"
 
 
 class Player(Base):

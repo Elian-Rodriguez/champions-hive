@@ -27,6 +27,7 @@ def _team_payload(team: Team, link: TournamentTeam | None) -> dict:
         "name": team.name,
         "logo_url": team.logo_url,
         "photo_url": team.photo_url,
+        "color": team.color,
         "group_name": link.group_name if link else None,
         "status": link.status if link else None,
     }
@@ -48,7 +49,12 @@ def register_team_in_tournament(
 ):
     if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
-    obj = Team(name=team.name, logo_url=team.logo_url, photo_url=team.photo_url)
+    obj = Team(
+        name=team.name,
+        logo_url=team.logo_url,
+        photo_url=team.photo_url,
+        color=team.color,
+    )
     db.add(obj)
     db.flush()
     link = TournamentTeam(
