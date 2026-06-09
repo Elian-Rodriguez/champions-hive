@@ -74,6 +74,31 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ url }),
     }),
+  scheduleCalendar: (id: string, data: any) =>
+    req(`/tournaments/${id}/schedule`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+
+  // ---- Sponsors ----
+  getSponsors: (tid: string) => req(`/tournaments/${tid}/sponsors`),
+  createSponsor: (tid: string, data: any) =>
+    req(`/tournaments/${tid}/sponsors`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deleteSponsor: (tid: string, sponsorId: string) =>
+    req(`/tournaments/${tid}/sponsors/${sponsorId}`, { method: 'DELETE' }),
+
+  // ---- Photos ----
+  getPhotos: (tid: string) => req(`/tournaments/${tid}/photos`),
+  addPhoto: (tid: string, data: any) =>
+    req(`/tournaments/${tid}/photos`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deletePhoto: (tid: string, photoId: string) =>
+    req(`/tournaments/${tid}/photos/${photoId}`, { method: 'DELETE' }),
 
   // ---- Stages / fixtures / brackets ----
   getStages: (tid: string) => req(`/tournaments/${tid}/stages`),
