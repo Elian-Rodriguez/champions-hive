@@ -106,48 +106,72 @@ export default function LandingView({
           </div>
         </motion.div>
 
-        {/* Preview del producto */}
+        {/* Emblema de la colmena (estilo arena Stitch) */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.94, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.6, delay: 0.15 }}
-          className="relative"
+          className="relative mx-auto w-full max-w-md"
         >
-          <div className="pointer-events-none absolute -inset-6 rounded-[2.5rem] bg-secondary/10 blur-3xl" />
-          <div className="card-accent relative overflow-hidden rounded-3xl border border-outline-variant/40 bg-gradient-to-br from-surface-container-high to-surface-container p-5 shadow-2xl shadow-black/40">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm font-semibold">
-                <Icon name="emoji_events" className="text-secondary" /> Final · Champions
-              </span>
+          <div className="pointer-events-none absolute inset-0 -z-10 rounded-full bg-secondary/15 blur-[90px]" />
+          <div className="relative aspect-square">
+            {/* Anillos de arena */}
+            <div className="absolute inset-0 rounded-full border border-secondary/20" />
+            <div className="absolute inset-[7%] rounded-full border border-outline-variant/30" />
+            <div className="absolute inset-[16%] rounded-full border border-secondary/10" />
+            {/* Barrido tipo radar */}
+            <motion.div
+              aria-hidden
+              className="absolute inset-[7%] rounded-full"
+              style={{
+                background:
+                  'conic-gradient(from 0deg, transparent 0deg, rgba(74,225,118,0.18) 40deg, transparent 110deg)',
+              }}
+              animate={{ rotate: 360 }}
+              transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+            />
+            {/* Emblema */}
+            <div className="absolute inset-[19%] grid place-items-center">
+              <img
+                src="/icon-512.png"
+                alt="Champion Hive"
+                className="h-full w-full object-contain drop-shadow-[0_0_45px_rgba(74,225,118,0.35)]"
+              />
+            </div>
+
+            {/* Chips flotantes */}
+            <motion.div
+              className="absolute left-0 top-8"
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+            >
               <LiveChip />
-            </div>
-            <div className="space-y-2">
-              {[
-                { a: 'Pumas', b: 'Águilas', s1: 4, s2: 0 },
-                { a: 'Toros', b: 'Tiburones', s1: 4, s2: 1 },
-              ].map((m, i) => (
-                <div key={i} className="rounded-xl bg-surface-container-low p-3">
-                  <div className="flex items-center justify-between text-sm font-bold text-secondary">
-                    <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-secondary" /> {m.a}</span>
-                    <span className="tabular-nums">{m.s1}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-sm text-on-surface-variant">
-                    <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tertiary" /> {m.b}</span>
-                    <span className="tabular-nums">{m.s2}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 flex items-end gap-1.5">
-              {[40, 65, 30, 80, 55, 70, 45].map((h, i) => (
-                <div key={i} className="flex-1 rounded-t bg-secondary/80" style={{ height: `${h}px` }} />
-              ))}
-            </div>
-            <p className="mt-2 text-center text-xs uppercase tracking-wide text-on-surface-variant">Goles por fecha</p>
-          </div>
-          <div className="absolute -bottom-4 -left-4 hidden rounded-2xl border border-outline-variant/40 bg-surface-container px-4 py-3 shadow-xl sm:block">
-            <p className="font-display text-2xl font-bold text-secondary">+128</p>
-            <p className="text-xs text-on-surface-variant">goles esta jornada</p>
+            </motion.div>
+
+            <motion.div
+              className="absolute -right-2 top-1/3 rounded-2xl border border-outline-variant/40 bg-surface-container/95 p-3 shadow-xl backdrop-blur"
+              animate={{ y: [0, 10, 0] }}
+              transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
+            >
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-on-surface-variant">Final</p>
+              <div className="flex items-center justify-between gap-5 text-sm font-bold text-secondary">
+                <span>Pumas</span>
+                <span className="tabular-nums">4</span>
+              </div>
+              <div className="flex items-center justify-between gap-5 text-sm text-on-surface-variant">
+                <span>Águilas</span>
+                <span className="tabular-nums">0</span>
+              </div>
+            </motion.div>
+
+            <motion.div
+              className="absolute -bottom-1 left-6 flex items-center gap-2 rounded-full border border-secondary/30 bg-surface-container/95 px-3 py-1.5 shadow-xl backdrop-blur"
+              animate={{ y: [0, -8, 0] }}
+              transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
+            >
+              <Icon name="emoji_events" className="text-base text-amber-300" />
+              <span className="text-xs font-bold text-secondary">Campeón</span>
+            </motion.div>
           </div>
         </motion.div>
       </section>
