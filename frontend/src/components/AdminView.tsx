@@ -1206,6 +1206,11 @@ function CalendarioTab({ tournament }: { tournament: any }) {
               <span className="min-w-[160px] flex-1 truncate">
                 {m.home_team_name || 'Por definir'} <span className="text-on-surface-variant">vs</span> {m.away_team_name || 'Por definir'}
               </span>
+              {m.group_name && (
+                <span className="rounded bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary">
+                  Grupo {m.group_name}
+                </span>
+              )}
               <input
                 type="datetime-local"
                 value={m.scheduled_start ? String(m.scheduled_start).slice(0, 16) : ''}

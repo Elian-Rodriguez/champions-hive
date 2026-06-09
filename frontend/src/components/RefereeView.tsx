@@ -231,10 +231,15 @@ export default function RefereeView() {
             <Button
               variant="ghost"
               onClick={() =>
-                exportMatchReportPDF({ ...match, home_score: home, away_score: away }, events, playerName)
+                exportMatchReportPDF(
+                  { ...match, home_score: home, away_score: away },
+                  events,
+                  playerName,
+                  { tournamentName: tournament?.name, homePlayers, awayPlayers },
+                )
               }
             >
-              <Icon name="picture_as_pdf" /> Reporte
+              <Icon name="picture_as_pdf" /> Acta
             </Button>
           </div>
 

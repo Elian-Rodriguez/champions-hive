@@ -320,10 +320,13 @@ export default function PublicView({
                                 </span>
                                 <span className="flex-1 truncate font-medium">{m.away_team_name || 'Por definir'}</span>
                                 <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
-                                {(m.stage_name || m.court_name || m.venue_name) && (
+                                {(m.stage_name || m.group_name || m.court_name || m.venue_name) && (
                                   <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-t border-outline-variant/20 pt-1.5 text-xs text-on-surface-variant">
                                     {m.stage_name && (
                                       <span className="flex items-center gap-1"><Icon name="account_tree" className="text-sm" /> {m.stage_name}</span>
+                                    )}
+                                    {m.group_name && (
+                                      <span className="flex items-center gap-1"><Icon name="workspaces" className="text-sm" /> Grupo {m.group_name}</span>
                                     )}
                                     {(m.court_name || m.venue_name) && (
                                       <span className="flex items-center gap-1">

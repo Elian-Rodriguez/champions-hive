@@ -390,6 +390,7 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
         for cid, co in courts.items()
     }
     stage_type = stage.type.value if hasattr(stage.type, "value") else stage.type
+    groups = _team_groups(db, stage.tournament_id) if stage_type == "group" else {}
     return [
         {
             "id": str(m.id),
@@ -405,6 +406,11 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
             "venue_name": court_info.get(str(m.court_id), {}).get("venue"),
             "stage_name": stage.name,
             "stage_type": stage_type,
+            "group_name": (
+                groups.get(str(m.home_team_id))
+                if groups.get(str(m.home_team_id)) not in (None, "Sin Grupo")
+                else None
+            ),
             "bracket_round": m.bracket_round,
             "scheduled_start": m.scheduled_start,
         }
