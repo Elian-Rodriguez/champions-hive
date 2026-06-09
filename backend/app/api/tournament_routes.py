@@ -39,7 +39,11 @@ from app.schemas import (
     TournamentResponse,
     TournamentUpdate,
 )
-from app.services.strategy import TIEBREAKER_LABELS, calculate_standings
+from app.services.strategy import (
+    TIEBREAKER_LABELS,
+    StrategyFactory,
+    calculate_standings,
+)
 
 router = APIRouter()
 
@@ -1093,8 +1097,35 @@ def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
                 red += 1
 
     series = [{"date": d, "goals": g} for d, g in sorted(goals_by_date.items())]
+
+    # Evolución de puntos por equipo (curva): puntos acumulados por jornada.
+    strat = StrategyFactory.get_strategy(_sport_type_str(tournament))
+    pcfg = tournament.points_config or {}
+    ordered = sorted(
+        finished, key=lambda m: (m.scheduled_start or datetime(1970, 1, 1), str(m.id))
+    )
+    cum: Dict[str, int] = defaultdict(int)
+    prog: Dict[str, list] = defaultdict(list)
+    for m in ordered:
+        if not m.home_team_id or not m.away_team_id:
+            continue
+        hp, ap = strat.calculate_points(m.home_score or 0, m.away_score or 0, pcfg)
+        h, a = str(m.home_team_id), str(m.away_team_id)
+        cum[h] += hp
+        cum[a] += ap
+        prog[h].append(cum[h])
+        prog[a].append(cum[a])
+    pp_names = _name_map(
+        db, [m.home_team_id for m in ordered] + [m.away_team_id for m in ordered]
+    )
+    top = sorted(cum.keys(), key=lambda t: cum[t], reverse=True)[:6]
+    points_progression = [
+        {"team_name": pp_names.get(t, t[:6]), "points": prog[t]} for t in top
+    ]
+
     return {
         "goals_by_date": series,
+        "points_progression": points_progression,
         "totals": {
             "goals": total_goals,
             "matches": len(finished),

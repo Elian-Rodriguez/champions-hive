@@ -62,12 +62,17 @@ export function exportMatchReportPDF(
 
   autoTable(doc, {
     startY: 44,
-    head: [['Evento', 'Equipo', 'Jugador']],
-    body: (events || []).map((e) => [
-      e.event_type,
-      e.event_data?.team === 'home' ? home : e.event_data?.team === 'away' ? away : '',
-      playerName(e.player_id) || '—',
-    ]),
+    head: [['Min', 'Evento', 'Equipo', 'Jugador']],
+    body: (events || []).map((e) => {
+      const team =
+        e.event_data?.team === 'home' ? home : e.event_data?.team === 'away' ? away : ''
+      const detail =
+        e.event_type === 'CAMBIO'
+          ? `Entra ${playerName(e.player_id) || '?'} / Sale ${playerName(e.event_data?.player_out) || '?'}`
+          : playerName(e.player_id) || '—'
+      const min = e.event_data?.minute
+      return [min != null ? `${min}'` : '', e.event_type, team, detail]
+    }),
     theme: 'striped',
     headStyles: { fillColor: GREEN, textColor: 20 },
     styles: { fontSize: 9 },

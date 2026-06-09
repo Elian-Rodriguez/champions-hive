@@ -28,6 +28,7 @@ export default function RefereeView() {
   const [selHome, setSelHome] = useState('')
   const [selAway, setSelAway] = useState('')
   const [events, setEvents] = useState<any[]>([])
+  const [minute, setMinute] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -61,6 +62,7 @@ export default function RefereeView() {
     setHome(m.home_score || 0)
     setAway(m.away_score || 0)
     setMsg(null)
+    setMinute('')
     setSelHome('')
     setSelAway('')
     setHomePlayers(m.home_team_id ? await api.getPlayers(m.home_team_id) : [])
@@ -83,7 +85,7 @@ export default function RefereeView() {
       match_id: match.id,
       player_id: player || null,
       event_type: 'GOL',
-      event_data: { team: side, kind: 'goal' },
+      event_data: { team: side, kind: 'goal', minute: minute ? Number(minute) : null },
     })
     await refreshEvents()
   }
@@ -93,7 +95,21 @@ export default function RefereeView() {
       match_id: match.id,
       player_id: player || null,
       event_type: type,
-      event_data: { team: side, kind: 'card' },
+      event_data: { team: side, kind: 'card', minute: minute ? Number(minute) : null },
+    })
+    await refreshEvents()
+  }
+  async function sub(side: 'home' | 'away', outId: string, inId: string) {
+    await api.recordEvent({
+      match_id: match.id,
+      player_id: inId || null,
+      event_type: 'CAMBIO',
+      event_data: {
+        team: side,
+        kind: 'sub',
+        player_out: outId || null,
+        minute: minute ? Number(minute) : null,
+      },
     })
     await refreshEvents()
   }
@@ -118,10 +134,22 @@ export default function RefereeView() {
           <Icon name="arrow_back" className="text-base" /> Volver a partidos
         </button>
         <Card className="p-6">
-          <div className="mb-4 flex items-center justify-center">
+          <div className="mb-4 flex items-center justify-center gap-3">
             <Badge className="bg-surface-container-highest text-on-surface-variant">
               {STATUS_LABEL[match.status] || match.status}
             </Badge>
+            <span className="flex items-center gap-1 text-sm text-on-surface-variant">
+              <Icon name="timer" className="text-base" />
+              <input
+                type="number"
+                min={0}
+                value={minute}
+                onChange={(e) => setMinute(e.target.value)}
+                placeholder="min"
+                className="w-16 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-center text-on-surface"
+              />
+              '
+            </span>
           </div>
           <div className="grid grid-cols-3 items-start gap-2 text-center">
             <SideColumn
@@ -147,6 +175,17 @@ export default function RefereeView() {
               onGoal={() => goal('away')}
               onCard={(t) => card('away', t)}
             />
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-center text-xs uppercase text-on-surface-variant">Cambio local</p>
+              <SubControl players={homePlayers} onSub={(o, i) => sub('home', o, i)} />
+            </div>
+            <div>
+              <p className="mb-1 text-center text-xs uppercase text-on-surface-variant">Cambio visitante</p>
+              <SubControl players={awayPlayers} onSub={(o, i) => sub('away', o, i)} />
+            </div>
           </div>
 
           {msg && <p className="mt-4 text-center text-sm text-secondary">{msg}</p>}
@@ -175,16 +214,36 @@ export default function RefereeView() {
             <div className="mt-6 border-t border-outline-variant/30 pt-4">
               <h4 className="mb-2 font-display text-sm font-semibold text-on-surface-variant">Eventos</h4>
               <ul className="space-y-1 text-sm">
-                {events.map((ev) => (
-                  <li key={ev.id} className="flex items-center gap-2">
-                    <Icon name={ev.event_type === 'GOL' ? 'sports_soccer' : 'style'} className="text-base text-secondary" />
-                    <span className="font-medium">{ev.event_type}</span>
-                    <span className="text-on-surface-variant">
-                      {(ev.event_data?.team === 'home' ? match.home_team_name : ev.event_data?.team === 'away' ? match.away_team_name : '')}
-                      {playerName(ev.player_id) ? ` · ${playerName(ev.player_id)}` : ''}
-                    </span>
-                  </li>
-                ))}
+                {events.map((ev) => {
+                  const isSub = ev.event_type === 'CAMBIO'
+                  const teamName =
+                    ev.event_data?.team === 'home'
+                      ? match.home_team_name
+                      : ev.event_data?.team === 'away'
+                        ? match.away_team_name
+                        : ''
+                  const min = ev.event_data?.minute
+                  return (
+                    <li key={ev.id} className="flex items-center gap-2">
+                      <Icon
+                        name={isSub ? 'swap_horiz' : ev.event_type === 'GOL' ? 'sports_soccer' : 'style'}
+                        className="text-base text-secondary"
+                      />
+                      <span className="w-8 text-right text-on-surface-variant">
+                        {min != null ? `${min}'` : ''}
+                      </span>
+                      <span className="font-medium">{ev.event_type}</span>
+                      <span className="text-on-surface-variant">
+                        {teamName}
+                        {isSub
+                          ? ` · entra ${playerName(ev.player_id) || '?'} / sale ${playerName(ev.event_data?.player_out) || '?'}`
+                          : playerName(ev.player_id)
+                            ? ` · ${playerName(ev.player_id)}`
+                            : ''}
+                      </span>
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
@@ -305,6 +364,54 @@ function SideColumn({
           <button key={c.type} onClick={() => onCard(c.type)} className={`h-8 w-6 rounded ${c.color} text-xs font-bold shadow`} title={c.label} />
         ))}
       </div>
+    </div>
+  )
+}
+
+function SubControl({
+  players,
+  onSub,
+}: {
+  players: any[]
+  onSub: (out: string, inn: string) => void
+}) {
+  const [out, setOut] = useState('')
+  const [inn, setInn] = useState('')
+  const sel =
+    'min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-low px-1 py-1 text-xs text-on-surface'
+  return (
+    <div className="flex items-center gap-1">
+      <select value={out} onChange={(e) => setOut(e.target.value)} className={sel}>
+        <option value="">Sale…</option>
+        {players.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.number != null ? `#${p.number} ` : ''}
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <Icon name="swap_horiz" className="text-base text-on-surface-variant" />
+      <select value={inn} onChange={(e) => setInn(e.target.value)} className={sel}>
+        <option value="">Entra…</option>
+        {players.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.number != null ? `#${p.number} ` : ''}
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={() => {
+          if (out && inn) {
+            onSub(out, inn)
+            setOut('')
+            setInn('')
+          }
+        }}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded bg-secondary text-on-secondary"
+      >
+        <Icon name="check" className="text-sm" />
+      </button>
     </div>
   )
 }

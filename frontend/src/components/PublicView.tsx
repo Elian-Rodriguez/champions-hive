@@ -356,6 +356,44 @@ export default function PublicView({
                       ) : (
                         <p className="text-sm text-on-surface-variant">Aún sin goles registrados.</p>
                       )}
+                      {metrics.points_progression && metrics.points_progression.length > 0 && (() => {
+                        const series = metrics.points_progression
+                        const maxLen = Math.max(2, ...series.map((s: any) => s.points.length))
+                        const maxPts = Math.max(1, ...series.flatMap((s: any) => s.points))
+                        const W = 320
+                        const Hh = 120
+                        const colors = ['#4ae176', '#bec6e0', '#ffb690', '#7fd1ff', '#ff9db1', '#ffd479']
+                        const xx = (i: number) => (maxLen > 1 ? (i / (maxLen - 1)) * W : 0)
+                        const yy = (p: number) => Hh - (p / maxPts) * Hh
+                        return (
+                          <div className="mt-5">
+                            <p className="mb-1 text-xs font-semibold uppercase text-on-surface-variant">
+                              Evolución de puntos
+                            </p>
+                            <svg viewBox={`0 0 ${W} ${Hh}`} preserveAspectRatio="none" className="h-32 w-full">
+                              {series.map((s: any, si: number) => (
+                                <polyline
+                                  key={si}
+                                  fill="none"
+                                  stroke={colors[si % colors.length]}
+                                  strokeWidth="2"
+                                  points={s.points
+                                    .map((p: number, i: number) => `${xx(i).toFixed(1)},${yy(p).toFixed(1)}`)
+                                    .join(' ')}
+                                />
+                              ))}
+                            </svg>
+                            <div className="mt-1 flex flex-wrap gap-3 text-xs">
+                              {series.map((s: any, si: number) => (
+                                <span key={si} className="flex items-center gap-1">
+                                  <span className="h-2 w-2 rounded-full" style={{ background: colors[si % colors.length] }} />
+                                  {s.team_name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </Card>
                   )}
                   <div className="grid gap-6 lg:grid-cols-2">
