@@ -46,6 +46,8 @@ COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
 # Configuración de nginx y supervisor
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/supervisord.conf /etc/supervisor/conf.d/champion-hive.conf
+# Elimina el sitio por defecto de Debian (la página "Welcome to nginx!")
+RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
 
 # Valores por defecto (sobreescribibles con -e / env_file en tiempo de ejecución).
 # pydantic-settings los lee del entorno del proceso.
