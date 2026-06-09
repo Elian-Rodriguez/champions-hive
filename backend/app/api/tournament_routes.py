@@ -215,9 +215,20 @@ def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
         gbd[d] += (m.home_score or 0) + (m.away_score or 0)
 
     goals_by_player: Dict[str, int] = defaultdict(int)
-    for e in db.query(MatchStat).filter(MatchStat.player_id.isnot(None)).all():
-        if (e.event_type or "").upper() in ("GOL", "GOAL"):
-            goals_by_player[str(e.player_id)] += 1
+    d_yellow = d_blue = d_red = d_fouls = 0
+    for e in db.query(MatchStat).all():
+        et = (e.event_type or "").upper()
+        if et in ("GOL", "GOAL"):
+            if e.player_id:
+                goals_by_player[str(e.player_id)] += 1
+        elif et in ("AMARILLA", "YELLOW"):
+            d_yellow += 1
+        elif et in ("AZUL", "BLUE"):
+            d_blue += 1
+        elif et in ("ROJA", "RED"):
+            d_red += 1
+        elif et in ("FALTA", "FOUL", "TECNICA", "ANTIDEPORTIVA"):
+            d_fouls += 1
     pids = list(goals_by_player.keys())
     players = (
         {str(p.id): p.name for p in db.query(Player).filter(Player.id.in_(pids)).all()}
@@ -257,6 +268,7 @@ def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
         },
         "by_status": dict(by_status),
         "by_sport": dict(by_sport),
+        "discipline": {"yellow": d_yellow, "blue": d_blue, "red": d_red, "fouls": d_fouls},
         "goals_by_date": [{"date": d, "goals": g} for d, g in sorted(gbd.items())],
         "top_scorers": top_scorers,
         "tournaments": [
@@ -1080,7 +1092,8 @@ def get_player_stats(tournament_id: UUID, db: Session = Depends(get_db)):
     for e in events:
         pid = str(e.player_id)
         a = agg.setdefault(
-            pid, {"goals": 0, "yellow": 0, "blue": 0, "red": 0, "matches": set()}
+            pid,
+            {"goals": 0, "yellow": 0, "blue": 0, "red": 0, "fouls": 0, "matches": set()},
         )
         et = (e.event_type or "").upper()
         if et in ("GOL", "GOAL"):
@@ -1091,6 +1104,8 @@ def get_player_stats(tournament_id: UUID, db: Session = Depends(get_db)):
             a["blue"] += 1
         elif et in ("ROJA", "RED"):
             a["red"] += 1
+        elif et in ("FALTA", "FOUL", "TECNICA", "ANTIDEPORTIVA"):
+            a["fouls"] += 1
         a["matches"].add(str(e.match_id))
     if not agg:
         return []
@@ -1116,6 +1131,7 @@ def get_player_stats(tournament_id: UUID, db: Session = Depends(get_db)):
                 "yellow": a["yellow"],
                 "blue": a["blue"],
                 "red": a["red"],
+                "fouls": a["fouls"],
                 "matches": len(a["matches"]),
             }
         )
@@ -1163,7 +1179,7 @@ def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
         d = m.scheduled_start.date().isoformat() if m.scheduled_start else "Sin fecha"
         goals_by_date[d] += g
 
-    yellow = blue = red = 0
+    yellow = blue = red = fouls = 0
     if match_ids:
         for e in db.query(MatchStat).filter(MatchStat.match_id.in_(match_ids)).all():
             et = (e.event_type or "").upper()
@@ -1173,6 +1189,8 @@ def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
                 blue += 1
             elif et in ("ROJA", "RED"):
                 red += 1
+            elif et in ("FALTA", "FOUL", "TECNICA", "ANTIDEPORTIVA"):
+                fouls += 1
 
     series = [{"date": d, "goals": g} for d, g in sorted(goals_by_date.items())]
 
@@ -1210,6 +1228,7 @@ def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
             "yellow": yellow,
             "blue": blue,
             "red": red,
+            "fouls": fouls,
         },
     }
 

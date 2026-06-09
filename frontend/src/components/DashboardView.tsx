@@ -119,6 +119,29 @@ export default function DashboardView() {
         </div>
       )}
 
+      {/* Disciplina */}
+      {data.discipline && (
+        <Card className="p-4">
+          <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+            <Icon name="style" className="text-secondary" /> Disciplina
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            {[
+              { label: 'Amarillas', v: data.discipline.yellow, dot: '#facc15' },
+              { label: 'Azules', v: data.discipline.blue, dot: '#3b82f6' },
+              { label: 'Rojas', v: data.discipline.red, dot: '#ef4444' },
+              { label: 'Faltas', v: data.discipline.fouls, dot: '#f97316' },
+            ].map((d) => (
+              <div key={d.label} className="flex items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm">
+                <span className="h-3 w-3 rounded-full" style={{ background: d.dot }} />
+                <span className="text-on-surface-variant">{d.label}</span>
+                <span className="font-bold tabular-nums">{d.v ?? 0}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="p-4 lg:col-span-2">

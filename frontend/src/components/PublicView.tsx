@@ -127,6 +127,14 @@ export default function PublicView({
   const koStages = stages.filter((s) => s.type === 'knockout')
   const goalsSeries: any[] = metrics?.goals_by_date || []
   const goalsMax = Math.max(1, ...goalsSeries.map((d: any) => d.goals || 0))
+  const sport = selected?.sport_type
+  const scoreLabel = sport === 'basketball' ? 'Puntos' : 'Goles'
+  const discCols: { key: string; label: string }[] =
+    sport === 'basketball'
+      ? [{ key: 'fouls', label: 'Faltas' }]
+      : sport === 'micro'
+        ? [{ key: 'yellow', label: '🟨' }, { key: 'blue', label: '🟦' }, { key: 'red', label: '🟥' }]
+        : [{ key: 'yellow', label: '🟨' }, { key: 'red', label: '🟥' }]
 
   const byDate: Record<string, any[]> = {}
   allMatches.forEach((m) => {
@@ -411,9 +419,10 @@ export default function PublicView({
                               <th className="px-2 py-1 text-left">#</th>
                               <th className="px-2 py-1 text-left">Jugador</th>
                               <th className="px-2 py-1 text-left">Equipo</th>
-                              <th className="px-2 py-1 text-center">Goles</th>
-                              <th className="px-2 py-1 text-center">🟨</th>
-                              <th className="px-2 py-1 text-center">🟥</th>
+                              <th className="px-2 py-1 text-center">{scoreLabel}</th>
+                              {discCols.map((dc) => (
+                                <th key={dc.key} className="px-2 py-1 text-center">{dc.label}</th>
+                              ))}
                             </tr>
                           </thead>
                           <tbody>
@@ -423,8 +432,9 @@ export default function PublicView({
                                 <td className="px-2 py-1 font-medium">{p.player_name}</td>
                                 <td className="px-2 py-1 text-on-surface-variant">{p.team_name || '—'}</td>
                                 <td className="px-2 py-1 text-center font-bold text-secondary">{p.goals}</td>
-                                <td className="px-2 py-1 text-center">{p.yellow}</td>
-                                <td className="px-2 py-1 text-center">{p.red}</td>
+                                {discCols.map((dc) => (
+                                  <td key={dc.key} className="px-2 py-1 text-center">{p[dc.key] ?? 0}</td>
+                                ))}
                               </tr>
                             ))}
                           </tbody>

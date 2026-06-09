@@ -3,11 +3,23 @@ import { api } from '../services/api'
 import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 
-const CARDS = [
-  { type: 'AMARILLA', label: 'Amarilla', color: 'bg-yellow-400 text-black' },
-  { type: 'AZUL', label: 'Azul', color: 'bg-blue-500 text-white' },
-  { type: 'ROJA', label: 'Roja', color: 'bg-red-500 text-white' },
-]
+type Disc = { type: string; label: string; short: string; color: string }
+const DISCIPLINE: Record<string, Disc[]> = {
+  football: [
+    { type: 'AMARILLA', label: 'Amarilla', short: 'AM', color: 'bg-yellow-400 text-black' },
+    { type: 'ROJA', label: 'Roja', short: 'RJ', color: 'bg-red-500 text-white' },
+  ],
+  micro: [
+    { type: 'AMARILLA', label: 'Amarilla', short: 'AM', color: 'bg-yellow-400 text-black' },
+    { type: 'AZUL', label: 'Azul', short: 'AZ', color: 'bg-blue-500 text-white' },
+    { type: 'ROJA', label: 'Roja', short: 'RJ', color: 'bg-red-500 text-white' },
+  ],
+  basketball: [
+    { type: 'FALTA', label: 'Falta', short: 'FAL', color: 'bg-orange-500 text-white' },
+    { type: 'TECNICA', label: 'Técnica', short: 'TÉC', color: 'bg-purple-500 text-white' },
+    { type: 'ANTIDEPORTIVA', label: 'Antideportiva', short: 'ANT', color: 'bg-red-500 text-white' },
+  ],
+}
 const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Programado',
   live: 'En vivo',
@@ -130,6 +142,8 @@ export default function RefereeView() {
     return p ? p.name : ''
   }
 
+  const cards = (tournament && DISCIPLINE[tournament.sport_type]) || DISCIPLINE.football
+
   if (loading)
     return (
       <div className="grid place-items-center py-20">
@@ -166,6 +180,7 @@ export default function RefereeView() {
               name={match.home_team_name}
               score={home}
               colors={teamColors[String(match.home_team_id)]}
+              cards={cards}
               players={homePlayers}
               selected={selHome}
               onSelect={setSelHome}
@@ -179,6 +194,7 @@ export default function RefereeView() {
               name={match.away_team_name}
               score={away}
               colors={teamColors[String(match.away_team_id)]}
+              cards={cards}
               players={awayPlayers}
               selected={selAway}
               onSelect={setSelAway}
@@ -336,6 +352,7 @@ function SideColumn({
   name,
   score,
   colors,
+  cards,
   players,
   selected,
   onSelect,
@@ -347,6 +364,7 @@ function SideColumn({
   name: string | null
   score: number
   colors?: string[]
+  cards: Disc[]
   players: any[]
   selected: string
   onSelect: (id: string) => void
@@ -391,9 +409,16 @@ function SideColumn({
       >
         <Icon name="sports_soccer" className="text-base" /> Gol
       </button>
-      <div className="mt-2 flex justify-center gap-1.5">
-        {CARDS.map((c) => (
-          <button key={c.type} onClick={() => onCard(c.type)} className={`h-8 w-6 rounded ${c.color} text-xs font-bold shadow`} title={c.label} />
+      <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        {cards.map((c) => (
+          <button
+            key={c.type}
+            onClick={() => onCard(c.type)}
+            className={`rounded px-1.5 py-1 ${c.color} text-[9px] font-bold shadow`}
+            title={c.label}
+          >
+            {c.short}
+          </button>
         ))}
       </div>
     </div>
