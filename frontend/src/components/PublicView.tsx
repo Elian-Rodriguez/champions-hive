@@ -33,6 +33,7 @@ export default function PublicView({
   const [photos, setPhotos] = useState<any[]>([])
   const [playerStats, setPlayerStats] = useState<any[]>([])
   const [teamStats, setTeamStats] = useState<any[]>([])
+  const [metrics, setMetrics] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -59,6 +60,7 @@ export default function PublicView({
     setPhotos([])
     setPlayerStats([])
     setTeamStats([])
+    setMetrics(null)
     setStandings({})
     setBracket(null)
     setAllMatches([])
@@ -71,6 +73,7 @@ export default function PublicView({
     api.getPhotos(t.id).then(setPhotos).catch(() => {})
     api.playerStats(t.id).then(setPlayerStats).catch(() => {})
     api.teamStats(t.id).then(setTeamStats).catch(() => {})
+    api.metrics(t.id).then(setMetrics).catch(() => {})
     const groupStages = st.filter((s: any) => s.type !== 'knockout')
     const koStages = st.filter((s: any) => s.type === 'knockout')
     if (groupStages[0]) selectPosStage(groupStages[0])
@@ -115,12 +118,15 @@ export default function PublicView({
       if (koStage) api.bracketTree(koStage.id).then(setBracket).catch(() => {})
       api.playerStats(selected.id).then(setPlayerStats).catch(() => {})
       api.teamStats(selected.id).then(setTeamStats).catch(() => {})
+      api.metrics(selected.id).then(setMetrics).catch(() => {})
     }, 15000)
     return () => clearInterval(id)
   }, [selected, posStage, koStage])
 
   const groupStages = stages.filter((s) => s.type !== 'knockout')
   const koStages = stages.filter((s) => s.type === 'knockout')
+  const goalsSeries: any[] = metrics?.goals_by_date || []
+  const goalsMax = Math.max(1, ...goalsSeries.map((d: any) => d.goals || 0))
 
   const byDate: Record<string, any[]> = {}
   allMatches.forEach((m) => {
@@ -312,7 +318,47 @@ export default function PublicView({
               )}
 
               {tab === 'estadisticas' && (
-                <div className="grid gap-6 lg:grid-cols-2">
+                <div className="space-y-6">
+                  {metrics && (
+                    <Card className="p-4">
+                      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                        <Icon name="bar_chart" className="text-secondary" /> Métricas del torneo
+                      </h3>
+                      <div className="mb-4 flex flex-wrap gap-3 text-sm">
+                        {[
+                          { label: 'Goles', v: metrics.totals?.goals },
+                          { label: 'Partidos', v: metrics.totals?.matches },
+                          { label: 'Amarillas', v: metrics.totals?.yellow },
+                          { label: 'Rojas', v: metrics.totals?.red },
+                        ].map((s) => (
+                          <div key={s.label} className="rounded-lg bg-surface-container-high px-3 py-2">
+                            <span className="text-on-surface-variant">{s.label}: </span>
+                            <span className="font-bold text-secondary">{s.v ?? 0}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {goalsSeries.length > 0 ? (
+                        <div className="flex h-36 items-end gap-1.5">
+                          {goalsSeries.map((d, i) => (
+                            <div key={i} className="flex h-full flex-1 flex-col items-center justify-end">
+                              <span className="text-[10px] font-bold">{d.goals}</span>
+                              <div
+                                className="w-full max-w-[30px] rounded-t bg-secondary"
+                                style={{ height: `${Math.max(4, (d.goals / goalsMax) * 80)}%` }}
+                                title={`${d.goals} goles`}
+                              />
+                              <span className="mt-1 text-[9px] text-on-surface-variant">
+                                {d.date === 'Sin fecha' ? 's/f' : String(d.date).slice(5)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-on-surface-variant">Aún sin goles registrados.</p>
+                      )}
+                    </Card>
+                  )}
+                  <div className="grid gap-6 lg:grid-cols-2">
                   <Card className="p-4">
                     <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
                       <Icon name="sports_soccer" className="text-secondary" /> Goleadores
@@ -354,6 +400,7 @@ export default function PublicView({
                     </h3>
                     <StandingsTable rows={teamStats} onRowClick={openProfile} />
                   </Card>
+                  </div>
                 </div>
               )}
             </div>

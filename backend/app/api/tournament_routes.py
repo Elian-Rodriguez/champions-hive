@@ -151,7 +151,7 @@ def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
         db.query(StageSlot)
         .filter(
             StageSlot.stage_id == stage_id,
-            StageSlot.slot_type == SlotType.WINNER_OF,
+            StageSlot.slot_type.in_([SlotType.WINNER_OF, SlotType.LOSER_OF]),
             StageSlot.resolved == False,  # noqa: E712
         )
         .all()
@@ -165,17 +165,16 @@ def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
             and src.home_score is not None
             and src.away_score is not None
         ):
-            winner = (
-                src.home_team_id
-                if src.home_score >= src.away_score
-                else src.away_team_id
-            )
+            home_wins = src.home_score >= src.away_score
+            winner = src.home_team_id if home_wins else src.away_team_id
+            loser = src.away_team_id if home_wins else src.home_team_id
+            team = winner if slot.slot_type == SlotType.WINNER_OF else loser
             match = db.query(Match).filter(Match.id == slot.match_id).first()
             if match:
                 if slot.is_home:
-                    match.home_team_id = winner
+                    match.home_team_id = team
                 else:
-                    match.away_team_id = winner
+                    match.away_team_id = team
                 slot.resolved = True
                 changed += 1
     return changed
@@ -597,8 +596,13 @@ def seed_bracket(
         )
         current.append(match)
 
+    semifinals: List[Match] = []
+    final_round_num = 1
     rnd = 2
     while len(current) > 1:
+        if len(current) == 2:
+            semifinals = list(current)
+            final_round_num = rnd
         nxt = []
         for i in range(0, len(current), 2):
             match = Match(
@@ -635,6 +639,41 @@ def seed_bracket(
             nxt.append(match)
         current = nxt
         rnd += 1
+
+    # Partido por el tercer puesto (perdedores de las semifinales)
+    if payload.get("third_place") and len(semifinals) == 2:
+        tp = Match(
+            stage_id=stage_id,
+            bracket_round=final_round_num,
+            is_third_place=True,
+            court_id=next_court(),
+            status=MatchStatus.SCHEDULED,
+            home_score=0,
+            away_score=0,
+        )
+        db.add(tp)
+        db.flush()
+        db.add(
+            StageSlot(
+                stage_id=stage_id,
+                match_id=tp.id,
+                is_home=True,
+                slot_type=SlotType.LOSER_OF,
+                source_match_id=semifinals[0].id,
+                resolved=False,
+            )
+        )
+        db.add(
+            StageSlot(
+                stage_id=stage_id,
+                match_id=tp.id,
+                is_home=False,
+                slot_type=SlotType.LOSER_OF,
+                source_match_id=semifinals[1].id,
+                resolved=False,
+            )
+        )
+
     db.commit()
     return {"message": f"Bracket generado en «{dst.name}»", "rounds": rnd - 1}
 
@@ -666,6 +705,7 @@ def get_bracket_tree(stage_id: UUID, db: Session = Depends(get_db)):
                 "home_score": m.home_score,
                 "away_score": m.away_score,
                 "status": _status_str(m),
+                "is_third_place": bool(m.is_third_place),
                 "slots": [
                     {
                         "is_home": s.is_home,
@@ -1017,6 +1057,52 @@ def get_team_stats(tournament_id: UUID, db: Session = Depends(get_db)):
     return calculate_standings(
         dicts, _sport_type_str(tournament), tournament.tiebreaker_rules or None
     )
+
+
+@router.get("/{tournament_id}/metrics")
+def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
+    """Métricas agregadas para gráficas: goles por fecha y totales del torneo."""
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    stage_ids = [s.id for s in tournament.stages]
+    empty = {"goals": 0, "matches": 0, "yellow": 0, "blue": 0, "red": 0}
+    if not stage_ids:
+        return {"goals_by_date": [], "totals": empty}
+    matches = db.query(Match).filter(Match.stage_id.in_(stage_ids)).all()
+    match_ids = [m.id for m in matches]
+    finished = [m for m in matches if _status_str(m) == "finished"]
+
+    goals_by_date: Dict[str, int] = defaultdict(int)
+    total_goals = 0
+    for m in finished:
+        g = (m.home_score or 0) + (m.away_score or 0)
+        total_goals += g
+        d = m.scheduled_start.date().isoformat() if m.scheduled_start else "Sin fecha"
+        goals_by_date[d] += g
+
+    yellow = blue = red = 0
+    if match_ids:
+        for e in db.query(MatchStat).filter(MatchStat.match_id.in_(match_ids)).all():
+            et = (e.event_type or "").upper()
+            if et in ("AMARILLA", "YELLOW"):
+                yellow += 1
+            elif et in ("AZUL", "BLUE"):
+                blue += 1
+            elif et in ("ROJA", "RED"):
+                red += 1
+
+    series = [{"date": d, "goals": g} for d, g in sorted(goals_by_date.items())]
+    return {
+        "goals_by_date": series,
+        "totals": {
+            "goals": total_goals,
+            "matches": len(finished),
+            "yellow": yellow,
+            "blue": blue,
+            "red": red,
+        },
+    }
 
 
 @router.put("/{tournament_id}/logo", response_model=TournamentResponse)

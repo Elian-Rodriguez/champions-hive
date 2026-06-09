@@ -76,6 +76,7 @@ class StageType(str, enum.Enum):
 class SlotType(str, enum.Enum):
     TEAM = "team"
     WINNER_OF = "winner_of"
+    LOSER_OF = "loser_of"
     POSITION = "position"
 
 
@@ -203,6 +204,7 @@ class Match(Base):
     away_score = Column(Integer, default=0)
     status = Column(SQLEnum(MatchStatus), default=MatchStatus.SCHEDULED)
     bracket_round = Column(Integer)
+    is_third_place = Column(Boolean, default=False)
     scheduled_start = Column(DateTime)
     scheduled_end = Column(DateTime)
 

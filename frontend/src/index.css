@@ -46,3 +46,67 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---- Bracket estilo Champions ---- */
+.bk {
+  display: flex;
+  align-items: stretch;
+  min-width: max-content;
+}
+.bk-round {
+  display: flex;
+  flex-direction: column;
+  min-width: 236px;
+  padding: 0 1.4rem;
+}
+.bk-round-head {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #c6c6cd;
+  padding-bottom: 0.85rem;
+}
+.bk-pairs {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  flex: 1 1 auto;
+}
+.bk-pair {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  flex: 1 1 auto;
+  position: relative;
+}
+.bk-cell {
+  position: relative;
+  padding: 0.5rem 0;
+}
+/* Conector tipo llave "]" a la derecha de cada par */
+.bk-round:not(.bk-final) .bk-pair:not(.bk-solo)::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 25%;
+  bottom: 25%;
+  width: 1.4rem;
+  border: 2px solid #45464d;
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+}
+/* Tramo horizontal desde el centro del par hacia la siguiente ronda */
+.bk-round:not(.bk-final) .bk-pair::before {
+  content: '';
+  position: absolute;
+  left: calc(100% + 1.4rem);
+  top: 50%;
+  width: 1.4rem;
+  height: 2px;
+  background: #45464d;
+}
+.bk-round:not(.bk-final) .bk-pair.bk-solo::before {
+  left: 100%;
+}

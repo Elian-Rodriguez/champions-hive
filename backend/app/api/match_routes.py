@@ -86,27 +86,26 @@ def update_match_status(
         and match.home_score is not None
         and match.away_score is not None
     ):
-        winner = (
-            match.home_team_id
-            if match.home_score >= match.away_score
-            else match.away_team_id
-        )
+        home_wins = match.home_score >= match.away_score
+        winner = match.home_team_id if home_wins else match.away_team_id
+        loser = match.away_team_id if home_wins else match.home_team_id
         slots = (
             db.query(StageSlot)
             .filter(
                 StageSlot.source_match_id == match.id,
-                StageSlot.slot_type == SlotType.WINNER_OF,
+                StageSlot.slot_type.in_([SlotType.WINNER_OF, SlotType.LOSER_OF]),
                 StageSlot.resolved == False,  # noqa: E712
             )
             .all()
         )
         for slot in slots:
+            team = winner if slot.slot_type == SlotType.WINNER_OF else loser
             target = db.query(Match).filter(Match.id == slot.match_id).first()
             if target:
                 if slot.is_home:
-                    target.home_team_id = winner
+                    target.home_team_id = team
                 else:
-                    target.away_team_id = winner
+                    target.away_team_id = team
                 slot.resolved = True
 
     db.commit()

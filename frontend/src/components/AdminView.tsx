@@ -576,6 +576,7 @@ function AvanceTab({ tournament }: { tournament: any }) {
   const [standings, setStandings] = useState<Record<string, any[]>>({})
   const [thirds, setThirds] = useState<any[]>([])
   const [rows, setRows] = useState<any[]>([{ hg: '', hp: 1, ag: '', ap: 2 }])
+  const [thirdPlace, setThirdPlace] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   useEffect(() => {
     api.getStages(tournament.id).then(setStages)
@@ -602,6 +603,7 @@ function AvanceTab({ tournament }: { tournament: any }) {
       if (action === 'seed') {
         const r = await api.seedBracket(targetId, {
           source_stage_id: sourceId,
+          third_place: thirdPlace,
           round1: rows.map((c) => ({
             home_group: c.hg,
             home_position: Number(c.hp),
@@ -710,6 +712,16 @@ function AvanceTab({ tournament }: { tournament: any }) {
           <Icon name="add" /> Cruce
         </Button>
       </div>
+
+      <label className="flex items-center gap-2 text-sm text-on-surface-variant">
+        <input
+          type="checkbox"
+          checked={thirdPlace}
+          onChange={(e) => setThirdPlace(e.target.checked)}
+          className="accent-secondary"
+        />
+        Incluir partido por el 3er puesto
+      </label>
 
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => run('seed')}>
