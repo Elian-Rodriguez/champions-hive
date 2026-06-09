@@ -891,7 +891,10 @@ def resolve_position_slots(
             src_stage = db.query(Stage).filter(Stage.id == src_id).first()
             cache[src_id] = _build_group_standings(db, src_stage) if src_stage else {}
         gs = cache[src_id]
-        rows = gs.get(slot.source_group) or gs.get("__all__") or gs.get("Sin Grupo")
+        if slot.source_group == "__best_thirds__":
+            rows = _compute_best_thirds(gs)
+        else:
+            rows = gs.get(slot.source_group) or gs.get("__all__") or gs.get("Sin Grupo")
         if rows and slot.source_position and slot.source_position - 1 < len(rows):
             team_id = rows[slot.source_position - 1]["team_id"]
             match = db.query(Match).filter(Match.id == slot.match_id).first()
