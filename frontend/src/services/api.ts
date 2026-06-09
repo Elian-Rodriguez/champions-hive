@@ -55,6 +55,7 @@ export const api = {
 
   // ---- Tournaments ----
   getTournaments: () => req('/tournaments'),
+  dashboard: () => req('/tournaments/dashboard'),
   getTournament: (id: string) => req(`/tournaments/${id}`),
   createTournament: (data: any) =>
     req('/tournaments', { method: 'POST', body: JSON.stringify(data) }),

@@ -24,6 +24,7 @@ from app.db.models import (
     Tournament,
     TournamentPhoto,
     TournamentTeam,
+    Venue,
 )
 from app.schemas import (
     ImageUpdate,
@@ -191,6 +192,83 @@ def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
 def get_tiebreaker_options():
     """Devuelve los criterios de desempate disponibles con sus etiquetas."""
     return [{"key": k, "label": v} for k, v in TIEBREAKER_LABELS.items()]
+
+
+@router.get("/dashboard")
+def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
+    """Agregados globales para el panel: totales, distribuciones y gráficas."""
+    tournaments = db.query(Tournament).all()
+    by_status: Dict[str, int] = defaultdict(int)
+    by_sport: Dict[str, int] = defaultdict(int)
+    for t in tournaments:
+        by_status[t.status or "draft"] += 1
+        by_sport[_sport_type_str(t)] += 1
+
+    matches = db.query(Match).all()
+    finished = [m for m in matches if _status_str(m) == "finished"]
+    live = sum(1 for m in matches if _status_str(m) == "live")
+    total_goals = sum((m.home_score or 0) + (m.away_score or 0) for m in finished)
+
+    gbd: Dict[str, int] = defaultdict(int)
+    for m in finished:
+        d = m.scheduled_start.date().isoformat() if m.scheduled_start else "Sin fecha"
+        gbd[d] += (m.home_score or 0) + (m.away_score or 0)
+
+    goals_by_player: Dict[str, int] = defaultdict(int)
+    for e in db.query(MatchStat).filter(MatchStat.player_id.isnot(None)).all():
+        if (e.event_type or "").upper() in ("GOL", "GOAL"):
+            goals_by_player[str(e.player_id)] += 1
+    pids = list(goals_by_player.keys())
+    players = (
+        {str(p.id): p.name for p in db.query(Player).filter(Player.id.in_(pids)).all()}
+        if pids
+        else {}
+    )
+    links = (
+        db.query(TeamPlayer).filter(TeamPlayer.player_id.in_(pids)).all() if pids else []
+    )
+    pteam = {str(l.player_id): l.team_id for l in links}
+    team_ids = list({tid for tid in pteam.values() if tid})
+    tnames = (
+        {str(t.id): t.name for t in db.query(Team).filter(Team.id.in_(team_ids)).all()}
+        if team_ids
+        else {}
+    )
+    top = sorted(goals_by_player.items(), key=lambda kv: kv[1], reverse=True)[:8]
+    top_scorers = [
+        {
+            "player_name": players.get(pid, "—"),
+            "team_name": tnames.get(str(pteam.get(pid))),
+            "goals": g,
+        }
+        for pid, g in top
+    ]
+
+    return {
+        "totals": {
+            "tournaments": len(tournaments),
+            "teams": db.query(TournamentTeam).count(),
+            "matches": len(matches),
+            "finished": len(finished),
+            "live": live,
+            "goals": total_goals,
+            "players": db.query(Player).count(),
+            "venues": db.query(Venue).count(),
+        },
+        "by_status": dict(by_status),
+        "by_sport": dict(by_sport),
+        "goals_by_date": [{"date": d, "goals": g} for d, g in sorted(gbd.items())],
+        "top_scorers": top_scorers,
+        "tournaments": [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "sport_type": _sport_type_str(t),
+                "status": t.status,
+            }
+            for t in tournaments
+        ],
+    }
 
 
 @router.post("", response_model=TournamentResponse, status_code=status.HTTP_201_CREATED)

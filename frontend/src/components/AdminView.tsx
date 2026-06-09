@@ -5,6 +5,7 @@ import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
+import DashboardView from './DashboardView'
 import { exportStandingsPDF } from '../utils/pdf'
 
 const SPORTS = [
@@ -27,16 +28,17 @@ type Tab =
   | 'posiciones'
   | 'avance'
   | 'marca'
-type Section = 'torneos' | 'sedes' | 'usuarios'
+type Section = 'dashboard' | 'torneos' | 'sedes' | 'usuarios'
 
 const SECTIONS: { key: Section; label: string; icon: string }[] = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { key: 'torneos', label: 'Torneos', icon: 'emoji_events' },
   { key: 'sedes', label: 'Sedes', icon: 'stadium' },
   { key: 'usuarios', label: 'Usuarios', icon: 'group' },
 ]
 
 export default function AdminView() {
-  const [section, setSection] = useState<Section>('torneos')
+  const [section, setSection] = useState<Section>('dashboard')
   const [tournaments, setTournaments] = useState<any[]>([])
   const [selected, setSelected] = useState<any>(null)
   const [tab, setTab] = useState<Tab>('resumen')
@@ -89,7 +91,9 @@ export default function AdminView() {
         ))}
       </nav>
 
-      {section === 'sedes' ? (
+      {section === 'dashboard' ? (
+        <DashboardView />
+      ) : section === 'sedes' ? (
         <VenuesPanel />
       ) : section === 'usuarios' ? (
         <UsersPanel />
