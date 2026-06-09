@@ -391,6 +391,10 @@ export default function StatisticsLeaderboards({ data }: { data?: any }) {
   const leaderWins = Number(leader?.wins) || 0;
   const leaderWinRate = leaderPlayed > 0 ? Math.round((leaderWins / leaderPlayed) * 100) : 0;
   const contenders = standings.slice(1, 5);
+  const playerStats = data?.playerStats ?? [];
+  const hasPlayers = playerStats.length > 0;
+  const topScorer = playerStats[0] ?? {};
+  const playerContenders = playerStats.slice(1, 5);
   const trendIcons = ['trending_up', 'trending_down', 'horizontal_rule', 'trending_up'];
   const trendColors = ['text-tertiary', 'text-error', 'text-secondary', 'text-secondary'];
   const bestDefense = [...standings]
@@ -447,15 +451,15 @@ export default function StatisticsLeaderboards({ data }: { data?: any }) {
                 </div>
                 <div className="w-full md:w-1/2 flex flex-col justify-center">
                   <span className="text-secondary font-label-sm uppercase tracking-[0.2em] mb-xs">Current Leader</span>
-                  <h2 className="font-headline-lg text-headline-lg text-on-surface mb-md">{leader?.team_name ?? '—'}</h2>
+                  <h2 className="font-headline-lg text-headline-lg text-on-surface mb-md">{hasPlayers ? (topScorer?.player_name ?? '—') : (leader?.team_name ?? '—')}</h2>
                   <div className="grid grid-cols-2 gap-md mb-lg">
                     <div className="bg-surface-container-high p-md rounded-lg border border-outline-variant/20">
-                      <p className="text-on-surface-variant font-label-sm uppercase">League Points</p>
-                      <p className="font-stats-numeric text-display-xl text-secondary">{leader?.league_points ?? 0}</p>
+                      <p className="text-on-surface-variant font-label-sm uppercase">{hasPlayers ? 'Goles' : 'League Points'}</p>
+                      <p className="font-stats-numeric text-display-xl text-secondary">{hasPlayers ? (topScorer?.goals ?? 0) : (leader?.league_points ?? 0)}</p>
                     </div>
                     <div className="bg-surface-container-high p-md rounded-lg border border-outline-variant/20">
-                      <p className="text-on-surface-variant font-label-sm uppercase">Win Rate</p>
-                      <p className="font-stats-numeric text-display-xl text-tertiary">{leaderWinRate}%</p>
+                      <p className="text-on-surface-variant font-label-sm uppercase">{hasPlayers ? 'PJ' : 'Win Rate'}</p>
+                      <p className="font-stats-numeric text-display-xl text-tertiary">{hasPlayers ? (topScorer?.matches ?? 0) : `${leaderWinRate}%`}</p>
                     </div>
                   </div>
                   <div className="flex gap-sm">
@@ -467,7 +471,7 @@ export default function StatisticsLeaderboards({ data }: { data?: any }) {
                         <span className="material-symbols-outlined text-on-secondary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>shield</span>
                       </div>
                     </div>
-                    <span className="font-body-md text-on-surface-variant self-center">{leader?.wins ?? 0}W · {leader?.draws ?? 0}D · {leader?.losses ?? 0}L</span>
+                    <span className="font-body-md text-on-surface-variant self-center">{hasPlayers ? (topScorer?.team_name ?? '—') : `${leader?.wins ?? 0}W · ${leader?.draws ?? 0}D · ${leader?.losses ?? 0}L`}</span>
                   </div>
                 </div>
               </div>
@@ -476,17 +480,31 @@ export default function StatisticsLeaderboards({ data }: { data?: any }) {
           <div className="lg:col-span-4 flex flex-col gap-gutter">
             <h3 className="font-headline-md text-headline-md text-on-surface px-xs">Top Contenders</h3>
             <div className="space-y-sm">
-              {contenders.map((row: any, i: number) => (
-              <div key={i} className="bg-surface-container hover:bg-surface-container-high transition-all p-md rounded-lg border border-outline-variant/30 flex items-center gap-md">
-                <span className="font-stats-numeric text-on-surface-variant w-6">{String(row?.position ?? i + 2).padStart(2, '0')}</span>
-                <div className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center bg-surface-container-high text-on-surface-variant font-bold text-[12px]">{initials(row?.team_name)}</div>
-                <div className="flex-grow">
-                  <p className="font-headline-md text-[16px] text-on-surface">{row?.team_name ?? '—'}</p>
-                  <p className="font-label-sm text-on-surface-variant">{row?.league_points ?? 0} PTS</p>
+              {hasPlayers ? (
+                playerContenders.map((row: any, i: number) => (
+                <div key={i} className="bg-surface-container hover:bg-surface-container-high transition-all p-md rounded-lg border border-outline-variant/30 flex items-center gap-md">
+                  <span className="font-stats-numeric text-on-surface-variant w-6">{String(i + 2).padStart(2, '0')}</span>
+                  <div className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center bg-surface-container-high text-on-surface-variant font-bold text-[12px]">{initials(row?.player_name)}</div>
+                  <div className="flex-grow">
+                    <p className="font-headline-md text-[16px] text-on-surface">{row?.player_name ?? '—'}</p>
+                    <p className="font-label-sm text-on-surface-variant">{row?.team_name ?? '—'} · {row?.goals ?? 0} Goles</p>
+                  </div>
+                  <span className={`material-symbols-outlined ${trendColors[i % trendColors.length]}`}>{trendIcons[i % trendIcons.length]}</span>
                 </div>
-                <span className={`material-symbols-outlined ${trendColors[i % trendColors.length]}`}>{trendIcons[i % trendIcons.length]}</span>
-              </div>
-              ))}
+                ))
+              ) : (
+                contenders.map((row: any, i: number) => (
+                <div key={i} className="bg-surface-container hover:bg-surface-container-high transition-all p-md rounded-lg border border-outline-variant/30 flex items-center gap-md">
+                  <span className="font-stats-numeric text-on-surface-variant w-6">{String(row?.position ?? i + 2).padStart(2, '0')}</span>
+                  <div className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center bg-surface-container-high text-on-surface-variant font-bold text-[12px]">{initials(row?.team_name)}</div>
+                  <div className="flex-grow">
+                    <p className="font-headline-md text-[16px] text-on-surface">{row?.team_name ?? '—'}</p>
+                    <p className="font-label-sm text-on-surface-variant">{row?.league_points ?? 0} PTS</p>
+                  </div>
+                  <span className={`material-symbols-outlined ${trendColors[i % trendColors.length]}`}>{trendIcons[i % trendIcons.length]}</span>
+                </div>
+                ))
+              )}
             </div>
             <button className="w-full py-md border border-outline-variant/50 rounded-lg font-label-sm text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all">VIEW FULL STANDINGS</button>
           </div>
@@ -505,27 +523,57 @@ export default function StatisticsLeaderboards({ data }: { data?: any }) {
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
+                  {hasPlayers ? (
+                  <tr className="bg-surface-container-low text-on-surface-variant border-b border-outline-variant/30">
+                    <th className="px-lg py-md font-label-sm uppercase">Player</th>
+                    <th className="px-lg py-md font-label-sm uppercase">PJ</th>
+                    <th className="px-lg py-md font-label-sm uppercase">Goles</th>
+                    <th className="px-lg py-md font-label-sm uppercase text-right">Cards</th>
+                  </tr>
+                  ) : (
                   <tr className="bg-surface-container-low text-on-surface-variant border-b border-outline-variant/30">
                     <th className="px-lg py-md font-label-sm uppercase">Team</th>
                     <th className="px-lg py-md font-label-sm uppercase">Games</th>
                     <th className="px-lg py-md font-label-sm uppercase">Goles</th>
                     <th className="px-lg py-md font-label-sm uppercase text-right">Diff</th>
                   </tr>
+                  )}
                 </thead>
                 <tbody className="divide-y divide-outline-variant/10">
-                  {standings.map((row: any, i: number) => (
-                  <tr key={i} className="hover:bg-surface-container-high transition-colors">
-                    <td className="px-lg py-md">
-                      <div className="flex items-center gap-md">
-                        <div className="w-8 h-8 rounded bg-secondary-container/20 flex items-center justify-center text-secondary font-bold text-[12px]">{initials(row?.team_name)}</div>
-                        <span className="font-body-md font-semibold">{row?.team_name ?? '—'}</span>
-                      </div>
-                    </td>
-                    <td className="px-lg py-md font-stats-numeric">{row?.matches_played ?? 0}</td>
-                    <td className="px-lg py-md font-stats-numeric">{row?.points_scored ?? 0}</td>
-                    <td className="px-lg py-md font-stats-numeric text-secondary text-right">{row?.diff ?? 0}</td>
-                  </tr>
-                  ))}
+                  {hasPlayers ? (
+                    playerStats.map((row: any, i: number) => (
+                    <tr key={i} className="hover:bg-surface-container-high transition-colors">
+                      <td className="px-lg py-md">
+                        <div className="flex items-center gap-md">
+                          <div className="w-8 h-8 rounded bg-secondary-container/20 flex items-center justify-center text-secondary font-bold text-[12px]">{initials(row?.player_name)}</div>
+                          <div className="flex flex-col">
+                            <span className="font-body-md font-semibold">{row?.player_name ?? '—'}</span>
+                            <span className="font-label-sm text-on-surface-variant">{row?.team_name ?? '—'}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-lg py-md font-stats-numeric">{row?.matches ?? 0}</td>
+                      <td className="px-lg py-md font-stats-numeric text-secondary">{row?.goals ?? 0}</td>
+                      <td className="px-lg py-md font-stats-numeric text-right">
+                        <span className="text-tertiary">{row?.yellow ?? 0}Y</span> · <span className="text-error">{row?.red ?? 0}R</span>
+                      </td>
+                    </tr>
+                    ))
+                  ) : (
+                    standings.map((row: any, i: number) => (
+                    <tr key={i} className="hover:bg-surface-container-high transition-colors">
+                      <td className="px-lg py-md">
+                        <div className="flex items-center gap-md">
+                          <div className="w-8 h-8 rounded bg-secondary-container/20 flex items-center justify-center text-secondary font-bold text-[12px]">{initials(row?.team_name)}</div>
+                          <span className="font-body-md font-semibold">{row?.team_name ?? '—'}</span>
+                        </div>
+                      </td>
+                      <td className="px-lg py-md font-stats-numeric">{row?.matches_played ?? 0}</td>
+                      <td className="px-lg py-md font-stats-numeric">{row?.points_scored ?? 0}</td>
+                      <td className="px-lg py-md font-stats-numeric text-secondary text-right">{row?.diff ?? 0}</td>
+                    </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

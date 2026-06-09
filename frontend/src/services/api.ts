@@ -69,6 +69,8 @@ export const api = {
     req(`/tournaments/${id}`, { method: 'DELETE' }),
   getTiebreakerOptions: () => req('/tournaments/tiebreaker_options'),
   tournamentStats: (id: string) => req(`/tournaments/${id}/stats`),
+  playerStats: (id: string) => req(`/tournaments/${id}/player_stats`),
+  teamStats: (id: string) => req(`/tournaments/${id}/team_stats`),
   updateLogo: (id: string, url: string) =>
     req(`/tournaments/${id}/logo`, { method: 'PUT', body: JSON.stringify({ url }) }),
   updateBanner: (id: string, url: string) =>

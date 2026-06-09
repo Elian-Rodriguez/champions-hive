@@ -11,12 +11,15 @@ from app.db.database import get_db
 from app.db.models import (
     Court,
     Match,
+    MatchStat,
     MatchStatus,
+    Player,
     SlotType,
     Sponsor,
     Stage,
     StageSlot,
     Team,
+    TeamPlayer,
     Tournament,
     TournamentPhoto,
     TournamentTeam,
@@ -829,6 +832,90 @@ def get_tournament_stats(tournament_id: UUID, db: Session = Depends(get_db)):
         "matches": num_matches,
         "finished_matches": finished,
     }
+
+
+@router.get("/{tournament_id}/player_stats")
+def get_player_stats(tournament_id: UUID, db: Session = Depends(get_db)):
+    """Estadísticas por jugador: goles y tarjetas agregadas desde los eventos."""
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    stage_ids = [s.id for s in tournament.stages]
+    if not stage_ids:
+        return []
+    match_ids = [
+        m.id for m in db.query(Match).filter(Match.stage_id.in_(stage_ids)).all()
+    ]
+    if not match_ids:
+        return []
+    events = (
+        db.query(MatchStat)
+        .filter(MatchStat.match_id.in_(match_ids), MatchStat.player_id.isnot(None))
+        .all()
+    )
+    agg: Dict[str, Dict[str, Any]] = {}
+    for e in events:
+        pid = str(e.player_id)
+        a = agg.setdefault(
+            pid, {"goals": 0, "yellow": 0, "blue": 0, "red": 0, "matches": set()}
+        )
+        et = (e.event_type or "").upper()
+        if et in ("GOL", "GOAL"):
+            a["goals"] += 1
+        elif et in ("AMARILLA", "YELLOW"):
+            a["yellow"] += 1
+        elif et in ("AZUL", "BLUE"):
+            a["blue"] += 1
+        elif et in ("ROJA", "RED"):
+            a["red"] += 1
+        a["matches"].add(str(e.match_id))
+    if not agg:
+        return []
+    pids = list(agg.keys())
+    players = {str(p.id): p for p in db.query(Player).filter(Player.id.in_(pids)).all()}
+    links = db.query(TeamPlayer).filter(TeamPlayer.player_id.in_(pids)).all()
+    player_team = {str(l.player_id): l.team_id for l in links}
+    team_ids = list({tid for tid in player_team.values() if tid})
+    team_names = (
+        {str(t.id): t.name for t in db.query(Team).filter(Team.id.in_(team_ids)).all()}
+        if team_ids
+        else {}
+    )
+    out = []
+    for pid, a in agg.items():
+        p = players.get(pid)
+        out.append(
+            {
+                "player_id": pid,
+                "player_name": p.name if p else "—",
+                "team_name": team_names.get(str(player_team.get(pid))),
+                "goals": a["goals"],
+                "yellow": a["yellow"],
+                "blue": a["blue"],
+                "red": a["red"],
+                "matches": len(a["matches"]),
+            }
+        )
+    out.sort(key=lambda x: (x["goals"], x["matches"]), reverse=True)
+    return out
+
+
+@router.get("/{tournament_id}/team_stats")
+def get_team_stats(tournament_id: UUID, db: Session = Depends(get_db)):
+    """Estadísticas por equipo: tabla global del torneo (todas las fases combinadas)."""
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    stage_ids = [s.id for s in tournament.stages]
+    matches = (
+        db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
+    )
+    if not matches:
+        return []
+    dicts = _matches_to_dicts(db, matches)
+    return calculate_standings(
+        dicts, _sport_type_str(tournament), tournament.tiebreaker_rules or None
+    )
 
 
 @router.put("/{tournament_id}/logo", response_model=TournamentResponse)

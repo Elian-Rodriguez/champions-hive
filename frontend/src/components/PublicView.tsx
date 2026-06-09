@@ -15,6 +15,8 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
   const [stats, setStats] = useState<any>(null)
   const [sponsors, setSponsors] = useState<any[]>([])
   const [photos, setPhotos] = useState<any[]>([])
+  const [playerStats, setPlayerStats] = useState<any[]>([])
+  const [teamStats, setTeamStats] = useState<any[]>([])
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -27,11 +29,15 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
     setStats(null)
     setSponsors([])
     setPhotos([])
+    setPlayerStats([])
+    setTeamStats([])
     const st = await api.getStages(t.id)
     setStages(st)
     api.tournamentStats(t.id).then(setStats).catch(() => {})
     api.getSponsors(t.id).then(setSponsors).catch(() => {})
     api.getPhotos(t.id).then(setPhotos).catch(() => {})
+    api.playerStats(t.id).then(setPlayerStats).catch(() => setPlayerStats([]))
+    api.teamStats(t.id).then(setTeamStats).catch(() => setTeamStats([]))
     if (st[0]) selectStage(st[0])
     else {
       setActiveStage(null)
@@ -177,6 +183,55 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
                 </div>
               )}
             </div>
+
+            {/* Estadísticas del torneo */}
+            {(playerStats.length > 0 || teamStats.length > 0) && (
+              <div className="mt-8 grid gap-6 lg:grid-cols-2">
+                <Card className="p-4">
+                  <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                    <Icon name="sports_soccer" className="text-secondary" /> Goleadores
+                  </h3>
+                  {playerStats.length === 0 ? (
+                    <p className="text-sm text-on-surface-variant">Sin datos de jugadores.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-on-surface-variant">
+                            <th className="px-2 py-1 text-left">#</th>
+                            <th className="px-2 py-1 text-left">Jugador</th>
+                            <th className="px-2 py-1 text-left">Equipo</th>
+                            <th className="px-2 py-1 text-center">Goles</th>
+                            <th className="px-2 py-1 text-center">PJ</th>
+                            <th className="px-2 py-1 text-center">🟨</th>
+                            <th className="px-2 py-1 text-center">🟥</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {playerStats.slice(0, 15).map((p, i) => (
+                            <tr key={p.player_id} className="border-t border-outline-variant/30">
+                              <td className="px-2 py-1 text-on-surface-variant">{i + 1}</td>
+                              <td className="px-2 py-1 font-medium">{p.player_name}</td>
+                              <td className="px-2 py-1 text-on-surface-variant">{p.team_name || '—'}</td>
+                              <td className="px-2 py-1 text-center font-bold text-secondary">{p.goals}</td>
+                              <td className="px-2 py-1 text-center">{p.matches}</td>
+                              <td className="px-2 py-1 text-center">{p.yellow}</td>
+                              <td className="px-2 py-1 text-center">{p.red}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+                <Card className="p-4">
+                  <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                    <Icon name="groups" className="text-secondary" /> Estadísticas por equipo
+                  </h3>
+                  <StandingsTable rows={teamStats} onRowClick={openProfile} />
+                </Card>
+              </div>
+            )}
 
             {/* Photos */}
             {photos.length > 0 && (

@@ -33,10 +33,12 @@ export default function ScreensGallery({ onBack }: { onBack: () => void }) {
       api.getTeams(tid).catch(() => []),
       api.getSponsors(tid).catch(() => []),
       api.getPhotos(tid).catch(() => []),
-    ]).then(async ([stg, stats, teams, sponsors, photos]) => {
+      api.playerStats(tid).catch(() => []),
+      api.teamStats(tid).catch(() => []),
+    ]).then(async ([stg, stats, teams, sponsors, photos, playerStats, teamStats]) => {
       setStages(stg)
       const firstTeamPlayers = teams[0] ? await api.getPlayers(teams[0].id).catch(() => []) : []
-      setData((d: any) => ({ ...d, tournament: t, stats, stages: stg, teams, sponsors, photos, firstTeamPlayers }))
+      setData((d: any) => ({ ...d, tournament: t, stats, stages: stg, teams, sponsors, photos, firstTeamPlayers, playerStats, teamStats }))
       setSid(stg[0] ? stg[0].id : '')
     })
   }, [tid, tournaments])
