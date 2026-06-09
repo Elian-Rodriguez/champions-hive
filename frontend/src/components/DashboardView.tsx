@@ -110,10 +110,10 @@ export default function DashboardView() {
       </div>
 
       {(t.live ?? 0) > 0 && (
-        <div className="flex items-center gap-2 rounded-xl border border-secondary/40 bg-secondary/10 px-4 py-2 text-sm text-secondary">
+        <div className="flex items-center gap-2 rounded-xl border border-tertiary/40 bg-tertiary/10 px-4 py-2 text-sm text-tertiary">
           <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-secondary opacity-75" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-secondary" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-tertiary opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-tertiary" />
           </span>
           {t.live} partido(s) en vivo ahora mismo
         </div>
@@ -144,7 +144,7 @@ export default function DashboardView() {
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="p-4 lg:col-span-2">
+        <Card accent="green" className="p-4 lg:col-span-2">
           <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
             <Icon name="show_chart" className="text-secondary" /> Goles por fecha
           </h3>

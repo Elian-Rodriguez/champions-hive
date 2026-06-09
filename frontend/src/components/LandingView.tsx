@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api } from '../services/api'
-import { Button, Card, Icon } from './ui'
+import { Button, Card, Icon, LiveChip } from './ui'
 
 const FEATURES = [
   { icon: 'sports_soccer', title: 'Multideporte', desc: 'Fútbol, microfútbol y baloncesto, cada uno con su lógica de puntuación.' },
@@ -109,9 +109,7 @@ export default function LandingView({
               <span className="flex items-center gap-2 text-sm font-semibold">
                 <Icon name="emoji_events" className="text-secondary" /> Final · Champions
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-error-container/40 px-2 py-0.5 text-xs font-bold text-error">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-error" /> EN VIVO
-              </span>
+              <LiveChip />
             </div>
             <div className="space-y-2">
               {[

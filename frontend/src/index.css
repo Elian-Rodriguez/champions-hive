@@ -115,3 +115,54 @@ body {
 .bk-round:not(.bk-final) .bk-pair.bk-solo::before {
   left: 100%;
 }
+
+/* ---- Marca y acentos (sistema Apex Arena / Stitch) ---- */
+.brand-wordmark {
+  font-family: 'Lexend', sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(100deg, #6bff8f 0%, #4ae176 45%, #00b954 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Tarjeta "hero" con filo superior en degradado de acento */
+.card-accent {
+  position: relative;
+}
+.card-accent::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(90deg, #4ae176, #00b954 55%, transparent);
+}
+.card-accent-orange::before {
+  background: linear-gradient(90deg, #ffb690, #d45d00 55%, transparent);
+}
+
+/* Indicador "en vivo" pulsante, estilo panel de instrumentos */
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+}
+.live-dot {
+  animation: live-pulse 1.7s ease-in-out infinite;
+}
+
+/* Glow ambiental para secciones hero (foco de estadio) */
+.hero-glow {
+  background:
+    radial-gradient(58% 50% at 12% 0%, rgba(74, 225, 118, 0.1), transparent 70%),
+    radial-gradient(48% 42% at 100% 100%, rgba(255, 182, 144, 0.07), transparent 70%);
+}
