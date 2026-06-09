@@ -40,3 +40,6 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Assets de diseño Stitch (binario grande, no se versiona)
+/stitch_championshive.zip
