@@ -78,6 +78,7 @@ export const api = {
   playerStats: (id: string) => req(`/tournaments/${id}/player_stats`),
   teamStats: (id: string) => req(`/tournaments/${id}/team_stats`),
   metrics: (id: string) => req(`/tournaments/${id}/metrics`),
+  fairplay: (id: string) => req(`/tournaments/${id}/fairplay`),
   updateLogo: (id: string, url: string) =>
     req(`/tournaments/${id}/logo`, { method: 'PUT', body: JSON.stringify({ url }) }),
   updateBanner: (id: string, url: string) =>

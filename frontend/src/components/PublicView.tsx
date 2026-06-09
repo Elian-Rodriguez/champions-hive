@@ -34,6 +34,7 @@ export default function PublicView({
   const [playerStats, setPlayerStats] = useState<any[]>([])
   const [teamStats, setTeamStats] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
+  const [fairPlay, setFairPlay] = useState<any[]>([])
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -61,6 +62,7 @@ export default function PublicView({
     setPlayerStats([])
     setTeamStats([])
     setMetrics(null)
+    setFairPlay([])
     setStandings({})
     setBracket(null)
     setAllMatches([])
@@ -74,6 +76,7 @@ export default function PublicView({
     api.playerStats(t.id).then(setPlayerStats).catch(() => {})
     api.teamStats(t.id).then(setTeamStats).catch(() => {})
     api.metrics(t.id).then(setMetrics).catch(() => {})
+    api.fairplay(t.id).then(setFairPlay).catch(() => {})
     const groupStages = st.filter((s: any) => s.type !== 'knockout')
     const koStages = st.filter((s: any) => s.type === 'knockout')
     if (groupStages[0]) selectPosStage(groupStages[0])
@@ -119,6 +122,7 @@ export default function PublicView({
       api.playerStats(selected.id).then(setPlayerStats).catch(() => {})
       api.teamStats(selected.id).then(setTeamStats).catch(() => {})
       api.metrics(selected.id).then(setMetrics).catch(() => {})
+      api.fairplay(selected.id).then(setFairPlay).catch(() => {})
     }, 15000)
     return () => clearInterval(id)
   }, [selected, posStage, koStage])
@@ -461,6 +465,44 @@ export default function PublicView({
                     <StandingsTable rows={teamStats} onRowClick={openProfile} />
                   </Card>
                   </div>
+                  {fairPlay.length > 0 && (
+                    <Card className="p-4">
+                      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                        <Icon name="handshake" className="text-secondary" /> Tabla de juego limpio
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-on-surface-variant">
+                              <th className="px-2 py-1 text-left">#</th>
+                              <th className="px-2 py-1 text-left">Equipo</th>
+                              <th className="px-2 py-1 text-center">PJ</th>
+                              {discCols.map((dc) => (
+                                <th key={dc.key} className="px-2 py-1 text-center">{dc.label}</th>
+                              ))}
+                              <th className="px-2 py-1 text-center font-bold">Pts</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fairPlay.map((r, i) => (
+                              <tr key={r.team_id} className="border-t border-outline-variant/30">
+                                <td className="px-2 py-1 text-on-surface-variant">{r.position ?? i + 1}</td>
+                                <td className="px-2 py-1 font-medium">{r.team_name || '—'}</td>
+                                <td className="px-2 py-1 text-center">{r.matches_played ?? 0}</td>
+                                {discCols.map((dc) => (
+                                  <td key={dc.key} className="px-2 py-1 text-center">{r[dc.key] ?? 0}</td>
+                                ))}
+                                <td className="px-2 py-1 text-center font-bold text-secondary">{r.penalty}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="mt-2 text-xs text-on-surface-variant">
+                        Menos puntos = juego más limpio (amarilla 1 · azul 2 · roja 3 · falta 1).
+                      </p>
+                    </Card>
+                  )}
                 </div>
               )}
             </div>

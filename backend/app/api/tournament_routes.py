@@ -1201,6 +1201,81 @@ def get_team_stats(tournament_id: UUID, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/{tournament_id}/fairplay")
+def fairplay(tournament_id: UUID, db: Session = Depends(get_db)):
+    """Tabla de juego limpio: ranking por menor penalización (tarjetas/faltas).
+    Pesos: amarilla=1, azul=2, roja=3, falta=1. Menos puntos = más limpio."""
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    stage_ids = [s.id for s in tournament.stages]
+    matches = (
+        db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
+    )
+    if not matches:
+        return []
+    match_map = {str(m.id): m for m in matches}
+    team_ids = set()
+    for m in matches:
+        if m.home_team_id:
+            team_ids.add(m.home_team_id)
+        if m.away_team_id:
+            team_ids.add(m.away_team_id)
+    names = _name_map(db, team_ids)
+    agg = {str(tid): {"yellow": 0, "blue": 0, "red": 0, "fouls": 0} for tid in team_ids}
+    for e in (
+        db.query(MatchStat)
+        .filter(MatchStat.match_id.in_(list(match_map.keys())))
+        .all()
+    ):
+        m = match_map.get(str(e.match_id))
+        if not m:
+            continue
+        side = (e.event_data or {}).get("team")
+        team_id = (
+            str(m.home_team_id)
+            if side == "home"
+            else (str(m.away_team_id) if side == "away" else None)
+        )
+        if not team_id or team_id not in agg:
+            continue
+        et = (e.event_type or "").upper()
+        if et in ("AMARILLA", "YELLOW"):
+            agg[team_id]["yellow"] += 1
+        elif et in ("AZUL", "BLUE"):
+            agg[team_id]["blue"] += 1
+        elif et in ("ROJA", "RED"):
+            agg[team_id]["red"] += 1
+        elif et in ("FALTA", "FOUL", "TECNICA", "ANTIDEPORTIVA"):
+            agg[team_id]["fouls"] += 1
+    played: Dict[str, int] = defaultdict(int)
+    for m in matches:
+        if _status_str(m) == "finished":
+            if m.home_team_id:
+                played[str(m.home_team_id)] += 1
+            if m.away_team_id:
+                played[str(m.away_team_id)] += 1
+    out = []
+    for tid, a in agg.items():
+        penalty = a["yellow"] + a["blue"] * 2 + a["red"] * 3 + a["fouls"]
+        out.append(
+            {
+                "team_id": tid,
+                "team_name": names.get(tid),
+                "matches_played": played.get(tid, 0),
+                "yellow": a["yellow"],
+                "blue": a["blue"],
+                "red": a["red"],
+                "fouls": a["fouls"],
+                "penalty": penalty,
+            }
+        )
+    out.sort(key=lambda x: (x["penalty"], x["red"], x["blue"], x["yellow"]))
+    for i, r in enumerate(out, start=1):
+        r["position"] = i
+    return out
+
+
 @router.get("/{tournament_id}/metrics")
 def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
     """Métricas agregadas para gráficas: goles por fecha y totales del torneo."""
@@ -1376,5 +1451,66 @@ def delete_tournament(
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
-    db.delete(tournament)
+
+    stage_ids = [
+        s.id for s in db.query(Stage).filter(Stage.tournament_id == tournament_id).all()
+    ]
+    match_ids = (
+        [m.id for m in db.query(Match).filter(Match.stage_id.in_(stage_ids)).all()]
+        if stage_ids
+        else []
+    )
+    team_ids = [
+        l.team_id
+        for l in db.query(TournamentTeam)
+        .filter(TournamentTeam.tournament_id == tournament_id)
+        .all()
+    ]
+    player_ids = (
+        [
+            tp.player_id
+            for tp in db.query(TeamPlayer).filter(TeamPlayer.team_id.in_(team_ids)).all()
+        ]
+        if team_ids
+        else []
+    )
+
+    # Borrado explícito hijo->padre (las claves foráneas de Postgres lo exigen).
+    if stage_ids:
+        db.query(StageSlot).filter(StageSlot.stage_id.in_(stage_ids)).delete(
+            synchronize_session=False
+        )
+    if match_ids:
+        db.query(MatchStat).filter(MatchStat.match_id.in_(match_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(Match).filter(Match.id.in_(match_ids)).delete(
+            synchronize_session=False
+        )
+    if stage_ids:
+        db.query(Stage).filter(Stage.id.in_(stage_ids)).delete(
+            synchronize_session=False
+        )
+    if team_ids:
+        db.query(TeamPlayer).filter(TeamPlayer.team_id.in_(team_ids)).delete(
+            synchronize_session=False
+        )
+    if player_ids:
+        db.query(Player).filter(Player.id.in_(player_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(TournamentTeam).filter(
+        TournamentTeam.tournament_id == tournament_id
+    ).delete(synchronize_session=False)
+    if team_ids:
+        db.query(Team).filter(Team.id.in_(team_ids)).delete(synchronize_session=False)
+    db.query(Sponsor).filter(Sponsor.tournament_id == tournament_id).delete(
+        synchronize_session=False
+    )
+    db.query(TournamentPhoto).filter(
+        TournamentPhoto.tournament_id == tournament_id
+    ).delete(synchronize_session=False)
+    db.query(Tournament).filter(Tournament.id == tournament_id).delete(
+        synchronize_session=False
+    )
     db.commit()
