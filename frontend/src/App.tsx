@@ -6,9 +6,8 @@ import PublicView from './components/PublicView'
 import LoginView from './components/LoginView'
 import AdminView from './components/AdminView'
 import RefereeView from './components/RefereeView'
-import ScreensGallery from './components/ScreensGallery'
 
-export type View = 'landing' | 'public' | 'login' | 'app' | 'screens'
+export type View = 'landing' | 'public' | 'login' | 'app'
 
 export default function App() {
   const { token, role } = useAppSelector((s) => s.auth)
@@ -35,9 +34,6 @@ export default function App() {
       <PublicView onBack={() => setView('landing')} initialTournamentId={publicTid} />
     )
   }
-  if (view === 'screens') {
-    return <ScreensGallery onBack={() => setView('landing')} />
-  }
   return (
     <LandingView
       authed={!!token}
@@ -47,7 +43,6 @@ export default function App() {
         setView('public')
       }}
       onEnter={() => setView(token ? 'app' : 'login')}
-      onScreens={() => setView('screens')}
       onOpenTournament={(id) => {
         setPublicTid(id)
         setView('public')

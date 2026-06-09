@@ -24,14 +24,12 @@ export default function LandingView({
   onLogin,
   onPublic,
   onEnter,
-  onScreens,
   onOpenTournament,
 }: {
   authed: boolean
   onLogin: () => void
   onPublic: () => void
   onEnter: () => void
-  onScreens: () => void
   onOpenTournament: (id: string) => void
 }) {
   const [tournaments, setTournaments] = useState<any[]>([])
@@ -226,7 +224,6 @@ export default function LandingView({
               KPIs, goleadores y gráficas en vivo.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button variant="outline" onClick={onScreens}><Icon name="palette" /> Ver galería de diseños</Button>
               <Button variant="ghost" onClick={onPublic}><Icon name="scoreboard" /> Marcador en vivo</Button>
             </div>
           </motion.div>
