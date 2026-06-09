@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_admin
+from app.core.deps import get_current_user, require_admin
 from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
@@ -14,7 +14,7 @@ from app.core.security import (
 )
 from app.db.database import get_db
 from app.db.models import User
-from app.schemas import Token, UserCreate, UserResponse
+from app.schemas import PasswordChange, Token, UserCreate, UserResponse
 
 router = APIRouter()
 
@@ -51,6 +51,25 @@ def login(
         )
     token = create_access_token({"sub": user.email, "role": user.role})
     return Token(access_token=token, token_type="bearer", role=user.role)
+
+
+@router.post("/change_password")
+def change_password(
+    payload: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Permite al usuario autenticado cambiar su propia contraseña."""
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user or not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+    if len(payload.new_password) < 4:
+        raise HTTPException(
+            status_code=400, detail="La nueva contraseña es demasiado corta"
+        )
+    user.hashed_password = get_password_hash(payload.new_password)
+    db.commit()
+    return {"message": "Contraseña actualizada"}
 
 
 @router.get("/users", response_model=List[UserResponse])

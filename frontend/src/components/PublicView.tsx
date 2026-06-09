@@ -5,13 +5,29 @@ import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 
-export default function PublicView({ onBack }: { onBack: () => void }) {
+const STATUS_LABEL: Record<string, string> = {
+  scheduled: 'Programado',
+  live: 'En vivo',
+  finished: 'Finalizado',
+}
+type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
+
+export default function PublicView({
+  onBack,
+  initialTournamentId,
+}: {
+  onBack: () => void
+  initialTournamentId?: string | null
+}) {
   const [tournaments, setTournaments] = useState<any[]>([])
   const [selected, setSelected] = useState<any>(null)
   const [stages, setStages] = useState<any[]>([])
-  const [activeStage, setActiveStage] = useState<any>(null)
+  const [tab, setTab] = useState<PubTab>('posiciones')
+  const [posStage, setPosStage] = useState<any>(null)
   const [standings, setStandings] = useState<Record<string, any[]>>({})
+  const [koStage, setKoStage] = useState<any>(null)
   const [bracket, setBracket] = useState<any>(null)
+  const [allMatches, setAllMatches] = useState<any[]>([])
   const [stats, setStats] = useState<any>(null)
   const [sponsors, setSponsors] = useState<any[]>([])
   const [photos, setPhotos] = useState<any[]>([])
@@ -21,39 +37,65 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.getTournaments().then(setTournaments).catch(() => setTournaments([])).finally(() => setLoading(false))
+    api
+      .getTournaments()
+      .then((ts) => {
+        setTournaments(ts)
+        if (initialTournamentId) {
+          const t = ts.find((x: any) => x.id === initialTournamentId)
+          if (t) openTournament(t)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function openTournament(t: any) {
     setSelected(t)
+    setTab('posiciones')
     setStats(null)
     setSponsors([])
     setPhotos([])
     setPlayerStats([])
     setTeamStats([])
+    setStandings({})
+    setBracket(null)
+    setAllMatches([])
+    setPosStage(null)
+    setKoStage(null)
     const st = await api.getStages(t.id)
     setStages(st)
     api.tournamentStats(t.id).then(setStats).catch(() => {})
     api.getSponsors(t.id).then(setSponsors).catch(() => {})
     api.getPhotos(t.id).then(setPhotos).catch(() => {})
-    api.playerStats(t.id).then(setPlayerStats).catch(() => setPlayerStats([]))
-    api.teamStats(t.id).then(setTeamStats).catch(() => setTeamStats([]))
-    if (st[0]) selectStage(st[0])
-    else {
-      setActiveStage(null)
-      setStandings({})
-      setBracket(null)
-    }
+    api.playerStats(t.id).then(setPlayerStats).catch(() => {})
+    api.teamStats(t.id).then(setTeamStats).catch(() => {})
+    const groupStages = st.filter((s: any) => s.type !== 'knockout')
+    const koStages = st.filter((s: any) => s.type === 'knockout')
+    if (groupStages[0]) selectPosStage(groupStages[0])
+    if (koStages[0]) selectKoStage(koStages[0])
+    const all = (
+      await Promise.all(
+        st.map((s: any) =>
+          api
+            .stageMatches(s.id)
+            .then((ms: any[]) => ms.map((m) => ({ ...m, stage_name: s.name })))
+            .catch(() => []),
+        ),
+      )
+    ).flat()
+    setAllMatches(all)
   }
 
-  async function selectStage(s: any) {
-    setActiveStage(s)
-    setBracket(null)
-    setStandings({})
-    if (s.type === 'knockout') setBracket(await api.bracketTree(s.id))
-    else setStandings(await api.standingsByGroup(s.id))
+  async function selectPosStage(s: any) {
+    setPosStage(s)
+    setStandings(await api.standingsByGroup(s.id).catch(() => ({})))
   }
-
+  async function selectKoStage(s: any) {
+    setKoStage(s)
+    setBracket(await api.bracketTree(s.id).catch(() => null))
+  }
   async function openProfile(row: any) {
     if (!row.team_id) return
     let players: any[] = []
@@ -65,22 +107,34 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
     setProfile({ name: row.team_name || 'Equipo', row, players })
   }
 
-  // Auto-refresco (tiempo real ligero) cada 15s del torneo abierto
+  // Auto-refresco (tiempo real ligero)
   useEffect(() => {
     if (!selected) return
     const id = setInterval(() => {
-      if (activeStage) {
-        if (activeStage.type === 'knockout')
-          api.bracketTree(activeStage.id).then(setBracket).catch(() => {})
-        else api.standingsByGroup(activeStage.id).then(setStandings).catch(() => {})
-      }
+      if (posStage) api.standingsByGroup(posStage.id).then(setStandings).catch(() => {})
+      if (koStage) api.bracketTree(koStage.id).then(setBracket).catch(() => {})
       api.playerStats(selected.id).then(setPlayerStats).catch(() => {})
       api.teamStats(selected.id).then(setTeamStats).catch(() => {})
     }, 15000)
     return () => clearInterval(id)
-  }, [selected, activeStage])
+  }, [selected, posStage, koStage])
 
-  const hasStandings = Object.keys(standings).length > 0
+  const groupStages = stages.filter((s) => s.type !== 'knockout')
+  const koStages = stages.filter((s) => s.type === 'knockout')
+
+  const byDate: Record<string, any[]> = {}
+  allMatches.forEach((m) => {
+    const d = m.scheduled_start ? String(m.scheduled_start).slice(0, 10) : 'Sin programar'
+    ;(byDate[d] = byDate[d] || []).push(m)
+  })
+  const dates = Object.keys(byDate).sort()
+
+  const TABS: { key: PubTab; label: string; icon: string }[] = [
+    { key: 'posiciones', label: 'Posiciones / Grupos', icon: 'leaderboard' },
+    { key: 'bracket', label: 'Bracket', icon: 'account_tree' },
+    { key: 'calendario', label: 'Calendario', icon: 'calendar_month' },
+    { key: 'estadisticas', label: 'Estadísticas', icon: 'bar_chart' },
+  ]
 
   return (
     <div className="min-h-screen bg-surface text-on-surface">
@@ -102,7 +156,7 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
           </div>
         ) : !selected ? (
           tournaments.length === 0 ? (
-            <EmptyState icon="trophy" title="No hay torneos públicos todavía" />
+            <EmptyState icon="trophy" title="No hay torneos todavía" />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {tournaments.map((t) => (
@@ -127,13 +181,9 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
             <button onClick={() => setSelected(null)} className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
               <Icon name="arrow_back" className="text-base" /> Todos los torneos
             </button>
-
-            {selected.banner_url && (
-              <img src={selected.banner_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />
-            )}
+            {selected.banner_url && <img src={selected.banner_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />}
             <h2 className="font-display text-2xl font-bold">{selected.name}</h2>
 
-            {/* Stats */}
             {stats && (
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
@@ -151,12 +201,11 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
               </div>
             )}
 
-            {/* Sponsors */}
             {sponsors.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <span className="text-xs uppercase text-on-surface-variant">Patrocinan:</span>
                 {sponsors.map((sp) => (
-                  <a key={sp.id} href={sp.website_url || '#'} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm text-on-surface hover:text-secondary">
+                  <a key={sp.id} href={sp.website_url || '#'} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm hover:text-secondary">
                     {sp.logo_url ? <img src={sp.logo_url} alt={sp.name} className="h-6" /> : <Icon name="handshake" className="text-base" />}
                     {sp.name}
                   </a>
@@ -164,91 +213,151 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
               </div>
             )}
 
-            {/* Stage tabs */}
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              {stages.map((s) => (
-                <Button key={s.id} variant={activeStage?.id === s.id ? 'primary' : 'ghost'} onClick={() => selectStage(s)}>
-                  {s.name}
-                </Button>
+            {/* Tabs */}
+            <div className="mt-5 flex flex-wrap gap-2 border-b border-outline-variant/30 pb-3">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                    tab === t.key ? 'bg-secondary text-on-secondary' : 'text-on-surface-variant hover:bg-surface-container-high'
+                  }`}
+                >
+                  <Icon name={t.icon} className="text-base" /> {t.label}
+                </button>
               ))}
-              {hasStandings && (
-                <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(selected.name, standings)}>
-                  <Icon name="picture_as_pdf" /> Exportar PDF
-                </Button>
-              )}
             </div>
 
             <div className="mt-6">
-              {!activeStage ? (
-                <EmptyState icon="account_tree" title="Este torneo aún no tiene fases" />
-              ) : bracket ? (
-                <Card className="p-4">
-                  <TournamentBracket tree={bracket} />
-                </Card>
-              ) : (
-                <div className="space-y-6">
-                  {Object.entries(standings).map(([group, rows]) => (
-                    <Card key={group} className="p-4">
-                      <h3 className="mb-2 font-display font-semibold">
-                        {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
-                      </h3>
-                      <StandingsTable rows={rows} onRowClick={openProfile} />
+              {tab === 'posiciones' && (
+                <div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {groupStages.map((s) => (
+                      <Button key={s.id} variant={posStage?.id === s.id ? 'primary' : 'ghost'} onClick={() => selectPosStage(s)}>
+                        {s.name}
+                      </Button>
+                    ))}
+                    {Object.keys(standings).length > 0 && (
+                      <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(selected.name, standings)}>
+                        <Icon name="picture_as_pdf" /> PDF
+                      </Button>
+                    )}
+                  </div>
+                  {groupStages.length === 0 ? (
+                    <EmptyState icon="leaderboard" title="Sin fases de grupos/liga" />
+                  ) : (
+                    <div className="space-y-6">
+                      {Object.entries(standings).map(([group, rows]) => (
+                        <Card key={group} className="p-4">
+                          <h3 className="mb-2 font-display font-semibold">{group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}</h3>
+                          <StandingsTable rows={rows} onRowClick={openProfile} />
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tab === 'bracket' && (
+                <div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {koStages.map((s) => (
+                      <Button key={s.id} variant={koStage?.id === s.id ? 'primary' : 'ghost'} onClick={() => selectKoStage(s)}>
+                        {s.name}
+                      </Button>
+                    ))}
+                  </div>
+                  {koStages.length === 0 ? (
+                    <EmptyState icon="account_tree" title="Sin fases de eliminación" />
+                  ) : (
+                    <Card className="p-4">
+                      <TournamentBracket tree={bracket} />
                     </Card>
-                  ))}
+                  )}
+                </div>
+              )}
+
+              {tab === 'calendario' && (
+                allMatches.length === 0 ? (
+                  <EmptyState icon="event_busy" title="Sin partidos" />
+                ) : (
+                  <div className="space-y-5">
+                    {dates.map((d) => (
+                      <div key={d}>
+                        <h3 className="mb-2 font-display font-semibold text-secondary">
+                          {d === 'Sin programar' ? 'Sin programar' : d}
+                        </h3>
+                        <div className="space-y-2">
+                          {byDate[d]
+                            .slice()
+                            .sort((a, b) => String(a.scheduled_start || '').localeCompare(String(b.scheduled_start || '')))
+                            .map((m) => (
+                              <Card key={m.id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
+                                <span className="w-12 text-on-surface-variant">
+                                  {m.scheduled_start ? String(m.scheduled_start).slice(11, 16) : '--:--'}
+                                </span>
+                                <span className="flex-1 truncate text-right font-medium">{m.home_team_name || 'Por definir'}</span>
+                                <span className="font-display font-bold tabular-nums">
+                                  {m.status === 'scheduled' ? 'vs' : `${m.home_score ?? 0} - ${m.away_score ?? 0}`}
+                                </span>
+                                <span className="flex-1 truncate font-medium">{m.away_team_name || 'Por definir'}</span>
+                                <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
+                              </Card>
+                            ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {tab === 'estadisticas' && (
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <Card className="p-4">
+                    <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                      <Icon name="sports_soccer" className="text-secondary" /> Goleadores
+                    </h3>
+                    {playerStats.length === 0 ? (
+                      <p className="text-sm text-on-surface-variant">Sin datos de jugadores.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-on-surface-variant">
+                              <th className="px-2 py-1 text-left">#</th>
+                              <th className="px-2 py-1 text-left">Jugador</th>
+                              <th className="px-2 py-1 text-left">Equipo</th>
+                              <th className="px-2 py-1 text-center">Goles</th>
+                              <th className="px-2 py-1 text-center">🟨</th>
+                              <th className="px-2 py-1 text-center">🟥</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {playerStats.slice(0, 20).map((p, i) => (
+                              <tr key={p.player_id} className="border-t border-outline-variant/30">
+                                <td className="px-2 py-1 text-on-surface-variant">{i + 1}</td>
+                                <td className="px-2 py-1 font-medium">{p.player_name}</td>
+                                <td className="px-2 py-1 text-on-surface-variant">{p.team_name || '—'}</td>
+                                <td className="px-2 py-1 text-center font-bold text-secondary">{p.goals}</td>
+                                <td className="px-2 py-1 text-center">{p.yellow}</td>
+                                <td className="px-2 py-1 text-center">{p.red}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Card>
+                  <Card className="p-4">
+                    <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                      <Icon name="groups" className="text-secondary" /> Estadísticas por equipo
+                    </h3>
+                    <StandingsTable rows={teamStats} onRowClick={openProfile} />
+                  </Card>
                 </div>
               )}
             </div>
 
-            {/* Estadísticas del torneo */}
-            {(playerStats.length > 0 || teamStats.length > 0) && (
-              <div className="mt-8 grid gap-6 lg:grid-cols-2">
-                <Card className="p-4">
-                  <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                    <Icon name="sports_soccer" className="text-secondary" /> Goleadores
-                  </h3>
-                  {playerStats.length === 0 ? (
-                    <p className="text-sm text-on-surface-variant">Sin datos de jugadores.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-on-surface-variant">
-                            <th className="px-2 py-1 text-left">#</th>
-                            <th className="px-2 py-1 text-left">Jugador</th>
-                            <th className="px-2 py-1 text-left">Equipo</th>
-                            <th className="px-2 py-1 text-center">Goles</th>
-                            <th className="px-2 py-1 text-center">PJ</th>
-                            <th className="px-2 py-1 text-center">🟨</th>
-                            <th className="px-2 py-1 text-center">🟥</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {playerStats.slice(0, 15).map((p, i) => (
-                            <tr key={p.player_id} className="border-t border-outline-variant/30">
-                              <td className="px-2 py-1 text-on-surface-variant">{i + 1}</td>
-                              <td className="px-2 py-1 font-medium">{p.player_name}</td>
-                              <td className="px-2 py-1 text-on-surface-variant">{p.team_name || '—'}</td>
-                              <td className="px-2 py-1 text-center font-bold text-secondary">{p.goals}</td>
-                              <td className="px-2 py-1 text-center">{p.matches}</td>
-                              <td className="px-2 py-1 text-center">{p.yellow}</td>
-                              <td className="px-2 py-1 text-center">{p.red}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </Card>
-                <Card className="p-4">
-                  <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                    <Icon name="groups" className="text-secondary" /> Estadísticas por equipo
-                  </h3>
-                  <StandingsTable rows={teamStats} onRowClick={openProfile} />
-                </Card>
-              </div>
-            )}
-
-            {/* Photos */}
             {photos.length > 0 && (
               <div className="mt-8">
                 <h3 className="mb-2 font-display font-semibold">Galería</h3>
@@ -266,10 +375,9 @@ export default function PublicView({ onBack }: { onBack: () => void }) {
         )}
       </main>
 
-      {/* Perfil de equipo */}
       {profile && (
         <div className="fixed inset-0 z-30 grid place-items-center bg-black/60 p-4" onClick={() => setProfile(null)}>
-          <Card className="w-full max-w-md p-6" >
+          <Card className="w-full max-w-md p-6">
             <div className="mb-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
               <h3 className="font-display text-xl font-bold">{profile.name}</h3>
               <button onClick={() => setProfile(null)}>

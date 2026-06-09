@@ -47,6 +47,11 @@ export const api = {
     req('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   listUsers: () => req('/auth/users'),
   deleteUser: (id: string) => req(`/auth/users/${id}`, { method: 'DELETE' }),
+  changePassword: (current_password: string, new_password: string) =>
+    req('/auth/change_password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password, new_password }),
+    }),
 
   // ---- Tournaments ----
   getTournaments: () => req('/tournaments'),

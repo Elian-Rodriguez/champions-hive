@@ -13,6 +13,7 @@ export type View = 'landing' | 'public' | 'login' | 'app' | 'screens'
 export default function App() {
   const { token, role } = useAppSelector((s) => s.auth)
   const [view, setView] = useState<View>('landing')
+  const [publicTid, setPublicTid] = useState<string | null>(null)
 
   if (view === 'app' && token) {
     return (
@@ -30,7 +31,9 @@ export default function App() {
     )
   }
   if (view === 'public') {
-    return <PublicView onBack={() => setView('landing')} />
+    return (
+      <PublicView onBack={() => setView('landing')} initialTournamentId={publicTid} />
+    )
   }
   if (view === 'screens') {
     return <ScreensGallery onBack={() => setView('landing')} />
@@ -39,9 +42,16 @@ export default function App() {
     <LandingView
       authed={!!token}
       onLogin={() => setView('login')}
-      onPublic={() => setView('public')}
+      onPublic={() => {
+        setPublicTid(null)
+        setView('public')
+      }}
       onEnter={() => setView(token ? 'app' : 'login')}
       onScreens={() => setView('screens')}
+      onOpenTournament={(id) => {
+        setPublicTid(id)
+        setView('public')
+      }}
     />
   )
 }
