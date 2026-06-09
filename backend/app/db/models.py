@@ -135,7 +135,8 @@ class Team(Base):
     name = Column(String, nullable=False)
     logo_url = Column(String)
     photo_url = Column(String)
-    color = Column(String)  # color del uniforme (hex), p.ej. "#e11d48"
+    color = Column(String)  # color principal del uniforme (hex)
+    colors = Column(JSON)  # lista de uniformes (hex): local, visitante, alternativo…
 
 
 class Player(Base):

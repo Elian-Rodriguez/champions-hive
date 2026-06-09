@@ -28,6 +28,7 @@ def _team_payload(team: Team, link: TournamentTeam | None) -> dict:
         "logo_url": team.logo_url,
         "photo_url": team.photo_url,
         "color": team.color,
+        "colors": team.colors or ([team.color] if team.color else []),
         "group_name": link.group_name if link else None,
         "status": link.status if link else None,
     }
@@ -49,11 +50,13 @@ def register_team_in_tournament(
 ):
     if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    colors = team.colors or ([team.color] if team.color else None)
     obj = Team(
         name=team.name,
         logo_url=team.logo_url,
         photo_url=team.photo_url,
-        color=team.color,
+        color=(colors[0] if colors else None),
+        colors=colors,
     )
     db.add(obj)
     db.flush()
@@ -148,6 +151,8 @@ def update_team(
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
     for key, value in payload_in.model_dump(exclude_unset=True).items():
         setattr(team, key, value)
+    if team.colors:
+        team.color = team.colors[0]
     db.commit()
     db.refresh(team)
     return _team_payload(team, None)

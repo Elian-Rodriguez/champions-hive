@@ -316,6 +316,46 @@ function PlayersBlock({ teamId }: { teamId: string }) {
   )
 }
 
+function TeamColors({
+  team,
+  onChange,
+}: {
+  team: any
+  onChange: (colors: string[]) => void
+}) {
+  const colors: string[] =
+    team.colors && team.colors.length ? team.colors : team.color ? [team.color] : []
+  const [pick, setPick] = useState('#39d353')
+  return (
+    <span className="flex items-center gap-1">
+      {colors.map((col, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => colors.length > 1 && onChange(colors.filter((_, j) => j !== i))}
+          title="Quitar uniforme"
+          className="h-5 w-5 rounded-full border border-outline-variant"
+          style={{ background: col }}
+        />
+      ))}
+      <input
+        type="color"
+        value={pick}
+        onChange={(e) => setPick(e.target.value)}
+        className="h-5 w-5 cursor-pointer rounded border border-outline-variant bg-transparent"
+      />
+      <button
+        type="button"
+        onClick={() => onChange([...colors, pick])}
+        className="grid h-5 w-5 place-items-center rounded bg-surface-bright text-on-surface"
+        title="Agregar uniforme"
+      >
+        <Icon name="add" className="text-xs" />
+      </button>
+    </span>
+  )
+}
+
 function EquiposTab({ tournament }: { tournament: any }) {
   const [teams, setTeams] = useState<any[]>([])
   const [name, setName] = useState('')
@@ -335,7 +375,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
         onSubmit={async (e) => {
           e.preventDefault()
           if (!name.trim()) return
-          await api.addTeam(tournament.id, { name, group_name: group || null, color })
+          await api.addTeam(tournament.id, { name, group_name: group || null, color, colors: [color] })
           setName('')
           setGroup('')
           load()
@@ -400,15 +440,12 @@ function EquiposTab({ tournament }: { tournament: any }) {
                 </button>
                 <span className="flex items-center gap-2">
                   <Badge className="bg-surface-container-highest text-on-surface-variant">{t.group_name || 'Sin grupo'}</Badge>
-                  <input
-                    type="color"
-                    value={t.color || '#39d353'}
-                    onChange={async (e) => {
-                      await api.updateTeam(t.id, { color: e.target.value })
+                  <TeamColors
+                    team={t}
+                    onChange={async (cols) => {
+                      await api.updateTeam(t.id, { colors: cols, color: cols[0] || null })
                       load()
                     }}
-                    className="h-6 w-6 shrink-0 cursor-pointer rounded border border-outline-variant bg-transparent"
-                    title="Color del uniforme"
                   />
                   <button
                     onClick={async () => {

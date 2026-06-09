@@ -29,7 +29,7 @@ export default function RefereeView() {
   const [selAway, setSelAway] = useState('')
   const [events, setEvents] = useState<any[]>([])
   const [minute, setMinute] = useState('')
-  const [teamColors, setTeamColors] = useState<Record<string, string>>({})
+  const [teamColors, setTeamColors] = useState<Record<string, string[]>>({})
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -54,7 +54,12 @@ export default function RefereeView() {
     setStages(await api.getStages(t.id))
     const teams = await api.getTeams(t.id).catch(() => [])
     setTeamColors(
-      Object.fromEntries(teams.map((x: any) => [String(x.id), x.color])),
+      Object.fromEntries(
+        teams.map((x: any) => [
+          String(x.id),
+          x.colors && x.colors.length ? x.colors : x.color ? [x.color] : [],
+        ]),
+      ),
     )
   }
   async function pickStage(s: any) {
@@ -160,7 +165,7 @@ export default function RefereeView() {
             <SideColumn
               name={match.home_team_name}
               score={home}
-              color={teamColors[String(match.home_team_id)]}
+              colors={teamColors[String(match.home_team_id)]}
               players={homePlayers}
               selected={selHome}
               onSelect={setSelHome}
@@ -173,7 +178,7 @@ export default function RefereeView() {
             <SideColumn
               name={match.away_team_name}
               score={away}
-              color={teamColors[String(match.away_team_id)]}
+              colors={teamColors[String(match.away_team_id)]}
               players={awayPlayers}
               selected={selAway}
               onSelect={setSelAway}
@@ -297,7 +302,7 @@ export default function RefereeView() {
                         <span className="flex flex-1 items-center gap-1.5 truncate font-medium">
                           <span
                             className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: teamColors[String(m.home_team_id)] || '#64748b' }}
+                            style={{ background: (teamColors[String(m.home_team_id)] || [])[0] || '#64748b' }}
                           />
                           {m.home_team_name || 'Por definir'}
                         </span>
@@ -308,7 +313,7 @@ export default function RefereeView() {
                           {m.away_team_name || 'Por definir'}
                           <span
                             className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: teamColors[String(m.away_team_id)] || '#64748b' }}
+                            style={{ background: (teamColors[String(m.away_team_id)] || [])[0] || '#64748b' }}
                           />
                         </span>
                       </div>
@@ -330,7 +335,7 @@ export default function RefereeView() {
 function SideColumn({
   name,
   score,
-  color,
+  colors,
   players,
   selected,
   onSelect,
@@ -341,7 +346,7 @@ function SideColumn({
 }: {
   name: string | null
   score: number
-  color?: string
+  colors?: string[]
   players: any[]
   selected: string
   onSelect: (id: string) => void
@@ -350,12 +355,14 @@ function SideColumn({
   onGoal: () => void
   onCard: (type: string) => void
 }) {
+  const kit = colors && colors.length ? colors : ['#64748b']
   return (
     <div>
-      <div
-        className="mx-auto mb-1.5 h-1.5 w-12 rounded-full"
-        style={{ background: color || '#64748b' }}
-      />
+      <div className="mx-auto mb-1.5 flex w-14 justify-center gap-0.5" title="Uniformes">
+        {kit.map((col, i) => (
+          <div key={i} className="h-1.5 flex-1 rounded-full" style={{ background: col }} />
+        ))}
+      </div>
       <p className="mb-2 truncate font-display font-semibold">{name || 'Por definir'}</p>
       <div className="font-display text-5xl font-extrabold tabular-nums text-secondary">{score}</div>
       <div className="mt-2 flex justify-center gap-2">

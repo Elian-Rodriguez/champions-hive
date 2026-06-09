@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.db.models import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+oauth2_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
 
 _credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -33,6 +34,22 @@ def get_current_user(
     if user is None or not user.is_active:
         raise _credentials_exception
     return user
+
+
+def get_current_user_optional(
+    token: str = Depends(oauth2_optional), db: Session = Depends(get_db)
+):
+    """Devuelve el usuario autenticado si hay token válido, o None (sin error)."""
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+        email = payload.get("sub")
+        if not email:
+            return None
+    except JWTError:
+        return None
+    return db.query(User).filter(User.email == email).first()
 
 
 def require_roles(*roles: str):

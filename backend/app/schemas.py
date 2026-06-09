@@ -64,6 +64,7 @@ class TeamBase(BaseModel):
     logo_url: Optional[str] = None
     photo_url: Optional[str] = None
     color: Optional[str] = None
+    colors: Optional[List[str]] = None
 
 
 class TeamCreate(TeamBase):

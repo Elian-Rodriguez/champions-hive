@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, get_current_user_optional, require_admin
 from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
@@ -20,9 +20,23 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user_in: UserCreate, db: Session = Depends(get_db)):
+def register(
+    user_in: UserCreate,
+    current=Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    # Bootstrap: si aún no hay usuarios se permite crear el primero.
+    # Después, solo un administrador autenticado puede crear usuarios.
+    if db.query(User).count() > 0 and (current is None or current.role != "admin"):
+        raise HTTPException(
+            status_code=403, detail="Solo un administrador puede crear usuarios"
+        )
     if db.query(User).filter(User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="El email ya está registrado")
+    if len(user_in.password) < 6:
+        raise HTTPException(
+            status_code=400, detail="La contraseña debe tener al menos 6 caracteres"
+        )
     user = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),

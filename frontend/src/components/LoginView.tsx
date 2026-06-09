@@ -13,10 +13,8 @@ export default function LoginView({
   onBack: () => void
 }) {
   const dispatch = useAppDispatch()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('admin')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -25,9 +23,6 @@ export default function LoginView({
     setError(null)
     setLoading(true)
     try {
-      if (mode === 'register') {
-        await api.register({ email, password, role })
-      }
       const data = await api.login(email, password)
       dispatch(
         setCredentials({
@@ -64,17 +59,13 @@ export default function LoginView({
           </span>
           <div>
             <h1 className="font-display text-2xl font-bold">Champion Hive</h1>
-            <p className="text-sm text-on-surface-variant">
-              {mode === 'login' ? 'Inicia sesión' : 'Crea una cuenta'}
-            </p>
+            <p className="text-sm text-on-surface-variant">Inicia sesión</p>
           </div>
         </div>
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm text-on-surface-variant">
-              Email
-            </label>
+            <label className="mb-1 block text-sm text-on-surface-variant">Email</label>
             <Input
               type="email"
               required
@@ -84,9 +75,7 @@ export default function LoginView({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-on-surface-variant">
-              Contraseña
-            </label>
+            <label className="mb-1 block text-sm text-on-surface-variant">Contraseña</label>
             <Input
               type="password"
               required
@@ -95,21 +84,6 @@ export default function LoginView({
               placeholder="••••••••"
             />
           </div>
-          {mode === 'register' && (
-            <div>
-              <label className="mb-1 block text-sm text-on-surface-variant">
-                Rol
-              </label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface focus:border-secondary focus:outline-none"
-              >
-                <option value="admin">Administrador</option>
-                <option value="referee">Árbitro</option>
-              </select>
-            </div>
-          )}
 
           {error && (
             <div className="flex items-center gap-2 rounded-lg bg-error-container/40 px-3 py-2 text-sm text-error">
@@ -118,21 +92,12 @@ export default function LoginView({
           )}
 
           <Button type="submit" disabled={loading} className="w-full py-2.5">
-            {loading ? 'Procesando…' : mode === 'login' ? 'Entrar' : 'Registrarme'}
+            {loading ? 'Procesando…' : 'Entrar'}
           </Button>
         </form>
 
-        <p className="mt-5 text-center text-sm text-on-surface-variant">
-          {mode === 'login' ? '¿Primera vez?' : '¿Ya tienes cuenta?'}{' '}
-          <button
-            onClick={() => {
-              setMode(mode === 'login' ? 'register' : 'login')
-              setError(null)
-            }}
-            className="font-semibold text-secondary hover:underline"
-          >
-            {mode === 'login' ? 'Crea una cuenta' : 'Inicia sesión'}
-          </button>
+        <p className="mt-5 text-center text-xs text-on-surface-variant">
+          Las cuentas las crea un administrador desde el panel.
         </p>
       </motion.div>
     </div>
