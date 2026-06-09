@@ -13,11 +13,13 @@ export default function LandingView({
   onLogin,
   onPublic,
   onEnter,
+  onScreens,
 }: {
   authed: boolean
   onLogin: () => void
   onPublic: () => void
   onEnter: () => void
+  onScreens: () => void
 }) {
   return (
     <div className="min-h-screen bg-surface text-on-surface">
@@ -56,6 +58,12 @@ export default function LandingView({
               </Button>
             )}
           </div>
+          <button
+            onClick={onScreens}
+            className="mt-5 flex items-center gap-1 text-sm text-on-surface-variant hover:text-secondary"
+          >
+            <Icon name="palette" className="text-base" /> Ver galería de diseños
+          </button>
         </motion.div>
 
         <div className="mt-20 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

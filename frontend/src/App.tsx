@@ -6,8 +6,9 @@ import PublicView from './components/PublicView'
 import LoginView from './components/LoginView'
 import AdminView from './components/AdminView'
 import RefereeView from './components/RefereeView'
+import ScreensGallery from './components/ScreensGallery'
 
-export type View = 'landing' | 'public' | 'login' | 'app'
+export type View = 'landing' | 'public' | 'login' | 'app' | 'screens'
 
 export default function App() {
   const { token, role } = useAppSelector((s) => s.auth)
@@ -31,12 +32,16 @@ export default function App() {
   if (view === 'public') {
     return <PublicView onBack={() => setView('landing')} />
   }
+  if (view === 'screens') {
+    return <ScreensGallery onBack={() => setView('landing')} />
+  }
   return (
     <LandingView
       authed={!!token}
       onLogin={() => setView('login')}
       onPublic={() => setView('public')}
       onEnter={() => setView(token ? 'app' : 'login')}
+      onScreens={() => setView('screens')}
     />
   )
 }
