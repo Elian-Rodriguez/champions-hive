@@ -6,6 +6,11 @@
   color-scheme: dark;
 }
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 72px;
+}
+
 html,
 body,
 #root {
