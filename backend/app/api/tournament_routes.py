@@ -353,6 +353,23 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
     names = _name_map(
         db, {m.home_team_id for m in matches} | {m.away_team_id for m in matches}
     )
+    court_ids = [m.court_id for m in matches if m.court_id]
+    courts = (
+        {str(co.id): co for co in db.query(Court).filter(Court.id.in_(court_ids)).all()}
+        if court_ids
+        else {}
+    )
+    venue_ids = [co.venue_id for co in courts.values() if co.venue_id]
+    venues = (
+        {str(v.id): v.name for v in db.query(Venue).filter(Venue.id.in_(venue_ids)).all()}
+        if venue_ids
+        else {}
+    )
+    court_info = {
+        cid: {"name": co.name, "venue": venues.get(str(co.venue_id))}
+        for cid, co in courts.items()
+    }
+    stage_type = stage.type.value if hasattr(stage.type, "value") else stage.type
     return [
         {
             "id": str(m.id),
@@ -364,6 +381,10 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
             "away_score": m.away_score,
             "status": _status_str(m),
             "court_id": str(m.court_id) if m.court_id else None,
+            "court_name": court_info.get(str(m.court_id), {}).get("name"),
+            "venue_name": court_info.get(str(m.court_id), {}).get("venue"),
+            "stage_name": stage.name,
+            "stage_type": stage_type,
             "bracket_round": m.bracket_round,
             "scheduled_start": m.scheduled_start,
         }
@@ -1011,6 +1032,8 @@ def schedule_tournament_calendar(
     waiting = payload.get("waiting_time") or tournament.waiting_time or 0
     step = duration + waiting
     max_per_day = payload.get("max_matches_per_day") or tournament.max_matches_per_day or 0
+    days_of_week = payload.get("days_of_week") or None  # 0=lunes … 6=domingo
+    interval = payload.get("days_interval") or None
 
     stage_ids = [s.id for s in tournament.stages]
     matches = (
@@ -1021,21 +1044,42 @@ def schedule_tournament_calendar(
         if stage_ids
         else []
     )
+    if not matches:
+        return {"message": "No hay partidos para programar", "scheduled": 0, "days": 0}
 
-    # Reparte los partidos en días respetando el máximo por día (si se define).
+    per_day = max_per_day if (max_per_day and max_per_day > 0) else len(matches)
+    n_days = -(-len(matches) // per_day)  # techo (ceil)
+
+    # Fechas de cada jornada según la recurrencia (días de semana o intervalo).
+    if days_of_week:
+        while start_dt.weekday() not in days_of_week:
+            start_dt += timedelta(days=1)
+    day_dates = [start_dt]
+    for _ in range(1, n_days):
+        prev = day_dates[-1]
+        if days_of_week:
+            nxt = prev + timedelta(days=1)
+            while nxt.weekday() not in days_of_week:
+                nxt += timedelta(days=1)
+        elif interval:
+            nxt = prev + timedelta(days=int(interval))
+        else:
+            nxt = prev + timedelta(days=1)
+        day_dates.append(nxt)
+
     count = 0
     for i, m in enumerate(matches):
-        if max_per_day and max_per_day > 0:
-            day, slot = divmod(i, max_per_day)
-        else:
-            day, slot = 0, i
-        when = start_dt + timedelta(days=day, minutes=slot * step)
+        day, slot = divmod(i, per_day)
+        when = day_dates[day] + timedelta(minutes=slot * step)
         m.scheduled_start = when
         m.scheduled_end = when + timedelta(minutes=duration)
         count += 1
     db.commit()
-    days = (max(1, -(-count // max_per_day)) if max_per_day else 1) if count else 0
-    return {"message": f"{count} partido(s) programados en {days} día(s)", "scheduled": count}
+    return {
+        "message": f"{count} partido(s) programados en {n_days} día(s)",
+        "scheduled": count,
+        "days": n_days,
+    }
 
 
 @router.get("/{tournament_id}/stats")

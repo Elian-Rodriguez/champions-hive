@@ -954,6 +954,9 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   const [matches, setMatches] = useState<any[]>([])
   const [courts, setCourts] = useState<any[]>([])
   const [start, setStart] = useState('')
+  const [maxPerDay, setMaxPerDay] = useState('')
+  const [dows, setDows] = useState<number[]>([])
+  const [interval, setIntervalDays] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -973,6 +976,9 @@ function CalendarioTab({ tournament }: { tournament: any }) {
         start: start || undefined,
         match_duration: tournament.match_duration,
         waiting_time: tournament.waiting_time,
+        max_matches_per_day: maxPerDay ? Number(maxPerDay) : undefined,
+        days_of_week: dows.length ? dows : undefined,
+        days_interval: interval ? Number(interval) : undefined,
       })
       setMsg(r.message)
       if (active) pick(active)
@@ -997,8 +1003,47 @@ function CalendarioTab({ tournament }: { tournament: any }) {
             className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface"
           />
         </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Máx/día</label>
+          <input
+            type="number"
+            min={0}
+            value={maxPerDay}
+            onChange={(e) => setMaxPerDay(e.target.value)}
+            placeholder="—"
+            className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Días de la semana</label>
+          <div className="flex gap-1">
+            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map((d, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setDows(dows.includes(i) ? dows.filter((x) => x !== i) : [...dows, i])}
+                className={`h-9 w-9 rounded-lg text-xs font-semibold transition ${
+                  dows.includes(i) ? 'bg-secondary text-on-secondary' : 'bg-surface-container-low text-on-surface-variant'
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">o cada (días)</label>
+          <input
+            type="number"
+            min={1}
+            value={interval}
+            onChange={(e) => setIntervalDays(e.target.value)}
+            placeholder="—"
+            className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface"
+          />
+        </div>
         <Button variant="outline" onClick={autoSchedule}>
-          <Icon name="schedule" /> Programar todos los partidos
+          <Icon name="schedule" /> Programar partidos
         </Button>
         {msg && <span className="text-sm text-secondary">{msg}</span>}
       </div>
