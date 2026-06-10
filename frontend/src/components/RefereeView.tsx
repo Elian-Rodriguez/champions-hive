@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api } from '../services/api'
+import { api, syncOutbox } from '../services/api'
+import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 
@@ -24,6 +25,49 @@ const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Programado',
   live: 'En vivo',
   finished: 'Finalizado',
+}
+
+function useNet() {
+  const [net, setNet] = useState({ online: isOnline(), pending: pendingCount() })
+  useEffect(
+    () => subscribeOffline(() => setNet({ online: isOnline(), pending: pendingCount() })),
+    [],
+  )
+  return net
+}
+
+function NetBanner() {
+  const { online, pending } = useNet()
+  useEffect(() => {
+    if (online && pending > 0) syncOutbox()
+  }, [online, pending])
+  if (online && pending === 0) return null
+  return (
+    <div
+      className={`mb-4 flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+        online
+          ? 'border-secondary/40 bg-secondary/10 text-secondary'
+          : 'border-tertiary/40 bg-tertiary/10 text-tertiary'
+      }`}
+    >
+      <span className="flex items-center gap-2">
+        <Icon name={online ? 'cloud_sync' : 'cloud_off'} className="text-base" />
+        {online
+          ? `Sincronizando… ${pending} cambio(s) pendiente(s)`
+          : `Sin conexión — los cambios se guardan y se envían al reconectar${
+              pending > 0 ? ` · ${pending} en cola` : ''
+            }`}
+      </span>
+      {online && pending > 0 && (
+        <button
+          onClick={() => syncOutbox()}
+          className="shrink-0 rounded-md bg-secondary px-2.5 py-1 text-xs font-semibold text-on-secondary"
+        >
+          Sincronizar
+        </button>
+      )}
+    </div>
+  )
 }
 
 export default function RefereeView() {
@@ -167,6 +211,7 @@ export default function RefereeView() {
     }
     return (
       <div className="mx-auto max-w-5xl">
+        <NetBanner />
         <button
           onClick={() => setMatch(null)}
           className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant transition hover:text-on-surface"
@@ -328,6 +373,7 @@ export default function RefereeView() {
 
   return (
     <div className="space-y-5">
+      <NetBanner />
       <div>
         <p className="mb-2 text-sm text-on-surface-variant">Torneo</p>
         <div className="flex flex-wrap gap-2">

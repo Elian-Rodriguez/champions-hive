@@ -1,3 +1,15 @@
+import {
+  applyOptimistic,
+  cacheGet,
+  cacheSet,
+  enqueue,
+  getOutbox,
+  isOnline,
+  isQueueable,
+  notifyOffline,
+  shiftOutbox,
+} from './offline'
+
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1'
 
 function authHeaders(): Record<string, string> {
@@ -5,7 +17,7 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function req(path: string, options: RequestInit = {}): Promise<any> {
+async function rawReq(path: string, options: RequestInit = {}): Promise<any> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
@@ -34,6 +46,79 @@ async function req(path: string, options: RequestInit = {}): Promise<any> {
   }
   if (res.status === 204) return null
   return res.json()
+}
+
+// Envoltura offline-first: cachea los GET y encola las mutaciones del árbitro
+// (goles, tarjetas, cambios, marcador) cuando no hay red.
+async function req(path: string, options: RequestInit = {}): Promise<any> {
+  const method = (options.method || 'GET').toUpperCase()
+
+  if (method === 'GET') {
+    if (!isOnline()) {
+      const cached = cacheGet(path)
+      if (cached !== undefined) return cached
+    }
+    try {
+      const data = await rawReq(path, options)
+      cacheSet(path, data)
+      return data
+    } catch (e) {
+      const cached = cacheGet(path)
+      if (cached !== undefined) return cached
+      throw e
+    }
+  }
+
+  if (isQueueable(path, method)) {
+    const body = options.body ? JSON.parse(options.body as string) : null
+    if (!isOnline()) {
+      enqueue(path, method, body)
+      return applyOptimistic(path, method, body)
+    }
+    try {
+      return await rawReq(path, options)
+    } catch (e) {
+      if (e instanceof TypeError) {
+        // Error de red: encolar para no perder la acción del árbitro.
+        enqueue(path, method, body)
+        return applyOptimistic(path, method, body)
+      }
+      throw e
+    }
+  }
+
+  return rawReq(path, options)
+}
+
+// Reenvía la cola pendiente al servidor, en orden, al recuperar la conexión.
+let _flushing = false
+export async function syncOutbox(): Promise<void> {
+  if (_flushing || !isOnline()) return
+  _flushing = true
+  try {
+    while (getOutbox().length) {
+      const item = getOutbox()[0]
+      try {
+        await rawReq(item.path, { method: item.method, body: JSON.stringify(item.body) })
+      } catch (e) {
+        if (e instanceof TypeError) break // se cayó la red otra vez: reintentar luego
+        // rechazo del servidor (4xx): descartar el item para no bloquear la cola
+      }
+      shiftOutbox()
+    }
+    notifyOffline()
+  } finally {
+    _flushing = false
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    notifyOffline()
+    syncOutbox()
+  })
+  window.addEventListener('offline', () => notifyOffline())
+  syncOutbox() // por si quedó cola de una sesión anterior
 }
 
 export const api = {
