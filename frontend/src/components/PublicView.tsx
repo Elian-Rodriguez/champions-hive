@@ -48,6 +48,20 @@ function computeQualifiers(standings: Record<string, any[]>) {
   return { groups, thirds, thirdsNeeded: Math.max(0, size - base), size }
 }
 
+// Racha (forma) de un equipo: secuencia W/D/L de sus partidos finalizados, en
+// orden cronológico (los más recientes al final).
+function teamForm(allMatches: any[], teamId: string): string[] {
+  return (allMatches || [])
+    .filter((m) => m.status === 'finished' && (m.home_team_id === teamId || m.away_team_id === teamId))
+    .sort((a, b) => String(a.scheduled_start || '').localeCompare(String(b.scheduled_start || '')))
+    .map((m) => {
+      const home = m.home_team_id === teamId
+      const gf = home ? m.home_score ?? 0 : m.away_score ?? 0
+      const ga = home ? m.away_score ?? 0 : m.home_score ?? 0
+      return gf > ga ? 'W' : gf < ga ? 'L' : 'D'
+    })
+}
+
 export default function PublicView({
   onBack,
   initialTournamentId,
@@ -639,6 +653,74 @@ export default function PublicView({
                     <StandingsTable rows={teamStats} onRowClick={openProfile} />
                   </Card>
                   </div>
+                  {(() => {
+                    const teams = (teamStats || []).filter((t: any) => (t.matches_played || 0) > 0)
+                    if (!teams.length) return null
+                    const valla = [...teams].sort(
+                      (a: any, b: any) => (a.points_conceded || 0) - (b.points_conceded || 0),
+                    )[0]
+                    const dot = (r: string) =>
+                      r === 'W' ? 'bg-secondary' : r === 'L' ? 'bg-red-500' : 'bg-on-surface-variant/50'
+                    return (
+                      <Card className="p-4">
+                        <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                          <Icon name="insights" className="text-secondary" /> Forma y promedios por equipo
+                        </h3>
+                        {valla && (
+                          <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-secondary/10 px-3 py-1.5 text-sm text-secondary">
+                            <Icon name="shield" className="text-base" /> Valla menos vencida:&nbsp;
+                            <b>{valla.team_name}</b>&nbsp;({valla.points_conceded ?? 0} en contra)
+                          </div>
+                        )}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-on-surface-variant">
+                                <th className="px-2 py-1 text-left">Equipo</th>
+                                <th className="px-2 py-1 text-center">PJ</th>
+                                <th className="px-2 py-1 text-center" title="Promedio de goles a favor por partido">GF/P</th>
+                                <th className="px-2 py-1 text-center" title="Promedio de goles en contra por partido">GC/P</th>
+                                <th className="px-2 py-1 text-center">Racha</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {teams.map((t: any) => {
+                                const pj = t.matches_played || 1
+                                const form = teamForm(allMatches, t.team_id).slice(-5)
+                                return (
+                                  <tr key={t.team_id} className="border-t border-outline-variant/30">
+                                    <td className="px-2 py-1 font-medium">
+                                      {t.team_name}
+                                      {valla && t.team_id === valla.team_id ? ' 🛡️' : ''}
+                                    </td>
+                                    <td className="px-2 py-1 text-center text-on-surface-variant">{t.matches_played ?? 0}</td>
+                                    <td className="px-2 py-1 text-center font-semibold text-secondary">
+                                      {((t.points_scored || 0) / pj).toFixed(1)}
+                                    </td>
+                                    <td className="px-2 py-1 text-center">{((t.points_conceded || 0) / pj).toFixed(1)}</td>
+                                    <td className="px-2 py-1">
+                                      <span className="flex items-center justify-center gap-0.5">
+                                        {form.length ? (
+                                          form.map((r, i) => (
+                                            <span key={i} title={r} className={`h-2.5 w-2.5 rounded-full ${dot(r)}`} />
+                                          ))
+                                        ) : (
+                                          <span className="text-xs text-on-surface-variant">—</span>
+                                        )}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="mt-2 text-xs text-on-surface-variant">
+                          Racha = últimos 5 (🟢 victoria · ⚪ empate · 🔴 derrota). GF/P y GC/P = promedio por partido.
+                        </p>
+                      </Card>
+                    )
+                  })()}
                   {(() => {
                     const sanc = [...playerStats]
                       .map((p: any) => ({
