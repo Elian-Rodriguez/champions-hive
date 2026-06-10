@@ -219,7 +219,16 @@ export default function PublicView({
               <Icon name="arrow_back" className="text-base" /> Todos los torneos
             </button>
             {selected.banner_url && <img src={selected.banner_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />}
-            <h2 className="font-display text-2xl font-bold">{selected.name}</h2>
+            <div className="flex items-center gap-3">
+              {selected.logo_url && (
+                <img
+                  src={selected.logo_url}
+                  alt=""
+                  className="h-12 w-12 shrink-0 rounded-xl border border-outline-variant/40 object-cover"
+                />
+              )}
+              <h2 className="font-display text-2xl font-bold">{selected.name}</h2>
+            </div>
 
             {stats && (
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -564,7 +573,7 @@ export default function PublicView({
 
       {profile && (
         <div className="fixed inset-0 z-30 grid place-items-center bg-black/60 p-4" onClick={() => setProfile(null)}>
-          <Card className="w-full max-w-md p-6">
+          <Card className="max-h-[85vh] w-full max-w-md overflow-y-auto p-6">
             <div className="mb-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
               <h3 className="font-display text-xl font-bold">{profile.name}</h3>
               <button onClick={() => setProfile(null)}>
@@ -577,17 +586,88 @@ export default function PublicView({
                 <Badge className="bg-surface-container-highest text-on-surface-variant">PJ: {profile.row?.matches_played ?? 0}</Badge>
                 <Badge className="bg-surface-container-highest text-on-surface-variant">DIF: {profile.row?.diff ?? 0}</Badge>
               </div>
+              {(() => {
+                const entry = Object.entries(standings).find(([, rows]) =>
+                  (rows as any[]).some((r) => r.team_id === profile.row?.team_id),
+                )
+                if (!entry) return null
+                const [grp, rows] = entry as [string, any[]]
+                return (
+                  <div className="mb-4">
+                    <h4 className="mb-1 text-sm font-semibold text-on-surface-variant">
+                      Clasificación · {grp === 'Sin Grupo' ? 'General' : `Grupo ${grp}`}
+                    </h4>
+                    <ul className="overflow-hidden rounded-lg border border-outline-variant/30 text-sm">
+                      {rows.map((r: any, i: number) => (
+                        <li
+                          key={r.team_id || i}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 ${
+                            r.team_id === profile.row?.team_id
+                              ? 'bg-secondary/15 font-semibold text-secondary'
+                              : i % 2
+                                ? 'bg-surface-container-high/40'
+                                : ''
+                          }`}
+                        >
+                          <span className="w-5 text-on-surface-variant">{r.position ?? i + 1}</span>
+                          <span className="flex-1 truncate">{r.team_name}</span>
+                          <span className="w-7 text-right text-xs text-on-surface-variant" title="Partidos jugados">
+                            {r.matches_played ?? 0}
+                          </span>
+                          <span className="w-9 text-right font-bold" title="Puntos">
+                            {r.league_points ?? 0}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })()}
+
               <h4 className="mb-1 text-sm font-semibold text-on-surface-variant">Plantilla</h4>
               {profile.players.length === 0 ? (
                 <p className="text-sm text-on-surface-variant">Sin jugadores registrados.</p>
               ) : (
                 <ul className="space-y-1 text-sm">
-                  {profile.players.map((p: any) => (
-                    <li key={p.id} className="flex items-center gap-2">
-                      {p.number != null && <span className="w-6 text-on-surface-variant">#{p.number}</span>}
-                      {p.name}
-                    </li>
-                  ))}
+                  {profile.players.map((p: any) => {
+                    const ps = playerStats.find((s: any) => s.player_id === p.id)
+                    const has = ps && (ps.goals || ps.yellow || ps.blue || ps.red || ps.fouls)
+                    return (
+                      <li key={p.id} className="flex items-center gap-2">
+                        {p.number != null && <span className="w-6 text-on-surface-variant">#{p.number}</span>}
+                        <span className="flex-1 truncate">{p.name}</span>
+                        {has ? (
+                          <span className="flex items-center gap-2 text-xs text-on-surface-variant">
+                            {ps.goals > 0 && (
+                              <span className="flex items-center gap-0.5" title="Goles">
+                                <Icon name="sports_soccer" className="text-sm text-secondary" />
+                                {ps.goals}
+                              </span>
+                            )}
+                            {ps.yellow > 0 && (
+                              <span className="flex items-center gap-0.5" title="Amarillas">
+                                <span className="inline-block h-3 w-2 rounded-sm bg-yellow-400" />
+                                {ps.yellow}
+                              </span>
+                            )}
+                            {ps.blue > 0 && (
+                              <span className="flex items-center gap-0.5" title="Azules">
+                                <span className="inline-block h-3 w-2 rounded-sm bg-blue-500" />
+                                {ps.blue}
+                              </span>
+                            )}
+                            {ps.red > 0 && (
+                              <span className="flex items-center gap-0.5" title="Rojas">
+                                <span className="inline-block h-3 w-2 rounded-sm bg-red-500" />
+                                {ps.red}
+                              </span>
+                            )}
+                            {ps.fouls > 0 && <span title="Faltas">F:{ps.fouls}</span>}
+                          </span>
+                        ) : null}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>

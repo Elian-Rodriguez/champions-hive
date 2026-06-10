@@ -245,8 +245,15 @@ export default function LandingView({
                   className="group text-left"
                 >
                   <Card className="h-full overflow-hidden transition duration-200 group-hover:-translate-y-1 group-hover:border-secondary/60">
-                    <div className={`relative h-24 bg-gradient-to-br ${sp.grad}`}>
-                      <Icon name={sp.icon} className={`absolute right-3 top-2 text-6xl opacity-20 ${sp.ring}`} />
+                    <div className={`relative h-24 overflow-hidden bg-gradient-to-br ${sp.grad}`}>
+                      {t.banner_url ? (
+                        <>
+                          <img src={t.banner_url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-surface-container via-surface-container/40 to-transparent" />
+                        </>
+                      ) : (
+                        <Icon name={sp.icon} className={`absolute right-3 top-2 text-6xl opacity-20 ${sp.ring}`} />
+                      )}
                       {t.status === 'active' && (
                         <div className="absolute left-3 top-3">
                           <LiveChip />
