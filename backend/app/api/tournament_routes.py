@@ -105,6 +105,53 @@ def _matches_to_dicts(db: Session, matches: List[Match]) -> List[Dict[str, Any]]
     return out
 
 
+def _round_robin_rounds(team_ids: List[Any]) -> List[List[tuple]]:
+    """Round-robin por el método del círculo: devuelve jornadas en las que cada
+    equipo juega como máximo una vez, separando los partidos de un mismo equipo."""
+    teams: List[Any] = list(team_ids)
+    if len(teams) % 2 == 1:
+        teams.append(None)  # bye
+    n = len(teams)
+    rounds: List[List[tuple]] = []
+    arr = teams[:]
+    for _ in range(max(1, n - 1)):
+        pairs = [
+            (arr[i], arr[n - 1 - i])
+            for i in range(n // 2)
+            if arr[i] is not None and arr[n - 1 - i] is not None
+        ]
+        if pairs:
+            rounds.append(pairs)
+        arr = [arr[0]] + [arr[-1]] + arr[1:-1]  # rotar fijando el primero
+    return rounds
+
+
+def _rest_aware_order(matches: List[Match], rest_slots: int = 1) -> List[Match]:
+    """Reordena los partidos para que ningún equipo juegue en turnos seguidos:
+    cada equipo descansa al menos `rest_slots` turno(s) entre sus partidos."""
+    remaining = list(matches)
+    ordered: List[Match] = []
+    last: Dict[Any, int] = {}
+    slot = 0
+    while remaining:
+        best_i, best_key = 0, None
+        for i, m in enumerate(remaining):
+            teams = [t for t in (m.home_team_id, m.away_team_id) if t]
+            gap = min(
+                (slot - last.get(t, -(10 ** 9)) for t in teams), default=10 ** 9
+            )
+            key = (0 if gap > rest_slots else 1, -gap, str(m.id))
+            if best_key is None or key < best_key:
+                best_key, best_i = key, i
+        chosen = remaining.pop(best_i)
+        ordered.append(chosen)
+        for t in (chosen.home_team_id, chosen.away_team_id):
+            if t:
+                last[t] = slot
+        slot += 1
+    return ordered
+
+
 def _build_group_standings(db: Session, stage: Stage) -> Dict[str, List[Dict]]:
     """Calcula standings por grupo para una fase usando solo partidos de esa fase."""
     tournament = (
@@ -458,17 +505,24 @@ def generate_fixture(
     for team_id, g in groups.items():
         teams_by_group[g].append(team_id)
 
+    rounds_by_group = {g: _round_robin_rounds(tids) for g, tids in teams_by_group.items()}
+    max_rounds = max((len(r) for r in rounds_by_group.values()), default=0)
     created, ci = 0, 0
-    for g, team_ids in teams_by_group.items():
-        for i in range(len(team_ids)):
-            for j in range(i + 1, len(team_ids)):
+    # Intercalar las jornadas de cada grupo para que los partidos de un equipo
+    # queden separados (descanso) en el orden de generación.
+    for r in range(max_rounds):
+        for g in teams_by_group:
+            rounds = rounds_by_group[g]
+            if r >= len(rounds):
+                continue
+            for home_id, away_id in rounds[r]:
                 court = courts[ci % len(courts)]
                 ci += 1
                 db.add(
                     Match(
                         stage_id=stage_id,
-                        home_team_id=team_ids[i],
-                        away_team_id=team_ids[j],
+                        home_team_id=home_id,
+                        away_team_id=away_id,
                         court_id=court.id,
                         status=MatchStatus.SCHEDULED,
                         home_score=0,
@@ -1075,6 +1129,18 @@ def schedule_tournament_calendar(
     )
     if not matches:
         return {"message": "No hay partidos para programar", "scheduled": 0, "days": 0}
+
+    # Reordenar para que ningún equipo juegue en turnos consecutivos (descanso),
+    # respetando el orden de las rondas (grupos antes que eliminatorias).
+    rest_raw = payload.get("min_rest_slots")
+    rest_slots = int(rest_raw) if rest_raw is not None else 1
+    by_round: Dict[int, List[Match]] = defaultdict(list)
+    for m in matches:
+        by_round[m.bracket_round or 0].append(m)
+    ordered_matches: List[Match] = []
+    for rnd in sorted(by_round):
+        ordered_matches.extend(_rest_aware_order(by_round[rnd], rest_slots))
+    matches = ordered_matches
 
     per_day = max_per_day if (max_per_day and max_per_day > 0) else len(matches)
     n_days = -(-len(matches) // per_day)  # techo (ceil)
