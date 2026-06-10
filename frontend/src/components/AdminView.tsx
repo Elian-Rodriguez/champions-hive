@@ -834,10 +834,115 @@ function AvanceTab({ tournament }: { tournament: any }) {
     }
   }
 
+  async function autoBracket() {
+    setMsg(null)
+    try {
+      const allStages = await api.getStages(tournament.id)
+      const groupStage = allStages.find((s: any) => s.type === 'group')
+      if (!groupStage) {
+        setMsg('No hay una fase de grupos de la cual generar las eliminatorias.')
+        return
+      }
+      const sbg: Record<string, any[]> = await api.standingsByGroup(groupStage.id)
+      const grps = Object.keys(sbg).filter((g) => g !== 'Sin Grupo' && sbg[g].length)
+      if (grps.length < 1) {
+        setMsg('La fase de grupos no tiene equipos en grupos.')
+        return
+      }
+      const metric = (r: any) => [r.league_points || 0, r.diff || 0, r.points_scored || 0]
+      const cmp = (a: any, b: any) => {
+        const ma = metric(a.row)
+        const mb = metric(b.row)
+        for (let i = 0; i < 3; i++) if (mb[i] !== ma[i]) return mb[i] - ma[i]
+        return 0
+      }
+      const maxpos = Math.max(...grps.map((g) => sbg[g].length))
+      let seeds: any[] = []
+      for (let pos = 1; pos <= maxpos; pos++) {
+        const tier = grps
+          .filter((g) => sbg[g].length >= pos)
+          .map((g) => ({ group: g, position: pos, row: sbg[g][pos - 1] }))
+        tier.sort(cmp)
+        seeds.push(...tier)
+      }
+      const base = grps.reduce((a, g) => a + Math.min(2, sbg[g].length), 0)
+      const thirdsAvail = grps.filter((g) => sbg[g].length >= 3).length
+      const total = seeds.length
+      const nextPow2 = (x: number) => {
+        let p = 1
+        while (p < x) p *= 2
+        return p
+      }
+      const prevPow2 = (x: number) => {
+        let p = 1
+        while (p * 2 <= x) p *= 2
+        return p
+      }
+      let size = nextPow2(base)
+      if (!(size <= base + thirdsAvail && size <= total)) {
+        size = prevPow2(Math.min(total, base + thirdsAvail))
+      }
+      size = Math.max(2, size)
+      if (total < size || size < 2) {
+        setMsg('No hay suficientes equipos clasificados para armar las eliminatorias.')
+        return
+      }
+      seeds = seeds.slice(0, size)
+      // Orden de siembra estándar (1 vs N, …) para que el 1.º y 2.º solo se crucen en la final.
+      let order = [1, 2]
+      while (order.length < size) {
+        const m = order.length * 2 + 1
+        const out: number[] = []
+        for (const r of order) {
+          out.push(r)
+          out.push(m - r)
+        }
+        order = out
+      }
+      const round1: any[] = []
+      for (let i = 0; i < size; i += 2) {
+        const a = seeds[order[i] - 1]
+        const b = seeds[order[i + 1] - 1]
+        round1.push({
+          home_group: a.group,
+          home_position: a.position,
+          away_group: b.group,
+          away_position: b.position,
+        })
+      }
+      const gm = await api.stageMatches(groupStage.id)
+      const allDone = gm.length > 0 && gm.every((m: any) => m.status === 'finished')
+      const ko = await api.createStage(tournament.id, { name: 'Eliminatorias', type: 'knockout' })
+      await api.seedBracket(ko.id, { source_stage_id: groupStage.id, third_place: true, round1 })
+      if (allDone) await api.resolveSlots(ko.id)
+      setStages(await api.getStages(tournament.id))
+      setMsg(
+        allDone
+          ? `🎯 Eliminatorias generadas (${size} equipos) y cruces resueltos.`
+          : `🎯 Estructura de eliminatorias creada (${size} equipos). Se llenará al terminar los grupos.`,
+      )
+    } catch (e: any) {
+      setMsg(e.message)
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-secondary/30 bg-secondary/10 p-4">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 font-display font-semibold text-secondary">
+            <Icon name="auto_awesome" /> Generar eliminatorias automáticamente
+          </p>
+          <p className="mt-0.5 text-xs text-on-surface-variant">
+            Toma 1.º y 2.º de cada grupo + los mejores terceros y siembra cuartos/semis/3.º/final.
+          </p>
+        </div>
+        <Button onClick={autoBracket}>
+          <Icon name="bolt" /> Generar
+        </Button>
+      </div>
       <p className="text-sm text-on-surface-variant">
-        Define los cruces tomando posiciones de la fase origen y créalos en la fase destino.
+        O define los cruces manualmente tomando posiciones de la fase origen y créalos en la fase destino.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
