@@ -689,6 +689,33 @@ export default function PublicView({
                 <Badge className="bg-surface-container-highest text-on-surface-variant">DIF: {profile.row?.diff ?? 0}</Badge>
               </div>
               {(() => {
+                const tid = profile.row?.team_id
+                const ts = teamStats.find((s: any) => String(s.team_id) === String(tid))
+                const fp = fairPlay.find((s: any) => String(s.team_id) === String(tid))
+                const micro = selected?.sport_type === 'micro'
+                const cells = [
+                  { label: 'Goles', value: ts?.points_scored ?? profile.row?.points_scored ?? 0 },
+                  { label: 'En contra', value: ts?.points_conceded ?? profile.row?.points_conceded ?? 0 },
+                  { label: 'Faltas', value: fp?.fouls ?? 0 },
+                  { label: '🟨 Amar.', value: fp?.yellow ?? 0 },
+                  ...(micro ? [{ label: '🟦 Azul', value: fp?.blue ?? 0 }] : []),
+                  { label: '🟥 Rojas', value: fp?.red ?? 0 },
+                ]
+                return (
+                  <div className="mb-4">
+                    <h4 className="mb-1.5 text-sm font-semibold text-on-surface-variant">Estadísticas del equipo</h4>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      {cells.map((c) => (
+                        <div key={c.label} className="rounded-lg bg-surface-container-high p-2">
+                          <p className="font-display text-xl font-bold tabular-nums">{c.value}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-on-surface-variant">{c.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+              {(() => {
                 const entry = Object.entries(standings).find(([, rows]) =>
                   (rows as any[]).some((r) => r.team_id === profile.row?.team_id),
                 )
