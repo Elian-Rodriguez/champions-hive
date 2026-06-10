@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppSelector } from './hooks'
 import Layout from './components/Layout'
 import LandingView from './components/LandingView'
@@ -13,6 +13,15 @@ export default function App() {
   const { token, role } = useAppSelector((s) => s.auth)
   const [view, setView] = useState<View>('landing')
   const [publicTid, setPublicTid] = useState<string | null>(null)
+
+  // Deep-link: ?t=<id> abre el marcador público de ese torneo (QR del torneo).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('t')
+    if (t) {
+      setPublicTid(t)
+      setView('public')
+    }
+  }, [])
 
   if (view === 'app' && token) {
     return (

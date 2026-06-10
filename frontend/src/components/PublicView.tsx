@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { exportStandingsPDF } from '../utils/pdf'
 import { downloadImage, makeMatchImage, makeStandingsImage, shareImage } from '../utils/socialImage'
+import QRCode from 'qrcode'
 import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
@@ -72,6 +73,7 @@ export default function PublicView({
   const [fairPlay, setFairPlay] = useState<any[]>([])
   const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
+  const [qr, setQr] = useState<{ data: string; link: string } | null>(null)
 
   async function genShare(label: string, make: () => Promise<Blob>) {
     setShareBusy(true)
@@ -87,6 +89,20 @@ export default function PublicView({
   function closeShare() {
     if (shareImg) URL.revokeObjectURL(shareImg.url)
     setShareImg(null)
+  }
+  async function showQR() {
+    if (!selected) return
+    const link = `${window.location.origin}/?t=${selected.id}`
+    try {
+      const data = await QRCode.toDataURL(link, {
+        width: 600,
+        margin: 2,
+        color: { dark: '#081425', light: '#ffffff' },
+      })
+      setQr({ data, link })
+    } catch {
+      /* no se pudo generar el QR */
+    }
   }
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -249,9 +265,18 @@ export default function PublicView({
           )
         ) : (
           <div>
-            <button onClick={() => setSelected(null)} className="mb-4 flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
-              <Icon name="arrow_back" className="text-base" /> Todos los torneos
-            </button>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <button onClick={() => setSelected(null)} className="flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
+                <Icon name="arrow_back" className="text-base" /> Todos los torneos
+              </button>
+              <button
+                onClick={showQR}
+                className="flex items-center gap-1.5 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm font-semibold text-secondary transition hover:bg-surface-bright"
+                title="Código QR del marcador en vivo"
+              >
+                <Icon name="qr_code_2" className="text-base" /> QR
+              </button>
+            </div>
             {selected.banner_url && <img src={selected.banner_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />}
             <div className="flex items-center gap-3">
               {selected.logo_url && (
@@ -614,6 +639,53 @@ export default function PublicView({
                     <StandingsTable rows={teamStats} onRowClick={openProfile} />
                   </Card>
                   </div>
+                  {(() => {
+                    const sanc = [...playerStats]
+                      .map((p: any) => ({
+                        ...p,
+                        _pen: (p.red || 0) * 3 + (p.blue || 0) * 2 + (p.yellow || 0) + (p.fouls || 0),
+                      }))
+                      .filter((p: any) => p._pen > 0)
+                      .sort((a: any, b: any) => b._pen - a._pen || (b.red || 0) - (a.red || 0))
+                      .slice(0, 15)
+                    if (!sanc.length) return null
+                    return (
+                      <Card className="p-4">
+                        <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                          <Icon name="gavel" className="text-tertiary" /> Sancionados · jugadores
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-on-surface-variant">
+                                <th className="px-2 py-1 text-left">#</th>
+                                <th className="px-2 py-1 text-left">Jugador</th>
+                                <th className="px-2 py-1 text-left">Equipo</th>
+                                {discCols.map((dc) => (
+                                  <th key={dc.key} className="px-2 py-1 text-center">{dc.label}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sanc.map((p: any, i: number) => (
+                                <tr key={p.player_id} className="border-t border-outline-variant/30">
+                                  <td className="px-2 py-1 text-on-surface-variant">{i + 1}</td>
+                                  <td className="px-2 py-1 font-medium">{p.player_name}</td>
+                                  <td className="px-2 py-1 text-on-surface-variant">{p.team_name || '—'}</td>
+                                  {discCols.map((dc) => (
+                                    <td key={dc.key} className="px-2 py-1 text-center">{p[dc.key] ?? 0}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="mt-2 text-xs text-on-surface-variant">
+                          Ordenado por gravedad (roja 3 · azul 2 · amarilla 1 · falta 1).
+                        </p>
+                      </Card>
+                    )
+                  })()}
                   {fairPlay.length > 0 && (
                     <Card className="p-4">
                       <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
@@ -842,6 +914,49 @@ export default function PublicView({
             <p className="mt-2 text-center text-xs text-on-surface-variant">
               «Compartir» abre WhatsApp/Instagram en el celular.
             </p>
+          </div>
+        </div>
+      )}
+      {qr && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setQr(null)}
+        >
+          <div
+            className="w-full max-w-xs rounded-2xl border border-outline-variant/40 bg-surface-container p-5 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-display font-semibold">QR del torneo</h3>
+              <button onClick={() => setQr(null)} className="text-on-surface-variant hover:text-on-surface">
+                <Icon name="close" />
+              </button>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <img src={qr.data} alt="QR" className="mx-auto h-auto w-full max-w-[220px]" />
+            </div>
+            <p className="mt-3 font-semibold">{selected?.name}</p>
+            <p className="text-xs text-on-surface-variant">Escanea para ver el marcador en vivo</p>
+            <div className="mt-4 flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  const a = document.createElement('a')
+                  a.href = qr.data
+                  a.download = `qr-${selected?.name || 'torneo'}.png`
+                  a.click()
+                }}
+              >
+                <Icon name="download" /> Descargar
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => navigator.clipboard?.writeText(qr.link)}
+              >
+                <Icon name="link" /> Copiar
+              </Button>
+            </div>
           </div>
         </div>
       )}
