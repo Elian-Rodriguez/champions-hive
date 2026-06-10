@@ -13,6 +13,40 @@ const STATUS_LABEL: Record<string, string> = {
 }
 type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
 
+// Calcula quién clasifica a la siguiente fase: 2 primeros de cada grupo + los
+// mejores terceros necesarios para completar un cuadro (potencia de 2).
+function computeQualifiers(standings: Record<string, any[]>) {
+  const groups = Object.keys(standings).filter((g) => g !== 'Sin Grupo' && standings[g]?.length)
+  if (groups.length < 2) return null
+  const metric = (r: any) => [r.league_points || 0, r.diff || 0, r.points_scored || 0]
+  const cmp = (a: any, b: any) => {
+    const ma = metric(a.row)
+    const mb = metric(b.row)
+    for (let i = 0; i < 3; i++) if (mb[i] !== ma[i]) return mb[i] - ma[i]
+    return 0
+  }
+  const thirds = groups
+    .map((g) => ({ group: g, row: standings[g][2] }))
+    .filter((x) => x.row)
+    .sort(cmp)
+  const base = groups.reduce((a, g) => a + Math.min(2, standings[g].length), 0)
+  const total = base + thirds.length
+  const nextPow2 = (x: number) => {
+    let p = 1
+    while (p < x) p *= 2
+    return p
+  }
+  const prevPow2 = (x: number) => {
+    let p = 1
+    while (p * 2 <= x) p *= 2
+    return p
+  }
+  let size = nextPow2(base)
+  if (!(size <= base + thirds.length && size <= total)) size = prevPow2(Math.min(total, base + thirds.length))
+  size = Math.max(2, size)
+  return { groups, thirds, thirdsNeeded: Math.max(0, size - base), size }
+}
+
 export default function PublicView({
   onBack,
   initialTournamentId,
@@ -308,6 +342,74 @@ export default function PublicView({
                           <StandingsTable rows={rows} onRowClick={openProfile} />
                         </Card>
                       ))}
+                      {(() => {
+                        const q = computeQualifiers(standings)
+                        if (!q) return null
+                        return (
+                          <Card accent="green" className="p-4">
+                            <h3 className="mb-1 flex items-center gap-2 font-display font-semibold">
+                              <Icon name="emoji_events" className="text-secondary" /> Clasificados a la siguiente fase
+                            </h3>
+                            <p className="mb-3 text-xs text-on-surface-variant">
+                              {q.size} equipos · 2 primeros de cada grupo
+                              {q.thirdsNeeded > 0
+                                ? ` + ${q.thirdsNeeded} mejor${q.thirdsNeeded > 1 ? 'es' : ''} tercero${q.thirdsNeeded > 1 ? 's' : ''}`
+                                : ''}
+                              .
+                            </p>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {q.groups.map((g) => (
+                                <div key={g} className="rounded-lg border border-outline-variant/30 p-2.5">
+                                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                                    Grupo {g}
+                                  </p>
+                                  {[0, 1].map((pos) => {
+                                    const r = standings[g][pos]
+                                    if (!r) return null
+                                    return (
+                                      <div key={pos} className="flex items-center gap-2 text-sm">
+                                        <Icon name="check_circle" className="text-sm text-secondary" />
+                                        <span className="w-5 text-on-surface-variant">{pos + 1}.º</span>
+                                        <span className="flex-1 truncate">{r.team_name}</span>
+                                        <span className="text-xs text-on-surface-variant">{r.league_points ?? 0} pts</span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                            {q.thirds.length > 0 && (
+                              <div className="mt-3">
+                                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                                  Mejores terceros {q.thirdsNeeded > 0 ? `· clasifican ${q.thirdsNeeded}` : '· no clasifican'}
+                                </p>
+                                <ul className="space-y-1 text-sm">
+                                  {q.thirds.map((t, i) => {
+                                    const ok = i < q.thirdsNeeded
+                                    return (
+                                      <li
+                                        key={t.group}
+                                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${ok ? 'bg-secondary/10' : 'opacity-60'}`}
+                                      >
+                                        <Icon
+                                          name={ok ? 'check_circle' : 'cancel'}
+                                          className={`text-sm ${ok ? 'text-secondary' : 'text-on-surface-variant'}`}
+                                        />
+                                        <span className="flex-1 truncate">{t.row.team_name}</span>
+                                        <Badge className="bg-surface-container-highest text-on-surface-variant">Grupo {t.group}</Badge>
+                                        <span className="w-14 text-right text-xs text-on-surface-variant">{t.row.league_points ?? 0} pts</span>
+                                      </li>
+                                    )
+                                  })}
+                                </ul>
+                              </div>
+                            )}
+                            <p className="mt-3 text-[11px] text-on-surface-variant">
+                              Provisional: se actualiza con los resultados.
+                            </p>
+                          </Card>
+                        )
+                      })()}
                     </div>
                   )}
                 </div>
