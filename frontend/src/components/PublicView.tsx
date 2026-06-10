@@ -753,51 +753,46 @@ export default function PublicView({
                 )
               })()}
 
-              <h4 className="mb-1 text-sm font-semibold text-on-surface-variant">Plantilla</h4>
+              <h4 className="mb-1.5 text-sm font-semibold text-on-surface-variant">Nómina · estadísticas por jugador</h4>
               {profile.players.length === 0 ? (
                 <p className="text-sm text-on-surface-variant">Sin jugadores registrados.</p>
               ) : (
-                <ul className="space-y-1 text-sm">
-                  {profile.players.map((p: any) => {
-                    const ps = playerStats.find((s: any) => s.player_id === p.id)
-                    const has = ps && (ps.goals || ps.yellow || ps.blue || ps.red || ps.fouls)
-                    return (
-                      <li key={p.id} className="flex items-center gap-2">
-                        {p.number != null && <span className="w-6 text-on-surface-variant">#{p.number}</span>}
-                        <span className="flex-1 truncate">{p.name}</span>
-                        {has ? (
-                          <span className="flex items-center gap-2 text-xs text-on-surface-variant">
-                            {ps.goals > 0 && (
-                              <span className="flex items-center gap-0.5" title="Goles">
-                                <Icon name="sports_soccer" className="text-sm text-secondary" />
-                                {ps.goals}
-                              </span>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-outline-variant/30 text-[10px] uppercase tracking-wide text-on-surface-variant">
+                        <th className="py-1.5 text-left font-semibold">Jugador</th>
+                        <th className="px-1.5 py-1.5 text-center font-semibold" title="Goles">⚽</th>
+                        <th className="px-1.5 py-1.5 text-center font-semibold" title="Faltas">Fal</th>
+                        <th className="px-1.5 py-1.5 text-center font-semibold" title="Amarillas">🟨</th>
+                        {selected?.sport_type === 'micro' && (
+                          <th className="px-1.5 py-1.5 text-center font-semibold" title="Azules">🟦</th>
+                        )}
+                        <th className="px-1.5 py-1.5 text-center font-semibold" title="Rojas">🟥</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {profile.players.map((p: any) => {
+                        const ps = (playerStats.find((s: any) => s.player_id === p.id) || {}) as any
+                        return (
+                          <tr key={p.id} className="border-b border-outline-variant/10">
+                            <td className="py-1.5 text-left">
+                              {p.number != null && <span className="mr-1.5 text-on-surface-variant">#{p.number}</span>}
+                              {p.name}
+                            </td>
+                            <td className="px-1.5 py-1.5 text-center font-semibold tabular-nums text-secondary">{ps.goals || 0}</td>
+                            <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.fouls || 0}</td>
+                            <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.yellow || 0}</td>
+                            {selected?.sport_type === 'micro' && (
+                              <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.blue || 0}</td>
                             )}
-                            {ps.yellow > 0 && (
-                              <span className="flex items-center gap-0.5" title="Amarillas">
-                                <span className="inline-block h-3 w-2 rounded-sm bg-yellow-400" />
-                                {ps.yellow}
-                              </span>
-                            )}
-                            {ps.blue > 0 && (
-                              <span className="flex items-center gap-0.5" title="Azules">
-                                <span className="inline-block h-3 w-2 rounded-sm bg-blue-500" />
-                                {ps.blue}
-                              </span>
-                            )}
-                            {ps.red > 0 && (
-                              <span className="flex items-center gap-0.5" title="Rojas">
-                                <span className="inline-block h-3 w-2 rounded-sm bg-red-500" />
-                                {ps.red}
-                              </span>
-                            )}
-                            {ps.fouls > 0 && <span title="Faltas">F:{ps.fouls}</span>}
-                          </span>
-                        ) : null}
-                      </li>
-                    )
-                  })}
-                </ul>
+                            <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.red || 0}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </Card>
