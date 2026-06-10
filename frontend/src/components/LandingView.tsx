@@ -25,6 +25,19 @@ const SPORT: Record<string, { label: string; icon: string; grad: string; ring: s
   basketball: { label: 'Baloncesto', icon: 'sports_basketball', grad: 'from-primary/35 via-primary/10 to-transparent', ring: 'text-primary' },
 }
 
+const MARQUEE = [
+  { icon: 'sports_soccer', label: 'Fútbol' },
+  { icon: 'sports_basketball', label: 'Baloncesto' },
+  { icon: 'bolt', label: 'Tiempo real' },
+  { icon: 'account_tree', label: 'Brackets' },
+  { icon: 'leaderboard', label: 'Posiciones' },
+  { icon: 'install_mobile', label: 'PWA · Offline' },
+  { icon: 'cloud_off', label: 'Árbitro sin red' },
+  { icon: 'lock', label: 'Roles y seguridad' },
+  { icon: 'picture_as_pdf', label: 'Acta y export PDF' },
+  { icon: 'style', label: 'Juego limpio' },
+]
+
 export default function LandingView({
   authed,
   onLogin,
@@ -47,10 +60,23 @@ export default function LandingView({
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-surface text-on-surface">
-      {/* Glows de fondo (foco de estadio) */}
-      <div className="pointer-events-none absolute -top-48 right-0 h-[28rem] w-[28rem] rounded-full bg-secondary/20 blur-[140px]" />
-      <div className="pointer-events-none absolute top-72 -left-44 h-96 w-96 rounded-full bg-primary/10 blur-[130px]" />
-      <div className="pointer-events-none absolute top-[120%] left-1/3 h-96 w-96 rounded-full bg-tertiary/10 blur-[130px]" />
+      {/* Rejilla técnica + glows animados (foco de estadio) */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[120vh] bg-grid-faint" />
+      <motion.div
+        className="pointer-events-none absolute -top-48 right-0 h-[30rem] w-[30rem] rounded-full bg-secondary/20 blur-[150px]"
+        animate={{ scale: [1, 1.15, 1], opacity: [0.6, 0.95, 0.6] }}
+        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.div
+        className="pointer-events-none absolute top-72 -left-44 h-96 w-96 rounded-full bg-primary/10 blur-[140px]"
+        animate={{ scale: [1, 1.2, 1] }}
+        transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
+      />
+      <motion.div
+        className="pointer-events-none absolute top-[120%] left-1/3 h-96 w-96 rounded-full bg-tertiary/10 blur-[140px]"
+        animate={{ scale: [1, 1.18, 1], opacity: [0.5, 0.85, 0.5] }}
+        transition={{ duration: 13, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+      />
 
       {/* Nav */}
       <header className="sticky top-0 z-30 border-b border-outline-variant/30 bg-surface/70 backdrop-blur-lg">
@@ -176,14 +202,17 @@ export default function LandingView({
         </motion.div>
       </section>
 
-      {/* Trust strip */}
-      <section className="border-y border-outline-variant/30 bg-surface-container-lowest/50">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-3 px-4 py-5 text-sm text-on-surface-variant">
-          <span className="flex items-center gap-2"><Icon name="sports_soccer" className="text-secondary" /> Fútbol · Micro · Básquet</span>
-          <span className="flex items-center gap-2"><Icon name="bolt" className="text-secondary" /> Tiempo real</span>
-          <span className="flex items-center gap-2"><Icon name="install_mobile" className="text-secondary" /> PWA</span>
-          <span className="flex items-center gap-2"><Icon name="lock" className="text-secondary" /> Roles y seguridad</span>
-          <span className="flex items-center gap-2"><Icon name="picture_as_pdf" className="text-secondary" /> Export PDF</span>
+      {/* Marquee de capacidades */}
+      <section className="relative border-y border-outline-variant/30 bg-surface-container-lowest/50 py-4">
+        <div className="flex overflow-hidden [mask-image:linear-gradient(to_right,transparent,#000_7%,#000_93%,transparent)]">
+          <div className="animate-marquee flex shrink-0 items-center gap-10 pr-10 text-sm text-on-surface-variant">
+            {[...MARQUEE, ...MARQUEE].map((m, i) => (
+              <span key={i} className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                <Icon name={m.icon} className="text-secondary" /> {m.label}
+                <span className="ml-8 h-1 w-1 rounded-full bg-outline-variant" />
+              </span>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -256,7 +285,7 @@ export default function LandingView({
             </h2>
             <p className="mt-3 text-on-surface-variant">Desde la inscripción hasta el campeón, en una sola herramienta.</p>
           </div>
-          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-fr lg:grid-cols-3">
             {FEATURES.map((f, i) => {
               const hot = i === 0
               return (
@@ -266,21 +295,38 @@ export default function LandingView({
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: '-60px' }}
                   transition={{ duration: 0.4, delay: 0.05 * i }}
-                  className={`group rounded-2xl border p-6 transition ${
+                  className={`group relative flex flex-col overflow-hidden rounded-2xl border p-6 transition ${
                     hot
-                      ? 'border-transparent bg-secondary text-on-secondary shadow-xl shadow-secondary/20'
-                      : 'border-outline-variant/40 bg-surface-container hover:border-secondary/50'
+                      ? 'border-transparent bg-gradient-to-br from-secondary to-secondary-container text-on-secondary shadow-xl shadow-secondary/20 sm:col-span-2 lg:col-span-2 lg:row-span-2'
+                      : 'border-outline-variant/40 bg-surface-container hover:-translate-y-0.5 hover:border-secondary/50 hover:shadow-lg hover:shadow-black/20'
                   }`}
                 >
+                  {hot && (
+                    <Icon
+                      name={f.icon}
+                      className="pointer-events-none absolute -right-5 -top-5 text-[8rem] text-on-secondary/10"
+                    />
+                  )}
                   <span
-                    className={`grid h-12 w-12 place-items-center rounded-xl transition group-hover:scale-110 ${
-                      hot ? 'bg-on-secondary/15 text-on-secondary' : 'bg-secondary/15 text-secondary'
+                    className={`grid place-items-center rounded-xl transition group-hover:scale-110 ${
+                      hot ? 'h-14 w-14 bg-on-secondary/15 text-on-secondary' : 'h-12 w-12 bg-secondary/15 text-secondary'
                     }`}
                   >
-                    <Icon name={f.icon} className="text-2xl" />
+                    <Icon name={f.icon} className={hot ? 'text-3xl' : 'text-2xl'} />
                   </span>
-                  <h3 className="mt-4 font-display text-lg font-semibold">{f.title}</h3>
-                  <p className={`mt-1.5 text-sm ${hot ? 'text-on-secondary/80' : 'text-on-surface-variant'}`}>{f.desc}</p>
+                  <h3 className={`mt-4 font-display font-semibold ${hot ? 'text-2xl' : 'text-lg'}`}>{f.title}</h3>
+                  <p className={`mt-1.5 ${hot ? 'max-w-md text-on-secondary/85' : 'text-sm text-on-surface-variant'}`}>
+                    {f.desc}
+                  </p>
+                  {hot && (
+                    <div className="mt-auto flex flex-wrap gap-2 pt-6">
+                      {['Goles', 'Tarjetas', 'Cambios', 'Marcador', 'Acta'].map((tag) => (
+                        <span key={tag} className="rounded-full bg-on-secondary/15 px-2.5 py-1 text-xs font-semibold">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </motion.div>
               )
             })}

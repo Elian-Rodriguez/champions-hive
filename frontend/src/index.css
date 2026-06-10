@@ -166,3 +166,26 @@ body {
     radial-gradient(58% 50% at 12% 0%, rgba(74, 225, 118, 0.1), transparent 70%),
     radial-gradient(48% 42% at 100% 100%, rgba(255, 182, 144, 0.07), transparent 70%);
 }
+
+/* Marquee continuo de capacidades */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+}
+
+/* Rejilla técnica de fondo (sutil, se desvanece hacia abajo) */
+.bg-grid-faint {
+  background-image:
+    linear-gradient(to right, rgba(216, 227, 251, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(216, 227, 251, 0.04) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 25%, transparent 78%);
+  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 25%, transparent 78%);
+}
