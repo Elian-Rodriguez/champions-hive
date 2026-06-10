@@ -1125,6 +1125,42 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       setMsg(e.message)
     }
   }
+  async function surpriseDraw() {
+    if (
+      !confirm(
+        '🎲 Sorteo sorpresa: se re-sortean los grupos al azar y se regenera el fixture y el calendario (con descanso). No funciona si hay partidos en vivo o finalizados. ¿Continuar?',
+      )
+    )
+      return
+    setMsg('Sorteando…')
+    try {
+      const teams = await api.getTeams(tournament.id)
+      const groups = new Set(teams.map((t: any) => t.group_name).filter(Boolean))
+      const numGroups = Math.max(2, groups.size || 2)
+      await api.shuffleGroups(tournament.id, numGroups)
+      const st = await api.getStages(tournament.id)
+      let fix = ''
+      for (const s of st) {
+        if (s.type === 'group') {
+          const r = await api.generateFixture(s.id)
+          fix = r.message
+        }
+      }
+      const cal = await api.scheduleCalendar(tournament.id, {
+        start: start || undefined,
+        match_duration: tournament.match_duration,
+        waiting_time: tournament.waiting_time,
+        max_matches_per_day: maxPerDay ? Number(maxPerDay) : undefined,
+        days_of_week: dows.length ? dows : undefined,
+        days_interval: interval ? Number(interval) : undefined,
+      })
+      setStages(st)
+      setMsg(`🎲 Sorteo listo · ${numGroups} grupos · ${fix} · ${cal.message}`)
+      if (active) pick(active)
+    } catch (e: any) {
+      setMsg(e.message)
+    }
+  }
   async function patch(m: any, field: string, value: any) {
     await api.updateMatchSchedule(m.id, { [field]: value || null })
     if (active) pick(active)
@@ -1183,6 +1219,9 @@ function CalendarioTab({ tournament }: { tournament: any }) {
         </div>
         <Button variant="outline" onClick={autoSchedule}>
           <Icon name="schedule" /> Programar partidos
+        </Button>
+        <Button onClick={surpriseDraw} title="Re-sortea grupos y regenera fixture + calendario con descanso">
+          <Icon name="casino" /> Sorteo sorpresa
         </Button>
         {msg && <span className="text-sm text-secondary">{msg}</span>}
       </div>
