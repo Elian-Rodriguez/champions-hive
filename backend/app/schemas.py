@@ -30,6 +30,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
+    user_id: Optional[str] = None
 
 
 class PasswordChange(BaseModel):
@@ -260,6 +261,7 @@ class MatchScheduleUpdate(BaseModel):
     court_id: Optional[UUID] = None
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
+    referee_id: Optional[UUID] = None
 
 
 class MatchStatusUpdate(BaseModel):
@@ -280,6 +282,7 @@ class MatchResponse(BaseModel):
     bracket_round: Optional[int] = None
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
+    referee_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True

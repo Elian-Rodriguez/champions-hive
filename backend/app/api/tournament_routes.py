@@ -24,6 +24,7 @@ from app.db.models import (
     Tournament,
     TournamentPhoto,
     TournamentTeam,
+    User,
     Venue,
 )
 from app.schemas import (
@@ -452,6 +453,12 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
     }
     stage_type = stage.type.value if hasattr(stage.type, "value") else stage.type
     groups = _team_groups(db, stage.tournament_id) if stage_type == "group" else {}
+    ref_ids = [m.referee_id for m in matches if m.referee_id]
+    refs = (
+        {str(u.id): u.email for u in db.query(User).filter(User.id.in_(ref_ids)).all()}
+        if ref_ids
+        else {}
+    )
     return [
         {
             "id": str(m.id),
@@ -474,6 +481,12 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
             ),
             "bracket_round": m.bracket_round,
             "scheduled_start": m.scheduled_start,
+            "referee_id": str(m.referee_id) if m.referee_id else None,
+            "referee_name": (
+                (refs.get(str(m.referee_id)) or "").split("@")[0] or None
+                if m.referee_id
+                else None
+            ),
         }
         for m in matches
     ]

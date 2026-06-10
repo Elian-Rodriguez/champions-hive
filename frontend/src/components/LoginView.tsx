@@ -35,6 +35,7 @@ export default function LoginView({
           token: data.access_token,
           role: data.role,
           username: email,
+          userId: data.user_id,
         }),
       )
       onSuccess()

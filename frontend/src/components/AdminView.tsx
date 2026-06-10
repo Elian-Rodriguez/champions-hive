@@ -1202,6 +1202,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   const [dows, setDows] = useState<number[]>([])
   const [interval, setIntervalDays] = useState('')
   const [parallel, setParallel] = useState(false)
+  const [refs, setRefs] = useState<any[]>([])
   const [msg, setMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1209,6 +1210,10 @@ function CalendarioTab({ tournament }: { tournament: any }) {
     api.getVenues().then((vs: any[]) =>
       setCourts(vs.flatMap((v) => (v.courts || []).map((c: any) => ({ ...c, venue: v.name })))),
     )
+    api
+      .listUsers()
+      .then((us: any[]) => setRefs(us.filter((u) => u.role === 'referee')))
+      .catch(() => setRefs([]))
   }, [tournament.id])
 
   async function pick(s: any) {
@@ -1384,6 +1389,19 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                 {courts.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.venue} · {c.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={m.referee_id || ''}
+                onChange={(e) => patch(m, 'referee_id', e.target.value)}
+                className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface"
+                title="Árbitro asignado"
+              >
+                <option value="">Árbitro…</option>
+                {refs.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {(r.email || '').split('@')[0]}
                   </option>
                 ))}
               </select>

@@ -37,21 +37,35 @@ def get_db():
 
 
 def run_sqlite_migrations():
-    """Agrega columnas faltantes a tablas existentes en SQLite.
+    """Agrega columnas faltantes a tablas existentes (SQLite y PostgreSQL).
 
     Workaround ligero (no hay historial de Alembic): para cada tabla ya creada,
-    compara las columnas del modelo con las de la base y agrega las que falten.
+    compara las columnas del modelo con las de la base y agrega con ALTER TABLE
+    las que falten (siempre nullable, así no rompe filas existentes).
     """
-    if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-        return
+    is_sqlite = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
 
     with engine.connect() as conn:
         for table in Base.metadata.sorted_tables:
-            rows = conn.execute(text(f"PRAGMA table_info({table.name})")).fetchall()
-            if not rows:
+            if is_sqlite:
+                rows = conn.execute(
+                    text(f"PRAGMA table_info({table.name})")
+                ).fetchall()
+                existing = {row[1] for row in rows}
+                table_exists = bool(rows)
+            else:
+                rows = conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :t AND table_schema = current_schema()"
+                    ),
+                    {"t": table.name},
+                ).fetchall()
+                existing = {row[0] for row in rows}
+                table_exists = bool(rows)
+            if not table_exists:
                 # La tabla aún no existe; create_all() se encarga de crearla.
                 continue
-            existing = {row[1] for row in rows}
             for column in table.columns:
                 if column.name not in existing:
                     coltype = column.type.compile(dialect=engine.dialect)

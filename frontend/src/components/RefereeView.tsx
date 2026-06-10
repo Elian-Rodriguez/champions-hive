@@ -3,6 +3,7 @@ import { api, syncOutbox } from '../services/api'
 import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
+import { useAppSelector } from '../hooks'
 
 type Disc = { type: string; label: string; short: string; color: string }
 const DISCIPLINE: Record<string, Disc[]> = {
@@ -26,6 +27,8 @@ const STATUS_LABEL: Record<string, string> = {
   live: 'En vivo',
   finished: 'Finalizado',
 }
+
+const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 function useNet() {
   const [net, setNet] = useState({ online: isOnline(), pending: pendingCount() })
@@ -85,13 +88,27 @@ export default function RefereeView() {
   const [selAway, setSelAway] = useState('')
   const [events, setEvents] = useState<any[]>([])
   const [minute, setMinute] = useState('')
+  const [running, setRunning] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const [teamColors, setTeamColors] = useState<Record<string, string[]>>({})
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mineOnly, setMineOnly] = useState(false)
+  const { userId } = useAppSelector((s) => s.auth)
 
   useEffect(() => {
     api.getTournaments().then(setTournaments).finally(() => setLoading(false))
   }, [])
+
+  // Cronómetro del partido (corre/pausa); el minuto del evento sigue al reloj.
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(id)
+  }, [running])
+  useEffect(() => {
+    if (running) setMinute(String(Math.floor(elapsed / 60)))
+  }, [elapsed, running])
 
   // Auto-refresco cada 15s: eventos del partido abierto, o la lista de partidos.
   // No toca el marcador local en edición.
@@ -129,6 +146,8 @@ export default function RefereeView() {
     setAway(m.away_score || 0)
     setMsg(null)
     setMinute('')
+    setRunning(false)
+    setElapsed(0)
     setSelHome('')
     setSelAway('')
     setHomePlayers(m.home_team_id ? await api.getPlayers(m.home_team_id) : [])
@@ -187,6 +206,8 @@ export default function RefereeView() {
   }
 
   const cards = (tournament && DISCIPLINE[tournament.sport_type]) || DISCIPLINE.football
+  const shownMatches =
+    mineOnly && userId ? matches.filter((m: any) => m.referee_id === userId) : matches
 
   if (loading)
     return (
@@ -237,18 +258,45 @@ export default function RefereeView() {
                   </span>
                 )}
               </div>
-              <label className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-surface-container-low px-3 py-1 text-sm">
-                <Icon name="timer" className="text-base text-secondary" />
-                <input
-                  type="number"
-                  min={0}
-                  value={minute}
-                  onChange={(e) => setMinute(e.target.value)}
-                  placeholder="min"
-                  className="w-12 bg-transparent text-center text-on-surface focus:outline-none"
-                />
-                <span className="text-on-surface-variant">'</span>
-              </label>
+              <div className="flex items-center gap-2">
+                {/* Cronómetro */}
+                <div className="flex items-center gap-1 rounded-full border border-outline-variant bg-surface-container-low px-2 py-1 text-sm">
+                  <Icon name="timer" className="text-base text-secondary" />
+                  <span className="w-11 text-center font-display font-semibold tabular-nums">{fmtClock(elapsed)}</span>
+                  <button
+                    onClick={() => setRunning((r) => !r)}
+                    className="grid h-6 w-6 place-items-center rounded-full text-secondary hover:bg-surface-bright"
+                    title={running ? 'Pausar' : 'Iniciar'}
+                  >
+                    <Icon name={running ? 'pause' : 'play_arrow'} className="text-base" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRunning(false)
+                      setElapsed(0)
+                    }}
+                    className="grid h-6 w-6 place-items-center rounded-full text-on-surface-variant hover:bg-surface-bright"
+                    title="Reiniciar"
+                  >
+                    <Icon name="restart_alt" className="text-base" />
+                  </button>
+                </div>
+                {/* Minuto del evento (sigue al reloj o manual) */}
+                <label
+                  className="flex items-center gap-1 rounded-full border border-outline-variant bg-surface-container-low px-3 py-1 text-sm"
+                  title="Minuto del evento"
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    value={minute}
+                    onChange={(e) => setMinute(e.target.value)}
+                    placeholder="min"
+                    className="w-10 bg-transparent text-center text-on-surface focus:outline-none"
+                  />
+                  <span className="text-on-surface-variant">'</span>
+                </label>
+              </div>
             </div>
 
             <div className="grid grid-cols-3 items-start gap-2 text-center">
@@ -398,11 +446,24 @@ export default function RefereeView() {
       )}
       {stage && (
         <div>
-          {matches.length === 0 ? (
-            <EmptyState icon="sports_soccer" title="No hay partidos en esta fase" hint="Genera el fixture desde el panel de administración." />
+          <label className="mb-3 flex w-fit cursor-pointer items-center gap-2 text-sm text-on-surface-variant">
+            <input
+              type="checkbox"
+              checked={mineOnly}
+              onChange={(e) => setMineOnly(e.target.checked)}
+              className="accent-secondary"
+            />
+            Solo mis partidos asignados
+          </label>
+          {shownMatches.length === 0 ? (
+            <EmptyState
+              icon="sports_soccer"
+              title={mineOnly ? 'No tienes partidos asignados en esta fase' : 'No hay partidos en esta fase'}
+              hint={mineOnly ? undefined : 'Genera el fixture desde el panel de administración.'}
+            />
           ) : (
             <ul className="grid gap-2 sm:grid-cols-2">
-              {matches.map((m) => (
+              {shownMatches.map((m) => (
                 <li key={m.id}>
                   <button onClick={() => openMatch(m)} className="w-full text-left">
                     <Card className="p-4 transition hover:border-secondary/60">
@@ -432,6 +493,15 @@ export default function RefereeView() {
                           <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
                         )}
                       </div>
+                      {m.referee_name && (
+                        <p className="mt-1.5 flex items-center justify-center gap-1 text-xs text-on-surface-variant">
+                          <Icon name="sports" className="text-sm" />
+                          <span className={m.referee_id === userId ? 'font-semibold text-secondary' : ''}>
+                            {m.referee_name}
+                            {m.referee_id === userId ? ' · tú' : ''}
+                          </span>
+                        </p>
+                      )}
                     </Card>
                   </button>
                 </li>

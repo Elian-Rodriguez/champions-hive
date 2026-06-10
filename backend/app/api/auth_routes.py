@@ -64,7 +64,9 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     token = create_access_token({"sub": user.email, "role": user.role})
-    return Token(access_token=token, token_type="bearer", role=user.role)
+    return Token(
+        access_token=token, token_type="bearer", role=user.role, user_id=str(user.id)
+    )
 
 
 @router.post("/change_password")

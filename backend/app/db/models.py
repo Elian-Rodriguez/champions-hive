@@ -209,6 +209,7 @@ class Match(Base):
     is_third_place = Column(Boolean, default=False)
     scheduled_start = Column(DateTime)
     scheduled_end = Column(DateTime)
+    referee_id = Column(GUID(), nullable=True)  # User (árbitro) asignado al partido
 
     stage = relationship("Stage", back_populates="matches")
     home_team = relationship("Team", foreign_keys=[home_team_id])
