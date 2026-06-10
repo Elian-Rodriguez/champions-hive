@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { exportStandingsPDF } from '../utils/pdf'
+import { downloadImage, makeMatchImage, makeStandingsImage, shareImage } from '../utils/socialImage'
 import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
@@ -35,6 +36,24 @@ export default function PublicView({
   const [teamStats, setTeamStats] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
   const [fairPlay, setFairPlay] = useState<any[]>([])
+  const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
+  const [shareBusy, setShareBusy] = useState(false)
+
+  async function genShare(label: string, make: () => Promise<Blob>) {
+    setShareBusy(true)
+    try {
+      const blob = await make()
+      setShareImg({ url: URL.createObjectURL(blob), blob, label })
+    } catch {
+      /* no se pudo generar la imagen */
+    } finally {
+      setShareBusy(false)
+    }
+  }
+  function closeShare() {
+    if (shareImg) URL.revokeObjectURL(shareImg.url)
+    setShareImg(null)
+  }
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -267,7 +286,16 @@ export default function PublicView({
                     <div className="space-y-6">
                       {Object.entries(standings).map(([group, rows]) => (
                         <Card key={group} className="p-4">
-                          <h3 className="mb-2 font-display font-semibold">{group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}</h3>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <h3 className="font-display font-semibold">{group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}</h3>
+                            <button
+                              onClick={() => genShare('tabla', () => makeStandingsImage(selected, group, rows, sponsors))}
+                              className="flex shrink-0 items-center gap-1 rounded-lg bg-surface-container-high px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-surface-bright"
+                              title="Generar imagen para redes"
+                            >
+                              <Icon name="ios_share" className="text-sm" /> Compartir
+                            </button>
+                          </div>
                           <StandingsTable rows={rows} onRowClick={openProfile} />
                         </Card>
                       ))}
@@ -320,6 +348,13 @@ export default function PublicView({
                                 </span>
                                 <span className="flex-1 truncate font-medium">{m.away_team_name || 'Por definir'}</span>
                                 <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
+                                <button
+                                  onClick={() => genShare('partido', () => makeMatchImage(selected, m, sponsors))}
+                                  className="shrink-0 rounded-lg p-1.5 text-on-surface-variant transition hover:bg-surface-bright hover:text-secondary"
+                                  title="Imagen para redes"
+                                >
+                                  <Icon name="ios_share" className="text-base" />
+                                </button>
                                 {(m.stage_name || m.group_name || m.court_name || m.venue_name) && (
                                   <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-t border-outline-variant/20 pt-1.5 text-xs text-on-surface-variant">
                                     {m.stage_name && (
@@ -557,6 +592,53 @@ export default function PublicView({
               )}
             </div>
           </Card>
+        </div>
+      )}
+
+      {shareBusy && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+          <div className="flex items-center gap-3 rounded-xl border border-outline-variant/40 bg-surface-container px-5 py-4">
+            <Spinner /> Generando imagen…
+          </div>
+        </div>
+      )}
+      {shareImg && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={closeShare}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-outline-variant/40 bg-surface-container p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-display font-semibold">Imagen para redes</h3>
+              <button onClick={closeShare} className="text-on-surface-variant hover:text-on-surface">
+                <Icon name="close" />
+              </button>
+            </div>
+            <img src={shareImg.url} alt="" className="w-full rounded-xl border border-outline-variant/40" />
+            <div className="mt-4 flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() =>
+                  shareImage(shareImg.blob, `championhive-${shareImg.label}.png`, selected?.name || 'Champion Hive')
+                }
+              >
+                <Icon name="share" /> Compartir
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => downloadImage(shareImg.blob, `championhive-${shareImg.label}.png`)}
+              >
+                <Icon name="download" /> Descargar
+              </Button>
+            </div>
+            <p className="mt-2 text-center text-xs text-on-surface-variant">
+              «Compartir» abre WhatsApp/Instagram en el celular.
+            </p>
+          </div>
         </div>
       )}
     </div>
