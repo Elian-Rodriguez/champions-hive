@@ -1096,6 +1096,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   const [maxPerDay, setMaxPerDay] = useState('')
   const [dows, setDows] = useState<number[]>([])
   const [interval, setIntervalDays] = useState('')
+  const [parallel, setParallel] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1118,6 +1119,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
         max_matches_per_day: maxPerDay ? Number(maxPerDay) : undefined,
         days_of_week: dows.length ? dows : undefined,
         days_interval: interval ? Number(interval) : undefined,
+        parallel_courts: parallel,
       })
       setMsg(r.message)
       if (active) pick(active)
@@ -1153,6 +1155,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
         max_matches_per_day: maxPerDay ? Number(maxPerDay) : undefined,
         days_of_week: dows.length ? dows : undefined,
         days_interval: interval ? Number(interval) : undefined,
+        parallel_courts: parallel,
       })
       setStages(st)
       setMsg(`🎲 Sorteo listo · ${numGroups} grupos · ${fix} · ${cal.message}`)
@@ -1216,6 +1219,17 @@ function CalendarioTab({ tournament }: { tournament: any }) {
             placeholder="—"
             className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface"
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-on-surface-variant">Canchas</label>
+          <select
+            value={parallel ? '1' : '0'}
+            onChange={(e) => setParallel(e.target.value === '1')}
+            className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface"
+          >
+            <option value="0">1 a la vez (en secuencia)</option>
+            <option value="1">Varias en paralelo</option>
+          </select>
         </div>
         <Button variant="outline" onClick={autoSchedule}>
           <Icon name="schedule" /> Programar partidos

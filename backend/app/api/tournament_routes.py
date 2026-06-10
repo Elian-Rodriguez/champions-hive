@@ -126,30 +126,44 @@ def _round_robin_rounds(team_ids: List[Any]) -> List[List[tuple]]:
     return rounds
 
 
-def _rest_aware_order(matches: List[Match], rest_slots: int = 1) -> List[Match]:
-    """Reordena los partidos para que ningún equipo juegue en turnos seguidos:
-    cada equipo descansa al menos `rest_slots` turno(s) entre sus partidos."""
+def _pack_slots(
+    matches: List[Match], slot_cap: int = 1, rest_slots: int = 1
+) -> List[List[Match]]:
+    """Agrupa los partidos en turnos. Cada turno reúne hasta `slot_cap` partidos
+    con equipos distintos (que se jugarían a la misma hora en canchas distintas)
+    y ningún equipo juega en turnos consecutivos: descansa al menos `rest_slots`
+    turno(s). Con `slot_cap=1` queda un partido por turno (una sola cancha)."""
     remaining = list(matches)
-    ordered: List[Match] = []
+    slots: List[List[Match]] = []
     last: Dict[Any, int] = {}
-    slot = 0
     while remaining:
-        best_i, best_key = 0, None
-        for i, m in enumerate(remaining):
+        si = len(slots)
+        slot: List[Match] = []
+        slot_teams: set = set()
+        used: List[int] = []
+        for idx, m in enumerate(remaining):
+            if len(slot) >= slot_cap:
+                break
             teams = [t for t in (m.home_team_id, m.away_team_id) if t]
-            gap = min(
-                (slot - last.get(t, -(10 ** 9)) for t in teams), default=10 ** 9
+            if any(t in slot_teams for t in teams):
+                continue  # un equipo no juega dos partidos a la vez
+            if any(si - last.get(t, -(10 ** 9)) <= rest_slots for t in teams):
+                continue  # respetar el descanso entre sus partidos
+            slot.append(m)
+            used.append(idx)
+            slot_teams.update(teams)
+        if not slot:  # descanso imposible de cumplir: relajar para avanzar
+            slot.append(remaining[0])
+            used.append(0)
+            slot_teams.update(
+                t for t in (remaining[0].home_team_id, remaining[0].away_team_id) if t
             )
-            key = (0 if gap > rest_slots else 1, -gap, str(m.id))
-            if best_key is None or key < best_key:
-                best_key, best_i = key, i
-        chosen = remaining.pop(best_i)
-        ordered.append(chosen)
-        for t in (chosen.home_team_id, chosen.away_team_id):
-            if t:
-                last[t] = slot
-        slot += 1
-    return ordered
+        for t in slot_teams:
+            last[t] = si
+        slots.append(slot)
+        used_set = set(used)
+        remaining = [m for j, m in enumerate(remaining) if j not in used_set]
+    return slots
 
 
 def _build_group_standings(db: Session, stage: Stage) -> Dict[str, List[Dict]]:
@@ -1130,20 +1144,35 @@ def schedule_tournament_calendar(
     if not matches:
         return {"message": "No hay partidos para programar", "scheduled": 0, "days": 0}
 
-    # Reordenar para que ningún equipo juegue en turnos consecutivos (descanso),
-    # respetando el orden de las rondas (grupos antes que eliminatorias).
+    # ¿Una sola cancha (en secuencia) o varias canchas a la vez (en paralelo)?
+    parallel = bool(payload.get("parallel_courts"))
+    courts_all = db.query(Court).all()
+    active_courts = [c for c in courts_all if getattr(c, "is_active", True)] or courts_all
+    num_courts = len(active_courts) or 1
+    slot_cap = num_courts if parallel else 1
     rest_raw = payload.get("min_rest_slots")
     rest_slots = int(rest_raw) if rest_raw is not None else 1
+
+    # Armar los turnos por ronda (grupos antes que eliminatorias), con descanso.
     by_round: Dict[int, List[Match]] = defaultdict(list)
     for m in matches:
         by_round[m.bracket_round or 0].append(m)
-    ordered_matches: List[Match] = []
+    slots: List[List[Match]] = []
     for rnd in sorted(by_round):
-        ordered_matches.extend(_rest_aware_order(by_round[rnd], rest_slots))
-    matches = ordered_matches
+        slots.extend(_pack_slots(by_round[rnd], slot_cap, rest_slots))
 
-    per_day = max_per_day if (max_per_day and max_per_day > 0) else len(matches)
-    n_days = -(-len(matches) // per_day)  # techo (ceil)
+    # Repartir los turnos en jornadas según el máximo de partidos por día.
+    max_pd = max_per_day if (max_per_day and max_per_day > 0) else len(matches)
+    slot_day: List[tuple] = []
+    day_idx = in_day = slot_in_day = 0
+    for slot in slots:
+        if in_day > 0 and in_day + len(slot) > max_pd:
+            day_idx += 1
+            in_day = slot_in_day = 0
+        slot_day.append((day_idx, slot_in_day))
+        in_day += len(slot)
+        slot_in_day += 1
+    n_days = day_idx + 1
 
     # Fechas de cada jornada según la recurrencia (días de semana o intervalo).
     if days_of_week:
@@ -1163,17 +1192,24 @@ def schedule_tournament_calendar(
         day_dates.append(nxt)
 
     count = 0
-    for i, m in enumerate(matches):
-        day, slot = divmod(i, per_day)
-        when = day_dates[day] + timedelta(minutes=slot * step)
-        m.scheduled_start = when
-        m.scheduled_end = when + timedelta(minutes=duration)
-        count += 1
+    for slot, (d, s) in zip(slots, slot_day):
+        when = day_dates[d] + timedelta(minutes=s * step)
+        for ci, m in enumerate(slot):
+            m.scheduled_start = when
+            m.scheduled_end = when + timedelta(minutes=duration)
+            if parallel:
+                m.court_id = active_courts[ci % num_courts].id
+            count += 1
     db.commit()
     return {
-        "message": f"{count} partido(s) programados en {n_days} día(s)",
+        "message": (
+            f"{count} partido(s) en {n_days} día(s) · "
+            + (f"{num_courts} canchas en paralelo" if parallel else "1 cancha a la vez")
+        ),
         "scheduled": count,
         "days": n_days,
+        "parallel": parallel,
+        "courts": num_courts if parallel else 1,
     }
 
 
