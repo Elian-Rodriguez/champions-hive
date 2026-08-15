@@ -7,12 +7,9 @@ import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
 import DashboardView from './DashboardView'
 import { exportStandingsPDF } from '../utils/pdf'
+import { SPORT_LIST } from '../sports'
 
-const SPORTS = [
-  { value: 'football', label: 'Fútbol' },
-  { value: 'micro', label: 'Microfútbol' },
-  { value: 'basketball', label: 'Baloncesto' },
-]
+const SPORTS = SPORT_LIST
 const STAGE_TYPES = [
   { value: 'group', label: 'Grupos' },
   { value: 'league', label: 'Liga' },
@@ -237,7 +234,7 @@ const HELP_STEPS: { icon: string; title: string; body: string }[] = [
   {
     icon: 'add_circle',
     title: '1. Crea el torneo',
-    body: 'En la pestaña Torneos escribe el nombre, elige el deporte (fútbol, microfútbol o baloncesto) y pulsa Crear.',
+    body: 'En la pestaña Torneos escribe el nombre, elige el deporte (fútbol, microfútbol, banquitas o baloncesto) y pulsa Crear.',
   },
   {
     icon: 'tune',

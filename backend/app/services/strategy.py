@@ -16,6 +16,37 @@ DEFAULT_TIEBREAKERS = ["PUNTOS", "DIF_GOLES", "GOLES_FAVOR", "PARTIDO_DIRECTO"]
 # Penalización de fair play por tipo de tarjeta (menos = mejor).
 FAIR_PLAY_WEIGHTS = {"yellow": 1, "blue": 2, "red": 3}
 
+# Deportes que puntúan como fútbol (victoria / empate / derrota).
+FOOTBALL_LIKE_SPORTS = ("football", "micro", "banquitas")
+
+# Valores por defecto de cada disciplina; se aplican al crear el torneo solo
+# para los campos que el organizador no envía. Coinciden con los fallbacks ya
+# usados al calcular puntos y al generar el calendario.
+SPORT_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "football": {
+        "points_config": {"win": 3, "draw": 1, "loss": 0},
+        "match_duration": 60,
+        "waiting_time": 0,
+    },
+    "micro": {
+        "points_config": {"win": 3, "draw": 1, "loss": 0},
+        "match_duration": 60,
+        "waiting_time": 0,
+    },
+    "basketball": {
+        "points_config": {"win": 2, "loss": 1},
+        "match_duration": 60,
+        "waiting_time": 0,
+    },
+    # Banquitas: partidos cortos por tiempo, con empate posible y rotación
+    # rápida de canchas, así que el descanso entre partidos viene activado.
+    "banquitas": {
+        "points_config": {"win": 3, "draw": 1, "loss": 0},
+        "match_duration": 20,
+        "waiting_time": 5,
+    },
+}
+
 
 class SportStrategy(ABC):
     @abstractmethod
@@ -51,7 +82,7 @@ class StrategyFactory:
     def get_strategy(sport_type: str) -> SportStrategy:
         if sport_type == "basketball":
             return BasketballStrategy()
-        if sport_type in ("football", "micro"):
+        if sport_type in FOOTBALL_LIKE_SPORTS:
             return FootballStrategy()
         raise ValueError(f"Deporte no soportado: {sport_type}")
 

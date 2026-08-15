@@ -14,13 +14,12 @@ import {
 } from 'recharts'
 import { api } from '../services/api'
 import { Card, Icon, Spinner } from './ui'
+import { SPORT_LIST } from '../sports'
 
 const PALETTE = ['#4ae176', '#bec6e0', '#ffb690', '#7fd1ff', '#ff9db1', '#ffd479']
-const SPORT_LABEL: Record<string, string> = {
-  football: 'Fútbol',
-  micro: 'Microfútbol',
-  basketball: 'Baloncesto',
-}
+const SPORT_LABEL: Record<string, string> = Object.fromEntries(
+  SPORT_LIST.map((s) => [s.value, s.label]),
+)
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Borrador',
   active: 'En juego',

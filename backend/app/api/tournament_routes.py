@@ -42,6 +42,7 @@ from app.schemas import (
     TournamentUpdate,
 )
 from app.services.strategy import (
+    SPORT_DEFAULTS,
     TIEBREAKER_LABELS,
     StrategyFactory,
     calculate_standings,
@@ -371,7 +372,18 @@ def create_tournament(
     db: Session = Depends(get_db),
     _=Depends(require_staff),
 ):
-    obj = Tournament(**tournament.model_dump(exclude_unset=True), status="draft")
+    data = tournament.model_dump(exclude_unset=True)
+    # Cada disciplina trae sus valores por defecto (puntos, duración y
+    # descanso); solo se rellenan los campos que el organizador no envió.
+    sport = data.get("sport_type")
+    defaults = SPORT_DEFAULTS.get(
+        sport.value if hasattr(sport, "value") else str(sport), {}
+    )
+    for field, value in defaults.items():
+        if data.get(field) is None:
+            data[field] = value
+
+    obj = Tournament(**data, status="draft")
     db.add(obj)
     db.commit()
     db.refresh(obj)

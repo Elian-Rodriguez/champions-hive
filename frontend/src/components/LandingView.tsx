@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api } from '../services/api'
 import { Brand, Button, Card, Eyebrow, Icon, LiveChip } from './ui'
+import { sportOf } from '../sports'
 
 const FEATURES = [
   { icon: 'bolt', title: 'En tiempo real', desc: 'El árbitro carga goles, tarjetas y cambios desde el celular; el público lo ve al instante.' },
   { icon: 'account_tree', title: 'Grupos y eliminatorias', desc: 'Fase de grupos, liga, suizo y bracket de eliminación con 3er puesto y auto-avance.' },
-  { icon: 'sports_soccer', title: 'Multideporte', desc: 'Fútbol, microfútbol y baloncesto, cada uno con su lógica de puntuación.' },
+  { icon: 'sports_soccer', title: 'Multideporte', desc: 'Fútbol, microfútbol, banquitas y baloncesto, cada uno con su lógica de puntuación.' },
   { icon: 'leaderboard', title: 'Posiciones y desempates', desc: 'Tabla configurable: puntos, diferencia, fair-play y enfrentamiento directo.' },
   { icon: 'insights', title: 'Estadísticas y gráficas', desc: 'Goleadores, curva de puntos, goles por fecha y un dashboard profesional.' },
   { icon: 'install_mobile', title: 'PWA instalable', desc: 'Funciona desde el celular del árbitro y del público, también offline.' },
@@ -19,14 +20,9 @@ const STEPS = [
   { icon: 'public', title: 'Comparte el marcador', desc: 'Posiciones, bracket y estadísticas públicas, sin login.' },
 ]
 
-const SPORT: Record<string, { label: string; icon: string; grad: string; ring: string }> = {
-  football: { label: 'Fútbol', icon: 'sports_soccer', grad: 'from-secondary/35 via-secondary/10 to-transparent', ring: 'text-secondary' },
-  micro: { label: 'Microfútbol', icon: 'sports_soccer', grad: 'from-tertiary/35 via-tertiary/10 to-transparent', ring: 'text-tertiary' },
-  basketball: { label: 'Baloncesto', icon: 'sports_basketball', grad: 'from-primary/35 via-primary/10 to-transparent', ring: 'text-primary' },
-}
-
 const MARQUEE = [
   { icon: 'sports_soccer', label: 'Fútbol' },
+  { icon: 'sports_soccer', label: 'Banquitas' },
   { icon: 'sports_basketball', label: 'Baloncesto' },
   { icon: 'bolt', label: 'Tiempo real' },
   { icon: 'account_tree', label: 'Brackets' },
@@ -233,7 +229,7 @@ export default function LandingView({
           </div>
           <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {showcased.map((t, i) => {
-              const sp = SPORT[t.sport_type] || SPORT.football
+              const sp = sportOf(t.sport_type)
               return (
                 <motion.button
                   key={t.id}

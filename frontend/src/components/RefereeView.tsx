@@ -4,24 +4,8 @@ import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 import { useAppSelector } from '../hooks'
+import { sportOf, type DisciplineEvent } from '../sports'
 
-type Disc = { type: string; label: string; short: string; color: string }
-const DISCIPLINE: Record<string, Disc[]> = {
-  football: [
-    { type: 'AMARILLA', label: 'Amarilla', short: 'AM', color: 'bg-yellow-400 text-black' },
-    { type: 'ROJA', label: 'Roja', short: 'RJ', color: 'bg-red-500 text-white' },
-  ],
-  micro: [
-    { type: 'AMARILLA', label: 'Amarilla', short: 'AM', color: 'bg-yellow-400 text-black' },
-    { type: 'AZUL', label: 'Azul', short: 'AZ', color: 'bg-blue-500 text-white' },
-    { type: 'ROJA', label: 'Roja', short: 'RJ', color: 'bg-red-500 text-white' },
-  ],
-  basketball: [
-    { type: 'FALTA', label: 'Falta', short: 'FAL', color: 'bg-orange-500 text-white' },
-    { type: 'TECNICA', label: 'Técnica', short: 'TÉC', color: 'bg-purple-500 text-white' },
-    { type: 'ANTIDEPORTIVA', label: 'Antideportiva', short: 'ANT', color: 'bg-red-500 text-white' },
-  ],
-}
 const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Programado',
   live: 'En vivo',
@@ -205,7 +189,7 @@ export default function RefereeView() {
     return p ? p.name : ''
   }
 
-  const cards = (tournament && DISCIPLINE[tournament.sport_type]) || DISCIPLINE.football
+  const cards = sportOf(tournament?.sport_type).events
   const shownMatches =
     mineOnly && userId ? matches.filter((m: any) => m.referee_id === userId) : matches
 
@@ -531,7 +515,7 @@ function SideColumn({
   name: string | null
   score: number
   colors?: string[]
-  cards: Disc[]
+  cards: DisciplineEvent[]
   players: any[]
   selected: string
   onSelect: (id: string) => void

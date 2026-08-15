@@ -6,6 +6,7 @@ import QRCode from 'qrcode'
 import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
+import { hasBlueCard, sportOf } from '../sports'
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Programado',
@@ -215,13 +216,8 @@ export default function PublicView({
   const goalsSeries: any[] = metrics?.goals_by_date || []
   const goalsMax = Math.max(1, ...goalsSeries.map((d: any) => d.goals || 0))
   const sport = selected?.sport_type
-  const scoreLabel = sport === 'basketball' ? 'Puntos' : 'Goles'
-  const discCols: { key: string; label: string }[] =
-    sport === 'basketball'
-      ? [{ key: 'fouls', label: 'Faltas' }]
-      : sport === 'micro'
-        ? [{ key: 'yellow', label: '🟨' }, { key: 'blue', label: '🟦' }, { key: 'red', label: '🟥' }]
-        : [{ key: 'yellow', label: '🟨' }, { key: 'red', label: '🟥' }]
+  const scoreLabel = sportOf(sport).scoreLabel
+  const discCols = sportOf(sport).discColumns
 
   const byDate: Record<string, any[]> = {}
   allMatches.forEach((m) => {
@@ -846,13 +842,13 @@ export default function PublicView({
                 const tid = profile.row?.team_id
                 const ts = teamStats.find((s: any) => String(s.team_id) === String(tid))
                 const fp = fairPlay.find((s: any) => String(s.team_id) === String(tid))
-                const micro = selected?.sport_type === 'micro'
+                const blueCard = hasBlueCard(selected?.sport_type)
                 const cells = [
                   { label: 'Goles', value: ts?.points_scored ?? profile.row?.points_scored ?? 0 },
                   { label: 'En contra', value: ts?.points_conceded ?? profile.row?.points_conceded ?? 0 },
                   { label: 'Faltas', value: fp?.fouls ?? 0 },
                   { label: '🟨 Amar.', value: fp?.yellow ?? 0 },
-                  ...(micro ? [{ label: '🟦 Azul', value: fp?.blue ?? 0 }] : []),
+                  ...(blueCard ? [{ label: '🟦 Azul', value: fp?.blue ?? 0 }] : []),
                   { label: '🟥 Rojas', value: fp?.red ?? 0 },
                 ]
                 return (
@@ -919,7 +915,7 @@ export default function PublicView({
                         <th className="px-1.5 py-1.5 text-center font-semibold" title="Goles">⚽</th>
                         <th className="px-1.5 py-1.5 text-center font-semibold" title="Faltas">Fal</th>
                         <th className="px-1.5 py-1.5 text-center font-semibold" title="Amarillas">🟨</th>
-                        {selected?.sport_type === 'micro' && (
+                        {hasBlueCard(selected?.sport_type) && (
                           <th className="px-1.5 py-1.5 text-center font-semibold" title="Azules">🟦</th>
                         )}
                         <th className="px-1.5 py-1.5 text-center font-semibold" title="Rojas">🟥</th>
@@ -937,7 +933,7 @@ export default function PublicView({
                             <td className="px-1.5 py-1.5 text-center font-semibold tabular-nums text-secondary">{ps.goals || 0}</td>
                             <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.fouls || 0}</td>
                             <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.yellow || 0}</td>
-                            {selected?.sport_type === 'micro' && (
+                            {hasBlueCard(selected?.sport_type) && (
                               <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.blue || 0}</td>
                             )}
                             <td className="px-1.5 py-1.5 text-center tabular-nums text-on-surface-variant">{ps.red || 0}</td>

@@ -70,7 +70,7 @@ No test suite exists.
 - **`core/security.py`** — bcrypt hashing via passlib (`get_password_hash`/`verify_password`) and JWT via python-jose (`create_access_token`/`decode_access_token`).
 - **`core/deps.py`** — auth dependencies: `get_current_user` (decodes the Bearer JWT, loads the active `User`), and `require_roles(...)` → `require_admin` / `require_staff` (roles seen: `admin`, `referee`). 401 on bad token, 403 on wrong role.
 - **`core/limiter.py`** — shared slowapi `Limiter` keyed by remote address, default `600/minute` (login is further limited to `10/minute`).
-- **`services/strategy.py`** — the standings engine, Strategy pattern. `StrategyFactory.get_strategy(sport_type)` returns `BasketballStrategy` (win/loss only, no draw) or `FootballStrategy` (win/draw/loss; also used for `micro`); unknown sports raise `ValueError`. `calculate_standings(matches, sport_type, tiebreaker_rules)` accumulates per-team points/goals, derives fair-play penalties from card events, then sorts by an **ordered, configurable tiebreaker list**. **Standings are computed on the fly and never persisted.**
+- **`services/strategy.py`** — the standings engine, Strategy pattern. `StrategyFactory.get_strategy(sport_type)` returns `BasketballStrategy` (win/loss only, no draw) or `FootballStrategy` (win/draw/loss; also used for `micro` and `banquitas` — see `FOOTBALL_LIKE_SPORTS`); unknown sports raise `ValueError`. `SPORT_DEFAULTS` holds the per-discipline defaults (`points_config`, `match_duration`, `waiting_time`) that `create_tournament` fills in for fields the organizer omits. `calculate_standings(matches, sport_type, tiebreaker_rules)` accumulates per-team points/goals, derives fair-play penalties from card events, then sorts by an **ordered, configurable tiebreaker list**. **Standings are computed on the fly and never persisted.**
 - **`api/`** — one router per domain: `auth_routes`, `team_routes`, `tournament_routes` (the largest — holds the fixture/bracket engine), `venue_routes`, `match_routes`.
 
 ### Data model (`db/models.py`)
@@ -85,7 +85,7 @@ Venue ─ Court ─ Match                                       (a Match is play
 User                                                        (email, hashed_password, role)
 ```
 
-Enums: **SportType** `football|micro|basketball` · **StageType** `group|knockout|league|swiss` · **MatchStatus** `scheduled|live|finished` · **SlotType** `team|winner_of|position`.
+Enums: **SportType** `football|micro|basketball|banquitas` · **StageType** `group|knockout|league|swiss` · **MatchStatus** `scheduled|live|finished` · **SlotType** `team|winner_of|position`.
 
 `Tournament` carries the tournament config as JSON columns: `points_config`, `tiebreaker_rules`, plus `match_duration`/`waiting_time` and branding (`logo_url`/`banner_url`). `Stage.config` is JSON. `Match` has `home/away_team_id`, `home/away_score`, `court_id`, `bracket_round`, and scheduling timestamps.
 

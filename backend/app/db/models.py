@@ -58,6 +58,7 @@ class SportType(str, enum.Enum):
     FOOTBALL = "football"
     MICRO = "micro"
     BASKETBALL = "basketball"
+    BANQUITAS = "banquitas"
 
 
 class MatchStatus(str, enum.Enum):
