@@ -12,6 +12,16 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1'
 
+/** Desde qué fase cuentan las estadísticas (goleadores, valla, juego limpio).
+ *  `mode: 'from'` suma esa fase y las posteriores; `'only'` solo esa fase.
+ *  Sin `stageId` cuentan todas las fases del torneo. */
+export type StatScope = { stageId?: string | null; mode?: 'from' | 'only' }
+
+function scopeQuery(scope?: StatScope): string {
+  if (!scope?.stageId) return ''
+  return `?stage_id=${encodeURIComponent(scope.stageId)}&mode=${scope.mode || 'from'}`
+}
+
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -169,10 +179,13 @@ export const api = {
   resetAll: () => req('/tournaments/reset_all', { method: 'DELETE' }),
   getTiebreakerOptions: () => req('/tournaments/tiebreaker_options'),
   tournamentStats: (id: string) => req(`/tournaments/${id}/stats`),
-  playerStats: (id: string) => req(`/tournaments/${id}/player_stats`),
-  teamStats: (id: string) => req(`/tournaments/${id}/team_stats`),
+  playerStats: (id: string, scope?: StatScope) =>
+    req(`/tournaments/${id}/player_stats${scopeQuery(scope)}`),
+  teamStats: (id: string, scope?: StatScope) =>
+    req(`/tournaments/${id}/team_stats${scopeQuery(scope)}`),
   metrics: (id: string) => req(`/tournaments/${id}/metrics`),
-  fairplay: (id: string) => req(`/tournaments/${id}/fairplay`),
+  fairplay: (id: string, scope?: StatScope) =>
+    req(`/tournaments/${id}/fairplay${scopeQuery(scope)}`),
   updateLogo: (id: string, url: string) =>
     req(`/tournaments/${id}/logo`, { method: 'PUT', body: JSON.stringify({ url }) }),
   updateBanner: (id: string, url: string) =>
@@ -223,6 +236,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  updateStage: (sid: string, data: any) =>
+    req(`/tournaments/stages/${sid}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  reorderStages: (tid: string, stageIds: string[]) =>
+    req(`/tournaments/${tid}/stages/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ stage_ids: stageIds }),
+    }),
   deleteStage: (sid: string) =>
     req(`/tournaments/stages/${sid}`, { method: 'DELETE' }),
   generateFixture: (sid: string) =>
@@ -247,6 +270,7 @@ export const api = {
     req(`/tournaments/stages/${sid}/resolve_position_slots`, { method: 'POST' }),
   bestThirds: (sid: string, count = 4) =>
     req(`/tournaments/stages/${sid}/best_thirds?count=${count}`),
+  qualifiers: (sid: string) => req(`/tournaments/stages/${sid}/qualifiers`),
 
   // ---- Teams & players ----
   getTeams: (tid: string) => req(`/tournaments/${tid}/teams`),

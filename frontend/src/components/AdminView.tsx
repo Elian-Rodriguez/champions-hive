@@ -619,17 +619,195 @@ function EquiposTab({ tournament }: { tournament: any }) {
   )
 }
 
+// Panel de configuración de una fase: nombre, tipo, ida y vuelta, cuántos
+// clasifican y qué equipos la disputan.
+function StageConfig({
+  stage,
+  teams,
+  onSaved,
+}: {
+  stage: any
+  teams: any[]
+  onSaved: () => void
+}) {
+  const cfg = stage.config || {}
+  const [name, setName] = useState(stage.name)
+  const [type, setType] = useState(stage.type)
+  const [doubleRound, setDoubleRound] = useState(!!cfg.double_round)
+  const [perGroup, setPerGroup] = useState(String(cfg.qualifiers_per_group ?? 2))
+  const [extras, setExtras] = useState(
+    cfg.best_thirds_count === undefined || cfg.best_thirds_count === null
+      ? 'auto'
+      : String(cfg.best_thirds_count),
+  )
+  const [teamIds, setTeamIds] = useState<string[]>(cfg.team_ids || [])
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const toggleTeam = (id: string) =>
+    setTeamIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+
+  async function save() {
+    setSaving(true)
+    setErr(null)
+    try {
+      await api.updateStage(stage.id, {
+        name,
+        type,
+        config: {
+          ...cfg,
+          double_round: doubleRound,
+          qualifiers_per_group: Number(perGroup) || 2,
+          best_thirds_count: extras === 'auto' ? 'auto' : Number(extras),
+          team_ids: teamIds,
+        },
+      })
+      onSaved()
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-4 rounded-lg border border-outline-variant/40 bg-surface-container p-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[10rem] flex-1">
+          <label className="mb-1 block text-xs text-on-surface-variant">Nombre</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="w-40">
+          <label className="mb-1 block text-xs text-on-surface-variant">Tipo</label>
+          <Select value={type} onChange={(e) => setType(e.target.value)}>
+            {STAGE_TYPES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={doubleRound}
+          onChange={(e) => setDoubleRound(e.target.checked)}
+          className="h-4 w-4 accent-secondary"
+        />
+        Ida y vuelta (todos contra todos dos veces)
+      </label>
+
+      <div>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+          Clasificación
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-40">
+            <label className="mb-1 block text-xs text-on-surface-variant">
+              Clasifican por grupo
+            </label>
+            <Input
+              type="number"
+              min={1}
+              value={perGroup}
+              onChange={(e) => setPerGroup(e.target.value)}
+            />
+          </div>
+          <div className="w-44">
+            <label className="mb-1 block text-xs text-on-surface-variant">Repescados</label>
+            <Select value={extras} onChange={(e) => setExtras(e.target.value)}>
+              <option value="auto">Auto (completa el cuadro)</option>
+              {[0, 1, 2, 3, 4, 6, 8].map((n) => (
+                <option key={n} value={String(n)}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-on-surface-variant">
+          Los repescados son los que quedan justo debajo del corte en cada grupo (los
+          terceros si pasan 2, los segundos si pasa 1).
+        </p>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+          Equipos de la fase
+        </p>
+        {teams.length === 0 ? (
+          <p className="text-xs text-on-surface-variant">Aún no hay equipos inscritos.</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {teams.map((t) => {
+                const on = teamIds.includes(t.id)
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => toggleTeam(t.id)}
+                    className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                      on
+                        ? 'border-secondary bg-secondary/15 text-secondary'
+                        : 'border-outline-variant text-on-surface-variant hover:border-outline'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              {teamIds.length === 0
+                ? 'Ninguno marcado: juegan todos los equipos del torneo.'
+                : `${teamIds.length} equipo(s) disputan esta fase.`}
+            </p>
+          </>
+        )}
+      </div>
+
+      {err && <p className="text-sm text-error">{err}</p>}
+      <Button onClick={save} disabled={saving}>
+        <Icon name="save" /> {saving ? 'Guardando…' : 'Guardar fase'}
+      </Button>
+    </div>
+  )
+}
+
 function FasesTab({ tournament }: { tournament: any }) {
   const [stages, setStages] = useState<any[]>([])
+  const [teams, setTeams] = useState<any[]>([])
   const [name, setName] = useState('')
   const [type, setType] = useState('group')
   const [msg, setMsg] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
   async function load() {
     setStages(await api.getStages(tournament.id))
   }
   useEffect(() => {
     load()
+    api.getTeams(tournament.id).then(setTeams).catch(() => setTeams([]))
   }, [tournament.id])
+
+  // Mueve una fase una posición arriba/abajo y persiste el orden completo.
+  async function move(index: number, delta: number) {
+    const next = [...stages]
+    const target = index + delta
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target], next[index]]
+    setStages(next)
+    setMsg(null)
+    try {
+      setStages(await api.reorderStages(tournament.id, next.map((s) => s.id)))
+    } catch (e: any) {
+      setMsg(e.message)
+      load()
+    }
+  }
+
   return (
     <div className="space-y-4">
       <form
@@ -665,13 +843,44 @@ function FasesTab({ tournament }: { tournament: any }) {
         <EmptyState icon="account_tree" title="Sin fases" />
       ) : (
         <ul className="space-y-2">
-          {stages.map((s) => (
-            <li key={s.id} className="flex items-center justify-between rounded-lg bg-surface-container-high px-3 py-2.5">
-              <span>
-                <span className="font-medium">{s.name}</span>{' '}
-                <Badge className="ml-1 bg-surface-container-highest text-on-surface-variant">{s.type}</Badge>
+          {stages.map((s, i) => (
+            <li key={s.id} className="rounded-lg bg-surface-container-high px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="mr-1 flex flex-col">
+                  <button
+                    onClick={() => move(i, -1)}
+                    disabled={i === 0}
+                    title="Subir fase"
+                    className="text-on-surface-variant transition hover:text-on-surface disabled:opacity-25"
+                  >
+                    <Icon name="keyboard_arrow_up" className="text-base" />
+                  </button>
+                  <button
+                    onClick={() => move(i, 1)}
+                    disabled={i === stages.length - 1}
+                    title="Bajar fase"
+                    className="text-on-surface-variant transition hover:text-on-surface disabled:opacity-25"
+                  >
+                    <Icon name="keyboard_arrow_down" className="text-base" />
+                  </button>
+                </span>
+                <span className="truncate">
+                  <span className="mr-1 text-xs text-on-surface-variant">{i + 1}.</span>
+                  <span className="font-medium">{s.name}</span>{' '}
+                  <Badge className="ml-1 bg-surface-container-highest text-on-surface-variant">{s.type}</Badge>
+                  {s.config?.double_round && (
+                    <Badge className="ml-1 bg-secondary/15 text-secondary">ida y vuelta</Badge>
+                  )}
+                </span>
               </span>
               <span className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setOpenId(openId === s.id ? null : s.id)}
+                >
+                  <Icon name="tune" /> Configurar
+                </Button>
                 <Button
                   variant="outline"
                   onClick={async () => {
@@ -705,6 +914,7 @@ function FasesTab({ tournament }: { tournament: any }) {
                 <button
                   onClick={async () => {
                     await api.deleteStage(s.id)
+                    setOpenId(null)
                     load()
                   }}
                   className="text-error/80 hover:text-error"
@@ -712,6 +922,18 @@ function FasesTab({ tournament }: { tournament: any }) {
                   <Icon name="delete" className="text-lg" />
                 </button>
               </span>
+              </div>
+              {openId === s.id && (
+                <StageConfig
+                  stage={s}
+                  teams={teams}
+                  onSaved={() => {
+                    setMsg('Fase actualizada')
+                    setOpenId(null)
+                    load()
+                  }}
+                />
+              )}
             </li>
           ))}
         </ul>

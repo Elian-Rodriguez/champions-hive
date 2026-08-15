@@ -87,15 +87,17 @@ User                                                        (email, hashed_passw
 
 Enums: **SportType** `football|micro|basketball|banquitas` · **StageType** `group|knockout|league|swiss` · **MatchStatus** `scheduled|live|finished` · **SlotType** `team|winner_of|position`.
 
-`Tournament` carries the tournament config as JSON columns: `points_config`, `tiebreaker_rules`, plus `match_duration`/`waiting_time` and branding (`logo_url`/`banner_url`). `Stage.config` is JSON. `Match` has `home/away_team_id`, `home/away_score`, `court_id`, `bracket_round`, and scheduling timestamps.
+`Tournament` carries the tournament config as JSON columns: `points_config`, `tiebreaker_rules`, plus `match_duration`/`waiting_time` and branding (`logo_url`/`banner_url`). `Stage` has an `order_index` (its real position in the tournament; named that way because `order` is a reserved word and `run_sqlite_migrations` emits unquoted `ALTER TABLE`) and a JSON `config` holding the per-stage rules: `team_ids` (which teams play this stage — empty means all), `double_round` (ida y vuelta), `qualifiers_per_group` and `best_thirds_count` (`"auto"` completes the bracket to a power of 2). `Match` has `home/away_team_id`, `home/away_score`, `court_id`, `bracket_round`, and scheduling timestamps.
 
 ### Bracket / fixture engine (`api/tournament_routes.py`)
 
 This router is the non-obvious core. Key endpoints (paths recovered from bytecode; under `/api/v1/tournaments`):
 
-- `POST /stages/{stage_id}/generate_fixture` — round-robin fixture per stage, assigns courts; refuses to regenerate if the stage already has live/finished matches.
+- `POST /stages/{stage_id}/generate_fixture` — round-robin fixture per stage, assigns courts; honours `config.team_ids` and `config.double_round`; refuses to regenerate if the stage already has live/finished matches.
+- `PUT  /stages/{stage_id}` — rename a stage, change its type (blocked once it has live/finished matches) or update its `config`. `POST /{tournament_id}/stages/reorder` takes the ordered `stage_ids` and rewrites `order_index`.
 - `GET  /stages/{stage_id}/standings_by_group` — per-group standings (`_build_group_standings`).
-- `GET  /stages/{stage_id}/best_thirds` — ranks 3rd-placed teams across groups (UEFA/FIFA "best thirds": points → goal diff → goals for → goals against).
+- `GET  /stages/{stage_id}/qualifiers` — who advances, per `config.qualifiers_per_group` + `best_thirds_count` (`_compute_qualifiers`). Single source of truth for the public "Clasificados" panel.
+- `GET  /stages/{stage_id}/best_thirds` — ranks the teams just below the cut across groups (thirds when 2 qualify, seconds when 1): points → goal diff → goals for → goals against.
 - `POST /stages/{stage_id}/advance` — reads real standings and creates next-stage matches from a `pairings` payload (`{h_group, h_pos, a_group, a_pos}`, 1-based; use group `"__all__"` for LEAGUE/SWISS).
 - `POST /stages/{stage_id}/seed_bracket` — builds a full knockout tree from a `round1` crossing list.
 - `GET  /stages/{stage_id}/bracket_tree`, `POST /stages/{stage_id}/resolve_position_slots` — bracket-tree readout and slot resolution.
@@ -108,6 +110,10 @@ This router is the non-obvious core. Key endpoints (paths recovered from bytecod
 - **teams** (`/`): teams within a tournament, `shuffle_groups` (random group assignment), per-team group reassignment, and players within teams (with jersey numbers).
 - **venues** (`/venues`): venue + court CRUD.
 - **matches** (`/matches`): `list`, `schedule`, `update_match_status` (scheduled→live→finished), live event recording (`record_event`/`get_match_events`), and a stateless `POST /standings` that computes a table from a posted match list + rules.
+
+### Stage-scoped statistics
+
+`GET /{tournament_id}/player_stats`, `/team_stats` and `/fairplay` accept `stage_id` + `mode`: `from` (default — that stage and every later one, by `order_index`) or `only`. That is what backs the public "Cuentan desde" filter for goleadores, valla menos vencida and sanciones; with no `stage_id` they aggregate the whole tournament as before.
 
 ### Tiebreaker rules
 

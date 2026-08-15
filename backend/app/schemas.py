@@ -135,10 +135,26 @@ class StageBase(BaseModel):
     name: str
     type: StageType
     config: Optional[Dict[str, Any]] = None
+    order_index: Optional[int] = None
 
 
 class StageCreate(StageBase):
     pass
+
+
+class StageUpdate(BaseModel):
+    """Edición de una fase ya creada; solo se aplican los campos enviados."""
+
+    name: Optional[str] = None
+    type: Optional[StageType] = None
+    config: Optional[Dict[str, Any]] = None
+    order_index: Optional[int] = None
+
+
+class StageReorder(BaseModel):
+    """Nuevo orden de las fases del torneo, de la primera a la última."""
+
+    stage_ids: List[UUID]
 
 
 class StageResponse(StageBase):

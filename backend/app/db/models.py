@@ -122,6 +122,10 @@ class Stage(Base):
     name = Column(String, nullable=False)
     type = Column(SQLEnum(StageType), nullable=False)
     config = Column(JSON)
+    # Orden real de la fase dentro del torneo (grupos → cuartos → semis → final).
+    # Se llama order_index y no "order" porque esta última es palabra reservada
+    # en SQL y el shim de migración genera el ALTER TABLE sin comillas.
+    order_index = Column(Integer, default=0)
 
     tournament = relationship("Tournament", back_populates="stages")
     matches = relationship(

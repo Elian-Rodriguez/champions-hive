@@ -1,7 +1,7 @@
 import random
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -35,7 +35,9 @@ from app.schemas import (
     SponsorCreate,
     SponsorResponse,
     StageCreate,
+    StageReorder,
     StageResponse,
+    StageUpdate,
     StatusUpdate,
     TournamentCreate,
     TournamentResponse,
@@ -105,6 +107,60 @@ def _matches_to_dicts(db: Session, matches: List[Match]) -> List[Dict[str, Any]]
             }
         )
     return out
+
+
+def _ordered_stages(db: Session, tournament_id) -> List[Stage]:
+    """Fases del torneo en su orden real.
+
+    Las fases creadas antes de que existiera `order_index` lo tienen en NULL:
+    se ordenan al final (por nombre) y se les asigna un índice concreto la
+    primera vez que se consultan, para que no se mezclen con las nuevas.
+    """
+    stages = db.query(Stage).filter(Stage.tournament_id == tournament_id).all()
+    stages.sort(key=lambda s: (s.order_index is None, s.order_index or 0, s.name or ""))
+    if any(s.order_index is None for s in stages):
+        for position, s in enumerate(stages):
+            s.order_index = position
+        db.commit()
+    return stages
+
+
+def _stage_config(stage: Stage) -> Dict[str, Any]:
+    return stage.config or {}
+
+
+def _stage_team_ids(db: Session, stage: Stage) -> Optional[List[str]]:
+    """Equipos que disputan la fase, o None si la fase usa todos los del torneo.
+
+    Se guarda en `stage.config["team_ids"]`; se ignoran los ids que ya no estén
+    inscritos en el torneo (equipos eliminados después de configurar la fase).
+    """
+    raw = _stage_config(stage).get("team_ids")
+    if not raw:
+        return None
+    inscritos = set(_team_groups(db, stage.tournament_id).keys())
+    return [str(t) for t in raw if str(t) in inscritos]
+
+
+def _stage_ids_for_stats(
+    db: Session, tournament: Tournament, stage_id: Optional[UUID], mode: str
+) -> List[Any]:
+    """Fases que entran en una estadística (goleadores, valla, juego limpio).
+
+    Sin `stage_id` cuentan todas. Con `stage_id`, `mode="only"` limita a esa
+    fase y `mode="from"` (por defecto) toma esa fase y las posteriores según el
+    orden del torneo — que es lo que se pide al decir "desde qué fase cuentan".
+    """
+    stages = _ordered_stages(db, tournament.id)
+    if stage_id is None:
+        return [s.id for s in stages]
+    ids = [str(s.id) for s in stages]
+    target = str(stage_id)
+    if target not in ids:
+        raise HTTPException(status_code=404, detail="Fase no encontrada en el torneo")
+    if mode == "only":
+        return [s.id for s in stages if str(s.id) == target]
+    return [s.id for s in stages[ids.index(target):]]
 
 
 def _round_robin_rounds(team_ids: List[Any]) -> List[List[tuple]]:
@@ -190,28 +246,102 @@ def _build_group_standings(db: Session, stage: Stage) -> Dict[str, List[Dict]]:
     return result
 
 
-def _compute_best_thirds(group_standings: Dict[str, List[Dict]]) -> List[Dict]:
+def _cross_group_rank_key(r: Dict) -> tuple:
+    """Criterios para comparar equipos de grupos distintos:
+    puntos -> diferencia -> goles a favor -> goles en contra (menor)."""
+    return (
+        r.get("league_points", 0),
+        r.get("diff", 0),
+        r.get("points_scored", 0),
+        -r.get("points_conceded", 0),
+    )
+
+
+def _compute_best_thirds(
+    group_standings: Dict[str, List[Dict]], index: int = 2
+) -> List[Dict]:
     """
-    De cada grupo toma el equipo en posición 3 (índice 2) y los rankea entre sí.
-    Criterios: puntos -> diferencia -> goles a favor -> goles en contra (menor).
+    De cada grupo toma el equipo en la posición `index` (0-based) y los rankea
+    entre sí. Con index=2 son los clásicos "mejores terceros"; el índice se
+    ajusta según cuántos clasifican directo por grupo.
     """
     thirds = []
     for g, rows in group_standings.items():
-        if len(rows) >= 3:
-            row = dict(rows[2])
+        if len(rows) > index:
+            row = dict(rows[index])
             row["from_group"] = g
             thirds.append(row)
 
-    def rank_key(r):
-        return (
-            r.get("league_points", 0),
-            r.get("diff", 0),
-            r.get("points_scored", 0),
-            -r.get("points_conceded", 0),
-        )
-
-    thirds.sort(key=rank_key, reverse=True)
+    thirds.sort(key=_cross_group_rank_key, reverse=True)
     return thirds
+
+
+def _next_pow2(x: int) -> int:
+    p = 1
+    while p < x:
+        p *= 2
+    return p
+
+
+def _prev_pow2(x: int) -> int:
+    p = 1
+    while p * 2 <= x:
+        p *= 2
+    return p
+
+
+def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
+    """Quién clasifica a la siguiente fase, según la configuración de la fase.
+
+    Config (en `stage.config`):
+        qualifiers_per_group – cuántos pasan directo por grupo (por defecto 2)
+        best_thirds_count    – cuántos repescados entran; "auto" o ausente
+                               completa el cuadro a la potencia de 2 más cercana
+
+    Los "repescados" son los equipos que quedan justo debajo del corte en cada
+    grupo (los terceros si pasan 2, los segundos si pasa 1), rankeados entre sí.
+    """
+    cfg = _stage_config(stage)
+    per_group = max(1, int(cfg.get("qualifiers_per_group") or 2))
+
+    standings = _build_group_standings(db, stage)
+    groups = {g: rows for g, rows in standings.items() if g != "Sin Grupo" and rows}
+    if len(groups) < 2:
+        return None
+
+    direct: List[Dict] = []
+    for g in sorted(groups):
+        for row in groups[g][:per_group]:
+            r = dict(row)
+            r["from_group"] = g
+            direct.append(r)
+
+    extras = _compute_best_thirds(groups, index=per_group)
+
+    raw = cfg.get("best_thirds_count")
+    if raw is None or raw == "auto":
+        base = len(direct)
+        total = base + len(extras)
+        size = _next_pow2(base)
+        if size > total:
+            size = _prev_pow2(total)
+        size = max(2, size)
+        needed = max(0, size - base)
+    else:
+        needed = max(0, int(raw))
+    needed = min(needed, len(extras))
+
+    for i, r in enumerate(extras):
+        r["qualifies"] = i < needed
+
+    return {
+        "qualifiers_per_group": per_group,
+        "extras_needed": needed,
+        "bracket_size": len(direct) + needed,
+        "groups": sorted(groups),
+        "direct": direct,
+        "extras": extras,
+    }
 
 
 def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
@@ -409,7 +539,11 @@ def create_stage_for_tournament(
 ):
     if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
-    obj = Stage(tournament_id=tournament_id, **stage.model_dump())
+    data = stage.model_dump()
+    if data.get("order_index") is None:
+        # Se agrega al final del torneo.
+        data["order_index"] = len(_ordered_stages(db, tournament_id))
+    obj = Stage(tournament_id=tournament_id, **data)
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -418,7 +552,70 @@ def create_stage_for_tournament(
 
 @router.get("/{tournament_id}/stages", response_model=List[StageResponse])
 def get_stages_for_tournament(tournament_id: UUID, db: Session = Depends(get_db)):
-    return db.query(Stage).filter(Stage.tournament_id == tournament_id).all()
+    return _ordered_stages(db, tournament_id)
+
+
+@router.put("/stages/{stage_id}", response_model=StageResponse)
+def update_stage(
+    stage_id: UUID,
+    payload: StageUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_staff),
+):
+    """Renombra una fase, cambia su tipo o actualiza su configuración."""
+    stage = db.query(Stage).filter(Stage.id == stage_id).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Fase no encontrada")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "type" in data and data["type"] is not None:
+        played = (
+            db.query(Match)
+            .filter(
+                Match.stage_id == stage_id,
+                Match.status.in_([MatchStatus.LIVE, MatchStatus.FINISHED]),
+            )
+            .count()
+        )
+        if played and data["type"] != stage.type:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No se puede cambiar el tipo: la fase ya tiene {played} "
+                    "partido(s) en vivo o finalizados."
+                ),
+            )
+    for field, value in data.items():
+        if value is not None:
+            setattr(stage, field, value)
+    db.commit()
+    db.refresh(stage)
+    return stage
+
+
+@router.post("/{tournament_id}/stages/reorder", response_model=List[StageResponse])
+def reorder_stages(
+    tournament_id: UUID,
+    payload: StageReorder,
+    db: Session = Depends(get_db),
+    _=Depends(require_staff),
+):
+    """Reordena las fases del torneo según la lista recibida (primera → última)."""
+    stages = _ordered_stages(db, tournament_id)
+    by_id = {str(s.id): s for s in stages}
+    incoming = [str(sid) for sid in payload.stage_ids]
+    unknown = [sid for sid in incoming if sid not in by_id]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fases que no pertenecen al torneo: {', '.join(unknown)}",
+        )
+    # Las fases no incluidas conservan su orden relativo, al final.
+    rest = [str(s.id) for s in stages if str(s.id) not in incoming]
+    for position, sid in enumerate(incoming + rest):
+        by_id[sid].order_index = position
+    db.commit()
+    return _ordered_stages(db, tournament_id)
 
 
 @router.delete("/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -534,6 +731,11 @@ def generate_fixture(
     db.flush()
 
     groups = _team_groups(db, stage.tournament_id)
+    # La fase puede disputarse con un subconjunto de equipos (los que
+    # clasificaron); si no se configura ninguno, juegan todos los del torneo.
+    solo = _stage_team_ids(db, stage)
+    if solo is not None:
+        groups = {tid: g for tid, g in groups.items() if tid in set(solo)}
     if len(groups) < 2:
         raise HTTPException(
             status_code=400,
@@ -544,7 +746,14 @@ def generate_fixture(
     for team_id, g in groups.items():
         teams_by_group[g].append(team_id)
 
-    rounds_by_group = {g: _round_robin_rounds(tids) for g, tids in teams_by_group.items()}
+    # Ida y vuelta: se repiten todas las jornadas invirtiendo la localía.
+    doble = bool(_stage_config(stage).get("double_round"))
+    rounds_by_group = {}
+    for g, tids in teams_by_group.items():
+        rounds = _round_robin_rounds(tids)
+        if doble:
+            rounds = rounds + [[(a, h) for h, a in r] for r in rounds]
+        rounds_by_group[g] = rounds
     max_rounds = max((len(r) for r in rounds_by_group.values()), default=0)
     created, ci = 0, 0
     # Intercalar las jornadas de cada grupo para que los partidos de un equipo
@@ -570,9 +779,10 @@ def generate_fixture(
                 )
                 created += 1
     db.commit()
+    detalle = " (ida y vuelta)" if doble else ""
     return {
         "total_teams": len(groups),
-        "message": f"Se han generado {created} partidos exitosamente",
+        "message": f"Se han generado {created} partidos exitosamente{detalle}",
     }
 
 
@@ -671,12 +881,29 @@ def generate_swiss_round(
 
 @router.get("/stages/{stage_id}/best_thirds")
 def get_best_thirds(stage_id: UUID, count: int = 4, db: Session = Depends(get_db)):
-    """Retorna los mejores terceros de una fase de grupos (count = cuántos clasifican)."""
+    """Retorna los mejores terceros de una fase de grupos (count = cuántos clasifican).
+
+    El índice del repescado sigue a `qualifiers_per_group`: si por grupo pasan 2
+    son los terceros, si pasa 1 son los segundos.
+    """
     stage = db.query(Stage).filter(Stage.id == stage_id).first()
     if not stage:
         raise HTTPException(status_code=404, detail="Fase no encontrada")
-    thirds = _compute_best_thirds(_build_group_standings(db, stage))
+    per_group = max(1, int(_stage_config(stage).get("qualifiers_per_group") or 2))
+    thirds = _compute_best_thirds(_build_group_standings(db, stage), index=per_group)
     return {"best_thirds": thirds[:count], "all_thirds": thirds}
+
+
+@router.get("/stages/{stage_id}/qualifiers")
+def get_qualifiers(stage_id: UUID, db: Session = Depends(get_db)):
+    """Clasificados a la siguiente fase según la configuración de la fase.
+
+    Devuelve `null` si la fase no tiene al menos 2 grupos con partidos.
+    """
+    stage = db.query(Stage).filter(Stage.id == stage_id).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    return _compute_qualifiers(db, stage)
 
 
 @router.post("/stages/{stage_id}/advance")
@@ -1270,12 +1497,20 @@ def get_tournament_stats(tournament_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/{tournament_id}/player_stats")
-def get_player_stats(tournament_id: UUID, db: Session = Depends(get_db)):
-    """Estadísticas por jugador: goles y tarjetas agregadas desde los eventos."""
+def get_player_stats(
+    tournament_id: UUID,
+    stage_id: Optional[UUID] = None,
+    mode: str = "from",
+    db: Session = Depends(get_db),
+):
+    """Estadísticas por jugador: goles y tarjetas agregadas desde los eventos.
+
+    Con `stage_id` se acota desde qué fase cuentan (ver `_stage_ids_for_stats`).
+    """
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
-    stage_ids = [s.id for s in tournament.stages]
+    stage_ids = _stage_ids_for_stats(db, tournament, stage_id, mode)
     if not stage_ids:
         return []
     match_ids = [
@@ -1340,12 +1575,21 @@ def get_player_stats(tournament_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/{tournament_id}/team_stats")
-def get_team_stats(tournament_id: UUID, db: Session = Depends(get_db)):
-    """Estadísticas por equipo: tabla global del torneo (todas las fases combinadas)."""
+def get_team_stats(
+    tournament_id: UUID,
+    stage_id: Optional[UUID] = None,
+    mode: str = "from",
+    db: Session = Depends(get_db),
+):
+    """Estadísticas por equipo: tabla global del torneo.
+
+    Por defecto combina todas las fases; con `stage_id` se acota desde qué fase
+    cuentan los goles a favor/en contra (base de la valla menos vencida).
+    """
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
-    stage_ids = [s.id for s in tournament.stages]
+    stage_ids = _stage_ids_for_stats(db, tournament, stage_id, mode)
     matches = (
         db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
     )
@@ -1358,13 +1602,19 @@ def get_team_stats(tournament_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/{tournament_id}/fairplay")
-def fairplay(tournament_id: UUID, db: Session = Depends(get_db)):
+def fairplay(
+    tournament_id: UUID,
+    stage_id: Optional[UUID] = None,
+    mode: str = "from",
+    db: Session = Depends(get_db),
+):
     """Tabla de juego limpio: ranking por menor penalización (tarjetas/faltas).
-    Pesos: amarilla=1, azul=2, roja=3, falta=1. Menos puntos = más limpio."""
+    Pesos: amarilla=1, azul=2, roja=3, falta=1. Menos puntos = más limpio.
+    Con `stage_id` se acota desde qué fase cuentan las sanciones."""
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
-    stage_ids = [s.id for s in tournament.stages]
+    stage_ids = _stage_ids_for_stats(db, tournament, stage_id, mode)
     matches = (
         db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
     )

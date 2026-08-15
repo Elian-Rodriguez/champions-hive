@@ -7,6 +7,7 @@ import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 import { hasBlueCard, sportOf } from '../sports'
+import type { StatScope } from '../services/api'
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled: 'Programado',
@@ -15,39 +16,8 @@ const STATUS_LABEL: Record<string, string> = {
 }
 type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
 
-// Calcula quién clasifica a la siguiente fase: 2 primeros de cada grupo + los
-// mejores terceros necesarios para completar un cuadro (potencia de 2).
-function computeQualifiers(standings: Record<string, any[]>) {
-  const groups = Object.keys(standings).filter((g) => g !== 'Sin Grupo' && standings[g]?.length)
-  if (groups.length < 2) return null
-  const metric = (r: any) => [r.league_points || 0, r.diff || 0, r.points_scored || 0]
-  const cmp = (a: any, b: any) => {
-    const ma = metric(a.row)
-    const mb = metric(b.row)
-    for (let i = 0; i < 3; i++) if (mb[i] !== ma[i]) return mb[i] - ma[i]
-    return 0
-  }
-  const thirds = groups
-    .map((g) => ({ group: g, row: standings[g][2] }))
-    .filter((x) => x.row)
-    .sort(cmp)
-  const base = groups.reduce((a, g) => a + Math.min(2, standings[g].length), 0)
-  const total = base + thirds.length
-  const nextPow2 = (x: number) => {
-    let p = 1
-    while (p < x) p *= 2
-    return p
-  }
-  const prevPow2 = (x: number) => {
-    let p = 1
-    while (p * 2 <= x) p *= 2
-    return p
-  }
-  let size = nextPow2(base)
-  if (!(size <= base + thirds.length && size <= total)) size = prevPow2(Math.min(total, base + thirds.length))
-  size = Math.max(2, size)
-  return { groups, thirds, thirdsNeeded: Math.max(0, size - base), size }
-}
+// Alcance por defecto de las estadísticas: todas las fases del torneo.
+const TODAS_LAS_FASES: StatScope = { stageId: null, mode: 'from' }
 
 // Racha (forma) de un equipo: secuencia W/D/L de sus partidos finalizados, en
 // orden cronológico (los más recientes al final).
@@ -76,6 +46,7 @@ export default function PublicView({
   const [tab, setTab] = useState<PubTab>('posiciones')
   const [posStage, setPosStage] = useState<any>(null)
   const [standings, setStandings] = useState<Record<string, any[]>>({})
+  const [qualifiers, setQualifiers] = useState<any>(null)
   const [koStage, setKoStage] = useState<any>(null)
   const [bracket, setBracket] = useState<any>(null)
   const [allMatches, setAllMatches] = useState<any[]>([])
@@ -86,6 +57,7 @@ export default function PublicView({
   const [teamStats, setTeamStats] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
   const [fairPlay, setFairPlay] = useState<any[]>([])
+  const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
   const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   const [qr, setQr] = useState<{ data: string; link: string } | null>(null)
@@ -137,9 +109,18 @@ export default function PublicView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Las estadísticas (goleadores, valla, sancionados) se recalculan según el
+  // alcance elegido; por defecto cuentan todas las fases del torneo.
+  function loadStats(tid: string, scope: StatScope) {
+    api.playerStats(tid, scope).then(setPlayerStats).catch(() => {})
+    api.teamStats(tid, scope).then(setTeamStats).catch(() => {})
+    api.fairplay(tid, scope).then(setFairPlay).catch(() => {})
+  }
+
   async function openTournament(t: any) {
     setSelected(t)
     setTab('posiciones')
+    setStatScope(TODAS_LAS_FASES)
     setStats(null)
     setSponsors([])
     setPhotos([])
@@ -148,6 +129,7 @@ export default function PublicView({
     setMetrics(null)
     setFairPlay([])
     setStandings({})
+    setQualifiers(null)
     setBracket(null)
     setAllMatches([])
     setPosStage(null)
@@ -157,10 +139,8 @@ export default function PublicView({
     api.tournamentStats(t.id).then(setStats).catch(() => {})
     api.getSponsors(t.id).then(setSponsors).catch(() => {})
     api.getPhotos(t.id).then(setPhotos).catch(() => {})
-    api.playerStats(t.id).then(setPlayerStats).catch(() => {})
-    api.teamStats(t.id).then(setTeamStats).catch(() => {})
     api.metrics(t.id).then(setMetrics).catch(() => {})
-    api.fairplay(t.id).then(setFairPlay).catch(() => {})
+    loadStats(t.id, TODAS_LAS_FASES)
     const groupStages = st.filter((s: any) => s.type !== 'knockout')
     const koStages = st.filter((s: any) => s.type === 'knockout')
     if (groupStages[0]) selectPosStage(groupStages[0])
@@ -181,6 +161,7 @@ export default function PublicView({
   async function selectPosStage(s: any) {
     setPosStage(s)
     setStandings(await api.standingsByGroup(s.id).catch(() => ({})))
+    setQualifiers(await api.qualifiers(s.id).catch(() => null))
   }
   async function selectKoStage(s: any) {
     setKoStage(s)
@@ -197,19 +178,28 @@ export default function PublicView({
     setProfile({ name: row.team_name || 'Equipo', row, players })
   }
 
+  // Recarga inmediata al cambiar desde qué fase cuentan las estadísticas
+  // (sin esperar al auto-refresco).
+  useEffect(() => {
+    if (selected) loadStats(selected.id, statScope)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statScope])
+
   // Auto-refresco (tiempo real ligero)
   useEffect(() => {
     if (!selected) return
     const id = setInterval(() => {
-      if (posStage) api.standingsByGroup(posStage.id).then(setStandings).catch(() => {})
+      if (posStage) {
+        api.standingsByGroup(posStage.id).then(setStandings).catch(() => {})
+        api.qualifiers(posStage.id).then(setQualifiers).catch(() => {})
+      }
       if (koStage) api.bracketTree(koStage.id).then(setBracket).catch(() => {})
-      api.playerStats(selected.id).then(setPlayerStats).catch(() => {})
-      api.teamStats(selected.id).then(setTeamStats).catch(() => {})
       api.metrics(selected.id).then(setMetrics).catch(() => {})
-      api.fairplay(selected.id).then(setFairPlay).catch(() => {})
+      loadStats(selected.id, statScope)
     }, 15000)
     return () => clearInterval(id)
-  }, [selected, posStage, koStage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, posStage, koStage, statScope])
 
   const groupStages = stages.filter((s) => s.type !== 'knockout')
   const koStages = stages.filter((s) => s.type === 'knockout')
@@ -378,64 +368,61 @@ export default function PublicView({
                         </Card>
                       ))}
                       {(() => {
-                        const q = computeQualifiers(standings)
+                        const q = qualifiers
                         if (!q) return null
+                        const perGroup = q.qualifiers_per_group
+                        const repLabel = perGroup === 1 ? 'segundos' : 'terceros'
                         return (
                           <Card accent="green" className="p-4">
                             <h3 className="mb-1 flex items-center gap-2 font-display font-semibold">
                               <Icon name="emoji_events" className="text-secondary" /> Clasificados a la siguiente fase
                             </h3>
                             <p className="mb-3 text-xs text-on-surface-variant">
-                              {q.size} equipos · 2 primeros de cada grupo
-                              {q.thirdsNeeded > 0
-                                ? ` + ${q.thirdsNeeded} mejor${q.thirdsNeeded > 1 ? 'es' : ''} tercero${q.thirdsNeeded > 1 ? 's' : ''}`
+                              {q.bracket_size} equipos · {perGroup} primero{perGroup > 1 ? 's' : ''} de cada grupo
+                              {q.extras_needed > 0
+                                ? ` + ${q.extras_needed} mejor${q.extras_needed > 1 ? 'es' : ''} ${perGroup === 1 ? 'segundo' : 'tercero'}${q.extras_needed > 1 ? 's' : ''}`
                                 : ''}
                               .
                             </p>
                             <div className="grid gap-3 sm:grid-cols-2">
-                              {q.groups.map((g) => (
+                              {q.groups.map((g: string) => (
                                 <div key={g} className="rounded-lg border border-outline-variant/30 p-2.5">
                                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
                                     Grupo {g}
                                   </p>
-                                  {[0, 1].map((pos) => {
-                                    const r = standings[g][pos]
-                                    if (!r) return null
-                                    return (
-                                      <div key={pos} className="flex items-center gap-2 text-sm">
+                                  {q.direct
+                                    .filter((r: any) => r.from_group === g)
+                                    .map((r: any, pos: number) => (
+                                      <div key={r.team_id} className="flex items-center gap-2 text-sm">
                                         <Icon name="check_circle" className="text-sm text-secondary" />
                                         <span className="w-5 text-on-surface-variant">{pos + 1}.º</span>
                                         <span className="flex-1 truncate">{r.team_name}</span>
                                         <span className="text-xs text-on-surface-variant">{r.league_points ?? 0} pts</span>
                                       </div>
-                                    )
-                                  })}
+                                    ))}
                                 </div>
                               ))}
                             </div>
-                            {q.thirds.length > 0 && (
+                            {q.extras.length > 0 && (
                               <div className="mt-3">
                                 <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-                                  Mejores terceros {q.thirdsNeeded > 0 ? `· clasifican ${q.thirdsNeeded}` : '· no clasifican'}
+                                  Mejores {repLabel} {q.extras_needed > 0 ? `· clasifican ${q.extras_needed}` : '· no clasifican'}
                                 </p>
                                 <ul className="space-y-1 text-sm">
-                                  {q.thirds.map((t, i) => {
-                                    const ok = i < q.thirdsNeeded
-                                    return (
-                                      <li
-                                        key={t.group}
-                                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${ok ? 'bg-secondary/10' : 'opacity-60'}`}
-                                      >
-                                        <Icon
-                                          name={ok ? 'check_circle' : 'cancel'}
-                                          className={`text-sm ${ok ? 'text-secondary' : 'text-on-surface-variant'}`}
-                                        />
-                                        <span className="flex-1 truncate">{t.row.team_name}</span>
-                                        <Badge className="bg-surface-container-highest text-on-surface-variant">Grupo {t.group}</Badge>
-                                        <span className="w-14 text-right text-xs text-on-surface-variant">{t.row.league_points ?? 0} pts</span>
-                                      </li>
-                                    )
-                                  })}
+                                  {q.extras.map((t: any) => (
+                                    <li
+                                      key={t.team_id}
+                                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${t.qualifies ? 'bg-secondary/10' : 'opacity-60'}`}
+                                    >
+                                      <Icon
+                                        name={t.qualifies ? 'check_circle' : 'cancel'}
+                                        className={`text-sm ${t.qualifies ? 'text-secondary' : 'text-on-surface-variant'}`}
+                                      />
+                                      <span className="flex-1 truncate">{t.team_name}</span>
+                                      <Badge className="bg-surface-container-highest text-on-surface-variant">Grupo {t.from_group}</Badge>
+                                      <span className="w-14 text-right text-xs text-on-surface-variant">{t.league_points ?? 0} pts</span>
+                                    </li>
+                                  ))}
                                 </ul>
                               </div>
                             )}
@@ -527,6 +514,66 @@ export default function PublicView({
 
               {tab === 'estadisticas' && (
                 <div className="space-y-6">
+                  {stages.length > 1 && (
+                    <Card className="p-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <span className="flex items-center gap-1.5 text-sm font-semibold">
+                          <Icon name="filter_alt" className="text-base text-secondary" />
+                          Cuentan desde
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => setStatScope(TODAS_LAS_FASES)}
+                            className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                              !statScope.stageId
+                                ? 'border-secondary bg-secondary/15 text-secondary'
+                                : 'border-outline-variant text-on-surface-variant hover:border-outline'
+                            }`}
+                          >
+                            Todas las fases
+                          </button>
+                          {stages.map((s) => (
+                            <button
+                              key={s.id}
+                              onClick={() =>
+                                setStatScope({ stageId: s.id, mode: statScope.mode })
+                              }
+                              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                                statScope.stageId === s.id
+                                  ? 'border-secondary bg-secondary/15 text-secondary'
+                                  : 'border-outline-variant text-on-surface-variant hover:border-outline'
+                              }`}
+                            >
+                              {s.name}
+                            </button>
+                          ))}
+                        </div>
+                        {statScope.stageId && (
+                          <label className="flex items-center gap-1.5 text-xs text-on-surface-variant">
+                            <input
+                              type="checkbox"
+                              checked={statScope.mode === 'only'}
+                              onChange={(e) =>
+                                setStatScope({
+                                  stageId: statScope.stageId,
+                                  mode: e.target.checked ? 'only' : 'from',
+                                })
+                              }
+                              className="h-3.5 w-3.5 accent-secondary"
+                            />
+                            Solo esa fase
+                          </label>
+                        )}
+                      </div>
+                      <p className="mt-1.5 text-xs text-on-surface-variant">
+                        {!statScope.stageId
+                          ? 'Goleadores, valla menos vencida y sanciones suman todo el torneo.'
+                          : statScope.mode === 'only'
+                            ? 'Solo se cuenta lo ocurrido en esa fase.'
+                            : 'Se cuenta esa fase y todas las posteriores.'}
+                      </p>
+                    </Card>
+                  )}
                   {metrics && (
                     <Card className="p-4">
                       <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
