@@ -1,5 +1,6 @@
 import {
   applyOptimistic,
+  cacheDelete,
   cacheGet,
   cacheSet,
   enqueue,
@@ -73,8 +74,15 @@ async function req(path: string, options: RequestInit = {}): Promise<any> {
       cacheSet(path, data)
       return data
     } catch (e) {
-      const cached = cacheGet(path)
-      if (cached !== undefined) return cached
+      // La caché solo cubre fallas de red (fetch lanza TypeError). Un error
+      // del servidor es una respuesta legítima y debe propagarse: si el
+      // organizador dejó de publicar una sección, devolver la copia vieja
+      // seguiría mostrando datos que ya no son públicos.
+      if (e instanceof TypeError) {
+        const cached = cacheGet(path)
+        if (cached !== undefined) return cached
+      }
+      cacheDelete(path)
       throw e
     }
   }

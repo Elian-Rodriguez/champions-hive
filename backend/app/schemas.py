@@ -122,6 +122,7 @@ class VenueCreate(VenueBase):
 
 class VenueResponse(VenueBase):
     id: UUID
+    owner_id: Optional[UUID] = None
     courts: List[CourtResponse] = []
 
     class Config:

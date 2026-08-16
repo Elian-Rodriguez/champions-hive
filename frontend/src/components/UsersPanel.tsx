@@ -48,7 +48,13 @@ export default function UsersPanel() {
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="admin">Administrador</option>
             <option value="referee">Árbitro</option>
+            <option value="superadmin">Superadministrador</option>
           </Select>
+          <p className="text-xs text-on-surface-variant">
+            El administrador solo ve y gestiona los torneos que él crea. El árbitro solo
+            carga los partidos que se le asignan. El superadministrador ve todo y gestiona
+            usuarios.
+          </p>
           <Button type="submit" className="w-full">
             <Icon name="person_add" /> Crear usuario
           </Button>

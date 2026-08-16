@@ -42,6 +42,15 @@ export function cacheSet(path: string, data: any) {
     /* cuota llena: ignorar */
   }
 }
+/** Borra la copia local de un recurso: se usa cuando el servidor deja de
+ *  entregarlo (el organizador dejó de publicar la sección, o ya no existe). */
+export function cacheDelete(path: string) {
+  try {
+    localStorage.removeItem(CACHE_PREFIX + path)
+  } catch {
+    /* nada que borrar */
+  }
+}
 
 // ---- bandeja de salida (outbox) ----
 export function getOutbox(): OutboxItem[] {

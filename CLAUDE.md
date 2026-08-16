@@ -4,44 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Champion Hive** is a multi-sport tournament management platform (football, micro/futsal, basketball). A FastAPI backend exposes a tournament/bracket engine; a React PWA frontend provides a public scoreboard, an admin management panel, and a referee live-scoring panel. **Comments, identifiers, and API messages are in Spanish.**
-
-## ⚠️ Repository state — read first
-
-This checkout does **not contain editable source code**. Verify before assuming you can read or edit `.py`/`.tsx` files:
-
-- **No source files exist.** `backend/app/` contains only `__pycache__/*.pyc` (Python 3.10 bytecode) — every `.py` is gone. `frontend/` contains only `node_modules/` and the built `dist/` — no `src/`, `package.json`, `vite.config`, or `tsconfig`.
-- **Source was never committed.** Git tracks only `.gitignore` and a one-line `README.md` (run `git ls-files` — 5 files, all `.gitignore`/README). Nothing is recoverable from git history; the remote (`github.com/Elian-Rodriguez/champions-hive`) has the same tracked set.
-- **The venv is broken.** `backend/.venv/bin/*` is hardcoded to an old path (`.../crazy_code/champion_hive/...`), so `pip`/`python3` shims fail. Recreate it before running anything (`python3.10 -m venv backend/.venv && backend/.venv/bin/pip install ...`).
-- **`.gitignore` has unresolved merge-conflict markers** (`git status` shows `UU .gitignore`). Resolve before committing.
-- A sibling clone `../champions-hive` holds a fuller (older) `CLAUDE.md` but **also has no source**. That doc describes the v1 frontend; this repo is **v2** (frontend now bundles Redux — see below), so treat its frontend section as a reference, not ground truth.
-
-**To work on code here you must first restore source** — decompile the backend `.pyc` files (e.g. `decompyle3`/`uncompyle6` against Python 3.10 bytecode), or obtain the originals from a backup/other machine. The architecture below was reconstructed from the bytecode and built bundle and is accurate for *this* checkout.
-
-To inspect bytecode without decompiling, disassemble constant/name tables:
-
-```python
-import marshal
-with open("backend/app/db/__pycache__/models.cpython-310.pyc","rb") as f:
-    f.read(16); co = marshal.load(f)   # co.co_consts / co.co_names per code object
-```
+**Champion Hive** is a multi-sport tournament management platform (football, micro/futsal, basketball, banquitas). A FastAPI backend exposes a tournament/bracket engine; a React PWA frontend provides a public scoreboard, an admin management panel, and a referee live-scoring panel. **Comments, identifiers, and API messages are in Spanish** — keep writing them in Spanish.
 
 ## Commands
-
-Source must be restored first; none of these run against the working tree as-is. The backend entrypoint is confirmed from bytecode (`app.main:app`); other commands are from the original project (`requirements.txt`, `Makefile`, and `docker-compose` are **not** present in this checkout).
 
 ### Backend (FastAPI, Python 3.10)
 
 ```bash
 cd backend
-# recreate the broken venv first
-python3.10 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt          # requirements.txt must be restored
-uvicorn app.main:app --reload            # serves on http://127.0.0.1:8000
+source .venv/bin/activate                # o usa .venv/bin/python directamente
+pip install -r requirements.txt
+uvicorn app.main:app --reload            # http://127.0.0.1:8000
 ```
 
 - API docs: `http://127.0.0.1:8000/docs`
-- Default DB: SQLite at `backend/champion_hive_local.db` (already populated, ~143 KB). Set `DATABASE_URL` to a `postgresql://...` URL to use Postgres (`psycopg2-binary` is installed).
+- Default DB: SQLite at `backend/champion_hive_local.db`. Set `DATABASE_URL` to a `postgresql://...` URL to use Postgres (`psycopg2-binary` is installed).
+- On startup the app runs `create_all()` + `run_sqlite_migrations()` and seeds the `.env` admin as **superadmin** (promoting it if the DB predates the role).
 
 ### Frontend (React + Vite, TypeScript)
 
@@ -52,11 +30,15 @@ npm run dev        # Vite dev server on http://localhost:5173 (CORS-allowed by t
 npm run build      # tsc + vite build → dist/
 ```
 
-The frontend calls the API at a hardcoded `http://127.0.0.1:8000/api/v1` (confirmed in the bundle).
+The API base URL comes from `VITE_API_URL` (see `frontend/.env.example`), defaulting to `/api/v1` for the combined nginx image. For a separate backend use `VITE_API_URL=http://127.0.0.1:8000/api/v1`.
 
 ### Tests
 
-No test suite exists.
+```bash
+cd backend && .venv/bin/python -m pytest
+```
+
+`backend/tests/` covers the parts that are easy to break silently: role/ownership rules, referee scope, public visibility switches, stage ordering and fixtures, qualification systems and stage-scoped statistics. `conftest.py` points `DATABASE_URL` at a temp SQLite file **before importing the app** (config and the admin seed run at import time) and disables the slowapi limiter, since the login route is capped at 10/minute and the fixtures log in far more often. There are no frontend tests.
 
 ## Architecture
 
@@ -91,7 +73,7 @@ Enums: **SportType** `football|micro|basketball|banquitas` · **StageType** `gro
 
 ### Bracket / fixture engine (`api/tournament_routes.py`)
 
-This router is the non-obvious core. Key endpoints (paths recovered from bytecode; under `/api/v1/tournaments`):
+This router is the non-obvious core. Key endpoints (under `/api/v1/tournaments`):
 
 - `POST /stages/{stage_id}/generate_fixture` — round-robin fixture per stage, assigns courts; honours `config.team_ids` and `config.double_round`; refuses to regenerate if the stage already has live/finished matches.
 - `PUT  /stages/{stage_id}` — rename a stage, change its type (blocked once it has live/finished matches) or update its `config`. `POST /{tournament_id}/stages/reorder` takes the ordered `stage_ids` and rewrites `order_index`.
@@ -129,10 +111,16 @@ This router is the non-obvious core. Key endpoints (paths recovered from bytecod
 
 `Tournament.tiebreaker_rules` is a JSON array applied in order by `services/strategy.py`. Supported keys: `PUNTOS`, `DIF_GOLES`, `GOLES_FAVOR`, `GOLES_CONTRA` (fewer is better), `FAIR_PLAY` (card penalty, fewer is better), `PARTIDO_DIRECTO` (head-to-head mini-table among tied teams). `GET /api/v1/tournaments/tiebreaker_options` returns the labeled set.
 
-### Frontend (`frontend/`, source absent — from the built bundle)
+### Frontend (`frontend/src/`)
 
-React 18 + Vite + TypeScript, mounted at `#root`, `lang="es"`, titled "Champion Hive". Built as a **PWA** (`vite-plugin-pwa` + Workbox service worker, web manifest, icons). Stack confirmed in `node_modules`/bundle: **react-redux** for state (v2 addition vs. the sibling doc), **Tailwind CSS**, **Framer Motion** (animations), **jsPDF** (PDF export), **DOMPurify** (HTML sanitization). Role-based UI: an admin management view and a referee live-scoring view, plus a public/landing scoreboard.
+React 18 + Vite + TypeScript, built as a **PWA** (`vite-plugin-pwa` + Workbox). Stack: **react-redux** (only `authSlice` — token, role, user id, mirrored to `localStorage`), **Tailwind CSS**, **Framer Motion**, **jsPDF**, **DOMPurify**, **qrcode**.
+
+`App.tsx` routes by role: `referee` → `RefereeView`, anything else → `AdminView`; without a token it shows `LandingView`/`PublicView`. The views are large and self-contained: `AdminView.tsx` holds every admin tab (torneos, equipos, fases, calendario, config) plus `DashboardView`, `VenuesPanel` and `UsersPanel`; `PublicView.tsx` is the whole public scoreboard.
+
+- **`src/sports.ts`** is the single source of truth for disciplines: label, icon, gradient, score unit, the referee's discipline buttons and the public table's card columns. Adding a sport = one entry here plus the `SportType` value in the backend. Never re-introduce `sport_type === 'micro'` checks in components — use `sportOf()` / `hasBlueCard()`.
+- **`src/services/api.ts`** wraps every endpoint and handles the offline outbox (`services/offline.ts`) so referees can load results without connectivity. `StatScope` (`{stageId, mode}`) is what powers the "Cuentan desde" filter.
+- Sections the organizer hid return 403; the frontend catches it and omits the section rather than showing an empty table.
 
 ### Auth flow
 
-`POST /api/v1/auth/login` (form-encoded) returns a JWT. The frontend stores the token + role and routes the user to the admin or referee experience by role; every subsequent request sends `Authorization: Bearer <token>`.
+`POST /api/v1/auth/login` (form-encoded) returns a JWT plus role and user id. The frontend stores them and routes by role; every subsequent request sends `Authorization: Bearer <token>`. A 401 on any call clears the session and reloads.

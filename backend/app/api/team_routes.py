@@ -37,6 +37,26 @@ def _torneo_administrable(db: Session, tournament_id, user: User) -> Tournament:
     return t
 
 
+def _asegurar_equipo_administrable(db: Session, team_id, user: User) -> Team:
+    """Un equipo se puede editar si quien lo pide administra alguno de los
+    torneos donde está inscrito. Un equipo sin torneos es libre (recién creado).
+    """
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    torneos = (
+        db.query(Tournament)
+        .join(TournamentTeam, TournamentTeam.tournament_id == Tournament.id)
+        .filter(TournamentTeam.team_id == team_id)
+        .all()
+    )
+    if torneos and not any(puede_administrar(user, t) for t in torneos):
+        raise HTTPException(
+            status_code=403, detail="Este equipo pertenece a otro administrador"
+        )
+    return team
+
+
 def _team_payload(team: Team, link: TournamentTeam | None) -> dict:
     return {
         "id": team.id,
@@ -163,9 +183,7 @@ def update_team(
     db: Session = Depends(get_db),
     current: User = Depends(require_staff),
 ):
-    team = db.query(Team).filter(Team.id == team_id).first()
-    if not team:
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    team = _asegurar_equipo_administrable(db, team_id, current)
     for key, value in payload_in.model_dump(exclude_unset=True).items():
         setattr(team, key, value)
     if team.colors:
@@ -214,8 +232,7 @@ def register_player_in_team(
     db: Session = Depends(get_db),
     current: User = Depends(require_staff),
 ):
-    if not db.query(Team).filter(Team.id == team_id).first():
-        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    _asegurar_equipo_administrable(db, team_id, current)
     obj = Player(
         name=player.name,
         email=player.email,
@@ -277,6 +294,7 @@ def update_player(
     db: Session = Depends(get_db),
     current: User = Depends(require_staff),
 ):
+    _asegurar_equipo_administrable(db, team_id, current)
     player = db.query(Player).filter(Player.id == player_id).first()
     if not player:
         raise HTTPException(status_code=404, detail="Jugador no encontrado")
@@ -307,6 +325,7 @@ def remove_player_from_team(
     db: Session = Depends(get_db),
     current: User = Depends(require_staff),
 ):
+    _asegurar_equipo_administrable(db, team_id, current)
     link = (
         db.query(TeamPlayer)
         .filter(TeamPlayer.team_id == team_id, TeamPlayer.player_id == player_id)

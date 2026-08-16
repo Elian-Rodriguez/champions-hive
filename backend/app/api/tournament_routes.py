@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import (
+    ROL_REFEREE,
     es_superadmin,
     get_current_user_optional,
     puede_administrar,
@@ -164,6 +165,24 @@ def _asegurar_visible(tournament: Tournament, seccion: str, user) -> None:
             status_code=403,
             detail="El organizador no publica esta sección de este torneo",
         )
+
+
+def _torneos_del_arbitro(db: Session, user: User) -> List[Tournament]:
+    """Campeonatos donde el árbitro tiene al menos un partido asignado."""
+    stage_ids = {
+        m.stage_id
+        for m in db.query(Match).filter(Match.referee_id == user.id).all()
+        if m.stage_id
+    }
+    if not stage_ids:
+        return []
+    tour_ids = {
+        s.tournament_id
+        for s in db.query(Stage).filter(Stage.id.in_(list(stage_ids))).all()
+    }
+    if not tour_ids:
+        return []
+    return db.query(Tournament).filter(Tournament.id.in_(list(tour_ids))).all()
 
 
 def _ordered_stages(db: Session, tournament_id) -> List[Stage]:
@@ -719,11 +738,13 @@ def get_tournaments(
     """Lista de torneos.
 
     Sin sesión (marcador público) devuelve todos: el público puede consultar
-    cualquier torneo. Con sesión de admin devuelve solo los suyos, para que el
-    panel de administración no muestre torneos de otros organizadores.
+    cualquier torneo. El admin ve solo los suyos y el árbitro solo aquellos
+    donde tiene partidos asignados, para que cada panel muestre lo propio.
     """
-    if current is None or current.role == "referee":
+    if current is None:
         return db.query(Tournament).offset(skip).limit(limit).all()
+    if current.role == ROL_REFEREE:
+        return _torneos_del_arbitro(db, current)[skip : skip + limit]
     return _torneos_visibles(db, current)[skip : skip + limit]
 
 

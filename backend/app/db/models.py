@@ -186,6 +186,10 @@ class Venue(Base):
     name = Column(String, nullable=False)
     location = Column(String)
     photo_url = Column(String)
+    # Admin que registró la sede. Todos pueden verla y usar sus canchas para
+    # programar; solo el dueño (o el superadmin) puede editarla o borrarla.
+    # NULL = sede heredada, editable por cualquier admin.
+    owner_id = Column(GUID(), nullable=True)
 
     courts = relationship(
         "Court", back_populates="venue", cascade="all, delete-orphan"

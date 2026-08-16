@@ -13,3 +13,6 @@ email-validator==2.3.0
 slowapi==0.1.9
 psycopg2-binary==2.9.12
 python-dotenv==1.2.1
+
+# Pruebas
+pytest==9.1.1

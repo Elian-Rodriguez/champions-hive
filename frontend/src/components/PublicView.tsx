@@ -174,12 +174,16 @@ export default function PublicView({
   async function openProfile(row: any) {
     if (!row.team_id) return
     let players: any[] = []
+    // El organizador puede ocultar las nóminas: el backend responde 403 y se
+    // distingue de "el equipo no cargó jugadores" para no dar a entender que
+    // la plantilla está vacía.
+    let oculta = false
     try {
       players = await api.getPlayers(row.team_id)
-    } catch {
-      /* sin plantilla */
+    } catch (e: any) {
+      oculta = /no publica/i.test(e?.message || '')
     }
-    setProfile({ name: row.team_name || 'Equipo', row, players })
+    setProfile({ name: row.team_name || 'Equipo', row, players, oculta })
   }
 
   // Recarga inmediata al cambiar desde qué fase cuentan las estadísticas
@@ -1006,7 +1010,12 @@ export default function PublicView({
               })()}
 
               <h4 className="mb-1.5 text-sm font-semibold text-on-surface-variant">Nómina · estadísticas por jugador</h4>
-              {profile.players.length === 0 ? (
+              {profile.oculta ? (
+                <p className="flex items-center gap-1.5 text-sm text-on-surface-variant">
+                  <Icon name="visibility_off" className="text-base" />
+                  El organizador no publica las nóminas de este torneo.
+                </p>
+              ) : profile.players.length === 0 ? (
                 <p className="text-sm text-on-surface-variant">Sin jugadores registrados.</p>
               ) : (
                 <div className="overflow-x-auto">

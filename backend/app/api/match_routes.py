@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import (
     ROL_REFEREE,
     get_current_user,
+    get_current_user_optional,
     puede_administrar,
     require_staff,
 )
@@ -58,25 +59,68 @@ def _asegurar_puede_dirigir(db: Session, user: User, match: Match) -> None:
         )
 
 
+def _asegurar_arbitro_valido(db: Session, referee_id) -> None:
+    """El árbitro asignado tiene que existir, estar activo y tener rol árbitro.
+
+    `Match.referee_id` no es clave foránea (los partidos se crean antes de saber
+    quién dirige), así que la validación va aquí.
+    """
+    if referee_id is None:
+        return
+    arbitro = db.query(User).filter(User.id == referee_id).first()
+    if not arbitro or not arbitro.is_active:
+        raise HTTPException(status_code=404, detail="Árbitro no encontrado")
+    if arbitro.role != ROL_REFEREE:
+        raise HTTPException(
+            status_code=400, detail="El usuario asignado no tiene rol de árbitro"
+        )
+
+
 @router.get("", response_model=List[MatchResponse])
 def list_matches(
     stage_id: Optional[UUID] = None,
     status_filter: Optional[MatchStatus] = None,
+    mine: bool = False,
     db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
 ):
+    """Partidos, opcionalmente filtrados por fase o estado.
+
+    Es una consulta pública (la usa el marcador), pero con `mine=true` un
+    árbitro autenticado obtiene solo los partidos que tiene asignados, sin
+    tener que filtrarlos en el cliente.
+    """
     query = db.query(Match)
     if stage_id:
         query = query.filter(Match.stage_id == stage_id)
     if status_filter:
         query = query.filter(Match.status == status_filter)
+    if mine:
+        if current is None:
+            raise HTTPException(
+                status_code=401, detail="Necesitas iniciar sesión para ver tus partidos"
+            )
+        query = query.filter(Match.referee_id == current.id)
     return query.all()
 
 
 @router.post("/schedule", response_model=MatchResponse, status_code=status.HTTP_201_CREATED)
 def schedule_match(
-    match_data: MatchCreate, db: Session = Depends(get_db), _=Depends(require_staff)
+    match_data: MatchCreate,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
 ):
-    match = Match(**match_data.model_dump(exclude_unset=True))
+    data = match_data.model_dump(exclude_unset=True)
+    stage = db.query(Stage).filter(Stage.id == data.get("stage_id")).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    torneo = db.query(Tournament).filter(Tournament.id == stage.tournament_id).first()
+    if not puede_administrar(current, torneo):
+        raise HTTPException(
+            status_code=403, detail="Este torneo pertenece a otro administrador"
+        )
+    _asegurar_arbitro_valido(db, data.get("referee_id"))
+    match = Match(**data)
     db.add(match)
     db.commit()
     db.refresh(match)
@@ -88,12 +132,20 @@ def update_match_schedule(
     match_id: UUID,
     payload_in: MatchScheduleUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     match = db.query(Match).filter(Match.id == match_id).first()
     if not match:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
-    for key, value in payload_in.model_dump(exclude_unset=True).items():
+    # Reprogramar y asignar árbitro es administrar: solo el dueño del torneo.
+    if not puede_administrar(current, _torneo_del_partido(db, match)):
+        raise HTTPException(
+            status_code=403, detail="Este torneo pertenece a otro administrador"
+        )
+    cambios = payload_in.model_dump(exclude_unset=True)
+    if "referee_id" in cambios:
+        _asegurar_arbitro_valido(db, cambios["referee_id"])
+    for key, value in cambios.items():
         setattr(match, key, value)
     db.commit()
     db.refresh(match)

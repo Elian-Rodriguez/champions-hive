@@ -85,6 +85,23 @@ def es_superadmin(user: User) -> bool:
     return user is not None and user.role == ROL_SUPERADMIN
 
 
+def _es_duenio(user: User, recurso) -> bool:
+    """Regla común de propiedad: superadmin siempre; admin si es suyo o si el
+    recurso es heredado (`owner_id` NULL, de antes de que existiera el dueño)."""
+    if user is None or recurso is None:
+        return False
+    if es_superadmin(user):
+        return True
+    if user.role != ROL_ADMIN:
+        return False
+    return recurso.owner_id is None or str(recurso.owner_id) == str(user.id)
+
+
+def puede_administrar_sede(user: User, venue) -> bool:
+    """Editar o borrar una sede. Consultarla y usar sus canchas es libre."""
+    return _es_duenio(user, venue)
+
+
 def puede_administrar(user: User, tournament) -> bool:
     """True si el usuario puede administrar ese torneo.
 
