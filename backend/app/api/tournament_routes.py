@@ -112,6 +112,9 @@ def _matches_to_dicts(db: Session, matches: List[Match]) -> List[Dict[str, Any]]
                 "away_team_name": names.get(str(m.away_team_id)),
                 "home_score": m.home_score,
                 "away_score": m.away_score,
+                # calculate_standings solo suma los partidos terminados; sin el
+                # estado, los programados (que nacen 0-0) contarían como empates.
+                "status": _status_str(m),
                 "events": events,
             }
         )

@@ -116,6 +116,25 @@ def cross_group_sort_key(team: Dict, rules: Optional[List[str]] = None) -> tuple
     return _sort_key(team, rules or DEFAULT_CROSS_TIEBREAKERS)
 
 
+def cuenta_para_la_tabla(m: Dict) -> bool:
+    """Indica si un partido debe sumar a la tabla de posiciones.
+
+    Solo cuentan los partidos terminados: los recién generados por el fixture
+    nacen 0-0 y en estado `scheduled`, así que sin este filtro se contarían
+    como empates fantasma e inflarían PJ y puntos de todos los equipos. Los
+    partidos en vivo tampoco suman hasta que se finalizan.
+
+    Si el dict no trae `status` (payloads externos de `POST /matches/standings`)
+    se mantiene el comportamiento anterior: basta con tener marcador cargado.
+    """
+    estado = m.get("status")
+    if estado is not None:
+        estado = getattr(estado, "value", estado)
+        if str(estado).lower() != "finished":
+            return False
+    return m.get("home_score") is not None and m.get("away_score") is not None
+
+
 def _h2h_mini_standings(tied_ids: set, all_matches: List[Dict]) -> Dict:
     """Calcula mini-tabla de enfrentamiento directo entre los equipos empatados."""
     h2h = {tid: {"pts": 0, "gf": 0, "ga": 0} for tid in tied_ids}
@@ -124,11 +143,9 @@ def _h2h_mini_standings(tied_ids: set, all_matches: List[Dict]) -> Dict:
         away = m.get("away_team_id")
         if home not in tied_ids or away not in tied_ids:
             continue
-        hs = m.get("home_score")
-        away_s = m.get("away_score")
-        if hs is None or away_s is None:
+        if not cuenta_para_la_tabla(m):
             continue
-        hs, away_s = int(hs), int(away_s)
+        hs, away_s = int(m["home_score"]), int(m["away_score"])
         h2h[home]["gf"] += hs
         h2h[home]["ga"] += away_s
         h2h[away]["gf"] += away_s
@@ -204,11 +221,11 @@ def calculate_standings(
         if m.get("away_team_name") and table[away]["team_name"] is None:
             table[away]["team_name"] = m.get("away_team_name")
 
-        hs = m.get("home_score")
-        away_s = m.get("away_score")
-        if hs is None or away_s is None:
+        # Los equipos ya quedaron registrados arriba (aparecen en la tabla en
+        # cuanto se genera el fixture), pero solo los partidos terminados suman.
+        if not cuenta_para_la_tabla(m):
             continue
-        hs, away_s = int(hs), int(away_s)
+        hs, away_s = int(m["home_score"]), int(m["away_score"])
 
         hp, ap = strategy.calculate_points(hs, away_s, m.get("rules") or {})
         table[home]["league_points"] += hp

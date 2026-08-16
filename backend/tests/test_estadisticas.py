@@ -105,6 +105,127 @@ def test_valla_acepta_filtro_de_fase(client, torneo, fase_jugada):
 
 
 # --------------------------------------------------------------------------- #
+#  Solo los partidos terminados suman a la tabla
+# --------------------------------------------------------------------------- #
+def _partido(local, visita, **extra):
+    base = {
+        "home_team_id": local,
+        "away_team_id": visita,
+        "home_team_name": local,
+        "away_team_name": visita,
+        "home_score": 0,
+        "away_score": 0,
+    }
+    base.update(extra)
+    return base
+
+
+def test_los_partidos_programados_no_cuentan_como_empate():
+    """Los partidos nacen 0-0 y en `scheduled`: no deben sumar PJ ni puntos."""
+    tabla = {
+        r["team_id"]: r
+        for r in calculate_standings(
+            [_partido("A", "B", status="scheduled")], "banquitas"
+        )
+    }
+    # Los equipos aparecen en la tabla en cuanto hay fixture, pero en cero.
+    assert set(tabla) == {"A", "B"}
+    for equipo in ("A", "B"):
+        assert tabla[equipo]["matches_played"] == 0
+        assert tabla[equipo]["league_points"] == 0
+        assert tabla[equipo]["draws"] == 0
+
+
+def test_el_partido_en_vivo_no_cuenta_hasta_finalizar():
+    partidos = [_partido("A", "B", home_score=2, away_score=1, status="live")]
+    tabla = {r["team_id"]: r for r in calculate_standings(partidos, "banquitas")}
+    assert tabla["A"]["matches_played"] == 0
+    assert tabla["A"]["points_scored"] == 0
+
+    partidos[0]["status"] = "finished"
+    tabla = {r["team_id"]: r for r in calculate_standings(partidos, "banquitas")}
+    assert tabla["A"]["league_points"] == 3
+    assert tabla["B"]["losses"] == 1
+
+
+def test_el_cero_a_cero_terminado_si_es_empate():
+    tabla = {
+        r["team_id"]: r
+        for r in calculate_standings(
+            [_partido("A", "B", status="finished")], "banquitas"
+        )
+    }
+    assert tabla["A"]["draws"] == 1
+    assert tabla["A"]["league_points"] == 1
+
+
+def test_sin_estado_se_cuenta_por_el_marcador():
+    """`POST /matches/standings` recibe payloads externos que no traen estado."""
+    tabla = {
+        r["team_id"]: r
+        for r in calculate_standings(
+            [_partido("A", "B", home_score=2, away_score=0)], "banquitas"
+        )
+    }
+    assert tabla["A"]["matches_played"] == 1
+    assert tabla["A"]["league_points"] == 3
+
+
+def test_desempate_directo_ignora_partidos_sin_jugar():
+    """El enfrentamiento directo pendiente no puede desempatar a nadie."""
+    partidos = [
+        _partido("A", "C", home_score=1, away_score=0, status="finished"),
+        _partido("B", "C", home_score=1, away_score=0, status="finished"),
+        # A-B todavía no se juega: no debe sumar puntos en la mini-tabla.
+        _partido("A", "B", status="scheduled"),
+    ]
+    tabla = {
+        r["team_id"]: r
+        for r in calculate_standings(
+            partidos, "banquitas", ["PUNTOS", "DIF_GOLES", "PARTIDO_DIRECTO"]
+        )
+    }
+    for equipo in ("A", "B"):
+        assert tabla[equipo]["matches_played"] == 1
+        assert tabla[equipo]["league_points"] == 3
+
+
+def test_la_tabla_por_grupo_no_infla_pj_con_el_fixture_recien_generado(
+    client, admin, torneo, equipos
+):
+    """Repro del reporte: 4 equipos por grupo, se finaliza un solo partido."""
+    fase = client.post(
+        f"{API}/tournaments/{torneo['id']}/stages",
+        json={"name": "Grupos", "type": "group"},
+        headers=admin,
+    ).json()
+    client.post(
+        f"{API}/tournaments/stages/{fase['id']}/generate_fixture", headers=admin
+    )
+    partidos = client.get(f"{API}/tournaments/stages/{fase['id']}/matches").json()
+    jugado = partidos[0]
+    r = client.put(
+        f"{API}/matches/{jugado['id']}/status",
+        json={"status": "finished", "home_score": 2, "away_score": 1},
+        headers=admin,
+    )
+    assert r.status_code == 200, r.text
+
+    grupos = client.get(
+        f"{API}/tournaments/stages/{fase['id']}/standings_by_group"
+    ).json()
+    filas = {f["team_id"]: f for g in grupos.values() for f in g}
+    assert len(filas) == len(equipos)
+
+    jugaron = {jugado["home_team_id"], jugado["away_team_id"]}
+    for tid, fila in filas.items():
+        esperado = 1 if tid in jugaron else 0
+        assert fila["matches_played"] == esperado, f"{tid} tiene PJ {fila['matches_played']}"
+    assert filas[jugado["home_team_id"]]["league_points"] == 3
+    assert filas[jugado["away_team_id"]]["league_points"] == 0
+
+
+# --------------------------------------------------------------------------- #
 #  Puntuación por disciplina
 # --------------------------------------------------------------------------- #
 def test_banquitas_puntua_como_futbol():
