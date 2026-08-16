@@ -8,6 +8,7 @@ import UsersPanel from './UsersPanel'
 import DashboardView from './DashboardView'
 import { exportStandingsPDF } from '../utils/pdf'
 import { SPORT_LIST } from '../sports'
+import { useAppSelector } from '../hooks'
 
 const SPORTS = SPORT_LIST
 const STAGE_TYPES = [
@@ -27,14 +28,23 @@ type Tab =
   | 'marca'
 type Section = 'dashboard' | 'torneos' | 'sedes' | 'usuarios'
 
-const SECTIONS: { key: Section; label: string; icon: string }[] = [
+// `soloSuperadmin` marca las secciones reservadas al superadministrador:
+// gestionar usuarios y el reset global no son de un organizador cualquiera.
+const SECTIONS: {
+  key: Section
+  label: string
+  icon: string
+  soloSuperadmin?: boolean
+}[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { key: 'torneos', label: 'Torneos', icon: 'emoji_events' },
   { key: 'sedes', label: 'Sedes', icon: 'stadium' },
-  { key: 'usuarios', label: 'Usuarios', icon: 'group' },
+  { key: 'usuarios', label: 'Usuarios', icon: 'group', soloSuperadmin: true },
 ]
 
 export default function AdminView() {
+  const role = useAppSelector((s) => s.auth.role)
+  const esSuperadmin = role === 'superadmin'
   const [section, setSection] = useState<Section>('dashboard')
   const [tournaments, setTournaments] = useState<any[]>([])
   const [selected, setSelected] = useState<any>(null)
@@ -93,7 +103,7 @@ export default function AdminView() {
   return (
     <div className="space-y-5">
       <nav className="flex flex-wrap items-center gap-2">
-        {SECTIONS.map((s) => (
+        {SECTIONS.filter((s) => !s.soloSuperadmin || esSuperadmin).map((s) => (
           <button
             key={s.key}
             onClick={() => setSection(s.key)}
@@ -112,13 +122,15 @@ export default function AdminView() {
         >
           <Icon name="help" className="text-base" /> Ayuda
         </button>
-        <button
-          onClick={resetAll}
-          title="Eliminar todos los torneos"
-          className="flex items-center gap-1.5 rounded-lg border border-error/40 bg-error-container/30 px-4 py-2 text-sm font-semibold text-error transition hover:bg-error-container/50"
-        >
-          <Icon name="delete_sweep" className="text-base" /> Reset
-        </button>
+        {esSuperadmin && (
+          <button
+            onClick={resetAll}
+            title="Eliminar todos los torneos"
+            className="flex items-center gap-1.5 rounded-lg border border-error/40 bg-error-container/30 px-4 py-2 text-sm font-semibold text-error transition hover:bg-error-container/50"
+          >
+            <Icon name="delete_sweep" className="text-base" /> Reset
+          </button>
+        )}
       </nav>
 
       {section === 'dashboard' ? (
@@ -641,8 +653,27 @@ function StageConfig({
       : String(cfg.best_thirds_count),
   )
   const [teamIds, setTeamIds] = useState<string[]>(cfg.team_ids || [])
+  const [preset, setPreset] = useState<string>(cfg.preset || '')
+  const [crossTb, setCrossTb] = useState<string[]>(cfg.cross_tiebreakers || [])
+  const [presets, setPresets] = useState<any>(null)
+  const [preview, setPreview] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.qualificationPresets().then(setPresets).catch(() => setPresets(null))
+    api.bracketPreview(stage.id).then(setPreview).catch(() => setPreview(null))
+  }, [stage.id])
+
+  // Sube/baja un criterio de desempate entre grupos.
+  const moverCriterio = (i: number, d: number) =>
+    setCrossTb((prev) => {
+      const next = [...prev]
+      const j = i + d
+      if (j < 0 || j >= next.length) return prev
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
 
   const toggleTeam = (id: string) =>
     setTeamIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -657,11 +688,14 @@ function StageConfig({
         config: {
           ...cfg,
           double_round: doubleRound,
+          preset: preset || null,
           qualifiers_per_group: Number(perGroup) || 2,
           best_thirds_count: extras === 'auto' ? 'auto' : Number(extras),
+          cross_tiebreakers: crossTb.length ? crossTb : null,
           team_ids: teamIds,
         },
       })
+      api.bracketPreview(stage.id).then(setPreview).catch(() => setPreview(null))
       onSaved()
     } catch (e: any) {
       setErr(e.message)
@@ -701,9 +735,28 @@ function StageConfig({
 
       <div>
         <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-          Clasificación
+          Sistema de clasificación
         </p>
-        <div className="flex flex-wrap items-end gap-2">
+        <Select
+          value={preset}
+          onChange={(e) => {
+            const v = e.target.value
+            setPreset(v)
+            const p = (presets?.presets || []).find((x: any) => x.value === v)
+            if (p) {
+              setPerGroup(String(p.qualifiers_per_group))
+              setExtras(String(p.best_thirds_count))
+            }
+          }}
+        >
+          <option value="">Personalizado</option>
+          {(presets?.presets || []).map((p: any) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </Select>
+        <div className="mt-2 flex flex-wrap items-end gap-2">
           <div className="w-40">
             <label className="mb-1 block text-xs text-on-surface-variant">
               Clasifican por grupo
@@ -729,9 +782,104 @@ function StageConfig({
         </div>
         <p className="mt-1 text-xs text-on-surface-variant">
           Los repescados son los que quedan justo debajo del corte en cada grupo (los
-          terceros si pasan 2, los segundos si pasa 1).
+          terceros si pasan 2, los segundos si pasa 1). Elegir un sistema rellena estos
+          dos valores; si los cambias a mano, mandan los tuyos.
         </p>
       </div>
+
+      <div>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+          Desempate entre grupos
+        </p>
+        <p className="mb-1.5 text-xs text-on-surface-variant">
+          Orden para comparar equipos de grupos distintos (los repescados). Sin criterios
+          propios se usa: {(presets?.default_cross_tiebreakers || []).join(' → ')}.
+        </p>
+        {crossTb.length > 0 && (
+          <ul className="mb-2 space-y-1">
+            {crossTb.map((k, i) => (
+              <li
+                key={k}
+                className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1 text-sm"
+              >
+                <span className="text-xs text-on-surface-variant">{i + 1}.</span>
+                <span className="flex-1">
+                  {(presets?.cross_tiebreaker_options || []).find((o: any) => o.value === k)
+                    ?.label || k}
+                </span>
+                <button onClick={() => moverCriterio(i, -1)} disabled={i === 0} className="disabled:opacity-25">
+                  <Icon name="keyboard_arrow_up" className="text-base" />
+                </button>
+                <button
+                  onClick={() => moverCriterio(i, 1)}
+                  disabled={i === crossTb.length - 1}
+                  className="disabled:opacity-25"
+                >
+                  <Icon name="keyboard_arrow_down" className="text-base" />
+                </button>
+                <button
+                  onClick={() => setCrossTb(crossTb.filter((x) => x !== k))}
+                  className="text-error/80 hover:text-error"
+                >
+                  <Icon name="close" className="text-base" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-wrap gap-1.5">
+          {(presets?.cross_tiebreaker_options || [])
+            .filter((o: any) => !crossTb.includes(o.value))
+            .map((o: any) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => setCrossTb([...crossTb, o.value])}
+                className="rounded-full border border-outline-variant px-2.5 py-1 text-xs text-on-surface-variant transition hover:border-outline"
+              >
+                + {o.label}
+              </button>
+            ))}
+        </div>
+      </div>
+
+      {preview && preview.pairings?.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+            Vista previa del cuadro
+          </p>
+          <p className="mb-2 text-xs text-on-surface-variant">
+            {preview.bracket_size} equipos ·{' '}
+            {preview.es_potencia_de_dos
+              ? 'cuadro completo'
+              : '⚠ no es potencia de 2, faltarían o sobrarían cruces'}
+            . Se siembra por mérito: mejor contra peor. Guardar la fase actualiza esto.
+          </p>
+          <ul className="space-y-1 text-sm">
+            {preview.pairings.map((p: any) => (
+              <li
+                key={p.match}
+                className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1.5"
+              >
+                <span className="w-6 text-xs text-on-surface-variant">#{p.match}</span>
+                <span className="flex-1 truncate text-right">
+                  {p.home_team_name}
+                  <span className="ml-1 text-xs text-on-surface-variant">
+                    ({p.home_seed}º{p.home_group ? ` · ${p.home_group}` : ''})
+                  </span>
+                </span>
+                <span className="text-xs text-on-surface-variant">vs</span>
+                <span className="flex-1 truncate">
+                  {p.away_team_name}
+                  <span className="ml-1 text-xs text-on-surface-variant">
+                    ({p.away_seed}º{p.away_group ? ` · ${p.away_group}` : ''})
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div>
         <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
@@ -1288,6 +1436,12 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
   const [rules, setRules] = useState<string[]>(
     tournament.tiebreaker_rules || ['PUNTOS', 'DIF_GOLES', 'GOLES_FAVOR', 'PARTIDO_DIRECTO'],
   )
+  const vis = tournament.visibility || {}
+  const [visibility, setVisibility] = useState<Record<string, boolean>>({
+    sanciones: vis.sanciones !== false,
+    nominas: vis.nominas !== false,
+    metricas: vis.metricas !== false,
+  })
   const [msg, setMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1313,6 +1467,7 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
         max_matches_per_day: maxPerDay ? Number(maxPerDay) : null,
         points_config: { win: Number(win), draw: Number(draw), loss: Number(loss) },
         tiebreaker_rules: rules,
+        visibility,
       })
       setMsg('Configuración guardada')
       onChanged()
@@ -1321,8 +1476,55 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
     }
   }
 
+  const SECCIONES_PUBLICAS: { key: string; label: string; hint: string }[] = [
+    {
+      key: 'sanciones',
+      label: 'Sanciones y juego limpio',
+      hint: 'Tabla de sancionados por jugador y ranking de juego limpio.',
+    },
+    {
+      key: 'nominas',
+      label: 'Nóminas de jugadores',
+      hint: 'Plantilla de cada equipo con sus jugadores.',
+    },
+    {
+      key: 'metricas',
+      label: 'Métricas del torneo',
+      hint: 'Curva de puntos, goles por fecha y panel de métricas.',
+    },
+  ]
+
   return (
     <div className="space-y-6">
+      <div>
+        <h3 className="mb-1 font-display font-semibold">Qué se ve en el marcador público</h3>
+        <p className="mb-2 text-xs text-on-surface-variant">
+          Posiciones, calendario, goleadores y valla menos vencida son siempre públicos.
+          Lo que apagues aquí solo lo verás tú y el superadministrador.
+        </p>
+        <div className="space-y-1.5">
+          {SECCIONES_PUBLICAS.map((s) => (
+            <label
+              key={s.key}
+              className="flex items-start gap-2 rounded-lg bg-surface-container-high px-3 py-2"
+            >
+              <input
+                type="checkbox"
+                checked={visibility[s.key]}
+                onChange={(e) =>
+                  setVisibility({ ...visibility, [s.key]: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 accent-secondary"
+              />
+              <span>
+                <span className="text-sm font-medium">{s.label}</span>
+                <span className="block text-xs text-on-surface-variant">{s.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs text-on-surface-variant">Categoría</label>
@@ -1430,8 +1632,8 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       setCourts(vs.flatMap((v) => (v.courts || []).map((c: any) => ({ ...c, venue: v.name })))),
     )
     api
-      .listUsers()
-      .then((us: any[]) => setRefs(us.filter((u) => u.role === 'referee')))
+      .listReferees()
+      .then(setRefs)
       .catch(() => setRefs([]))
   }, [tournament.id])
 

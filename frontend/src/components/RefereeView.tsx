@@ -77,7 +77,9 @@ export default function RefereeView() {
   const [teamColors, setTeamColors] = useState<Record<string, string[]>>({})
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [mineOnly, setMineOnly] = useState(false)
+  // Por defecto el árbitro ve solo los partidos que va a pitar; puede destildar
+  // para consultar el resto del campeonato (que ve, pero no puede cargar).
+  const [mineOnly, setMineOnly] = useState(true)
   const { userId } = useAppSelector((s) => s.auth)
 
   useEffect(() => {

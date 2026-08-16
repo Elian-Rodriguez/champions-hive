@@ -106,6 +106,16 @@ def _sort_key(team: Dict, rules: List[str]) -> tuple:
     return tuple(_rule_value(team, r) for r in rules if r != "PARTIDO_DIRECTO")
 
 
+# Criterios por defecto para comparar equipos de grupos distintos (repescados).
+# PARTIDO_DIRECTO no aplica: no se enfrentaron entre sí.
+DEFAULT_CROSS_TIEBREAKERS = ["PUNTOS", "DIF_GOLES", "GOLES_FAVOR", "GOLES_CONTRA"]
+
+
+def cross_group_sort_key(team: Dict, rules: Optional[List[str]] = None) -> tuple:
+    """Clave de orden (mayor = mejor) para rankear equipos de grupos distintos."""
+    return _sort_key(team, rules or DEFAULT_CROSS_TIEBREAKERS)
+
+
 def _h2h_mini_standings(tied_ids: set, all_matches: List[Dict]) -> Dict:
     """Calcula mini-tabla de enfrentamiento directo entre los equipos empatados."""
     h2h = {tid: {"pts": 0, "gf": 0, "ga": 0} for tid in tied_ids}

@@ -57,6 +57,7 @@ export default function PublicView({
   const [teamStats, setTeamStats] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
   const [fairPlay, setFairPlay] = useState<any[]>([])
+  const [valla, setValla] = useState<any[]>([])
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
   const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
@@ -114,7 +115,10 @@ export default function PublicView({
   function loadStats(tid: string, scope: StatScope) {
     api.playerStats(tid, scope).then(setPlayerStats).catch(() => {})
     api.teamStats(tid, scope).then(setTeamStats).catch(() => {})
-    api.fairplay(tid, scope).then(setFairPlay).catch(() => {})
+    api.valla(tid, scope).then(setValla).catch(() => setValla([]))
+    // Si el organizador oculta las sanciones el backend responde 403: se deja
+    // la tabla vacía y la sección simplemente no se muestra.
+    api.fairplay(tid, scope).then(setFairPlay).catch(() => setFairPlay([]))
   }
 
   async function openTournament(t: any) {
@@ -652,6 +656,59 @@ export default function PublicView({
                     </Card>
                   )}
                   <div className="grid gap-6 lg:grid-cols-2">
+                  {valla.length > 0 && (
+                    <Card className="p-4">
+                      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                        <Icon name="shield" className="text-secondary" /> Valla menos vencida
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-[10px] uppercase tracking-wide text-on-surface-variant">
+                              <th className="px-2 py-1 text-left">#</th>
+                              <th className="px-2 py-1 text-left">Equipo</th>
+                              <th className="px-2 py-1 text-center">PJ</th>
+                              <th className="px-2 py-1 text-center" title="Goles en contra">GC</th>
+                              <th className="px-2 py-1 text-center" title="Promedio de goles en contra por partido">
+                                Prom.
+                              </th>
+                              <th className="px-2 py-1 text-center" title="Partidos sin recibir gol">
+                                Invicta
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {valla.map((r: any) => (
+                              <tr
+                                key={r.team_id}
+                                className={`border-t border-outline-variant/30 ${
+                                  r.position === 1 ? 'bg-secondary/10' : ''
+                                }`}
+                              >
+                                <td className="px-2 py-1 text-on-surface-variant">{r.position}</td>
+                                <td className="px-2 py-1 font-medium">
+                                  {r.team_name}
+                                  {r.position === 1 ? ' 🛡️' : ''}
+                                </td>
+                                <td className="px-2 py-1 text-center text-on-surface-variant">
+                                  {r.matches_played}
+                                </td>
+                                <td className="px-2 py-1 text-center font-semibold tabular-nums text-secondary">
+                                  {r.conceded}
+                                </td>
+                                <td className="px-2 py-1 text-center tabular-nums text-on-surface-variant">
+                                  {r.conceded_avg}
+                                </td>
+                                <td className="px-2 py-1 text-center tabular-nums text-on-surface-variant">
+                                  {r.clean_sheets}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+                  )}
                   <Card className="p-4">
                     <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
                       <Icon name="sports_soccer" className="text-secondary" /> Goleadores
@@ -699,9 +756,7 @@ export default function PublicView({
                   {(() => {
                     const teams = (teamStats || []).filter((t: any) => (t.matches_played || 0) > 0)
                     if (!teams.length) return null
-                    const valla = [...teams].sort(
-                      (a: any, b: any) => (a.points_conceded || 0) - (b.points_conceded || 0),
-                    )[0]
+                    const lider = valla[0]
                     const dot = (r: string) =>
                       r === 'W' ? 'bg-secondary' : r === 'L' ? 'bg-red-500' : 'bg-on-surface-variant/50'
                     return (
@@ -709,10 +764,10 @@ export default function PublicView({
                         <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
                           <Icon name="insights" className="text-secondary" /> Forma y promedios por equipo
                         </h3>
-                        {valla && (
+                        {lider && (
                           <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-secondary/10 px-3 py-1.5 text-sm text-secondary">
                             <Icon name="shield" className="text-base" /> Valla menos vencida:&nbsp;
-                            <b>{valla.team_name}</b>&nbsp;({valla.points_conceded ?? 0} en contra)
+                            <b>{lider.team_name}</b>&nbsp;({lider.conceded ?? 0} en contra)
                           </div>
                         )}
                         <div className="overflow-x-auto">
@@ -734,7 +789,7 @@ export default function PublicView({
                                   <tr key={t.team_id} className="border-t border-outline-variant/30">
                                     <td className="px-2 py-1 font-medium">
                                       {t.team_name}
-                                      {valla && t.team_id === valla.team_id ? ' 🛡️' : ''}
+                                      {lider && t.team_id === lider.team_id ? ' 🛡️' : ''}
                                     </td>
                                     <td className="px-2 py-1 text-center text-on-surface-variant">{t.matches_played ?? 0}</td>
                                     <td className="px-2 py-1 text-center font-semibold text-secondary">

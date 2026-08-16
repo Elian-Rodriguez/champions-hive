@@ -4,9 +4,23 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_staff
+from app.core.deps import (
+    ROL_REFEREE,
+    get_current_user,
+    puede_administrar,
+    require_staff,
+)
 from app.db.database import get_db
-from app.db.models import Match, MatchStat, MatchStatus, SlotType, StageSlot
+from app.db.models import (
+    Match,
+    MatchStat,
+    MatchStatus,
+    SlotType,
+    Stage,
+    StageSlot,
+    Tournament,
+    User,
+)
 from app.schemas import (
     EventCreate,
     EventResponse,
@@ -19,6 +33,29 @@ from app.schemas import (
 from app.services.strategy import calculate_standings
 
 router = APIRouter()
+
+
+def _torneo_del_partido(db: Session, match: Match) -> Optional[Tournament]:
+    stage = db.query(Stage).filter(Stage.id == match.stage_id).first()
+    if not stage:
+        return None
+    return db.query(Tournament).filter(Tournament.id == stage.tournament_id).first()
+
+
+def _asegurar_puede_dirigir(db: Session, user: User, match: Match) -> None:
+    """El árbitro solo carga los partidos que tiene asignados; el admin, los de
+    los torneos que le pertenecen."""
+    if user.role == ROL_REFEREE:
+        if not match.referee_id or str(match.referee_id) != str(user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="Solo puedes cargar los partidos que tienes asignados",
+            )
+        return
+    if not puede_administrar(user, _torneo_del_partido(db, match)):
+        raise HTTPException(
+            status_code=403, detail="Este torneo pertenece a otro administrador"
+        )
 
 
 @router.get("", response_model=List[MatchResponse])
@@ -68,11 +105,12 @@ def update_match_status(
     match_id: UUID,
     payload_in: MatchStatusUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(get_current_user),
 ):
     match = db.query(Match).filter(Match.id == match_id).first()
     if not match:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
+    _asegurar_puede_dirigir(db, current, match)
     match.status = payload_in.status
     if payload_in.home_score is not None:
         match.home_score = payload_in.home_score
@@ -120,10 +158,14 @@ def get_match_events(match_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/events", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
 def record_event(
-    event_data: EventCreate, db: Session = Depends(get_db), _=Depends(require_staff)
+    event_data: EventCreate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
 ):
-    if not db.query(Match).filter(Match.id == event_data.match_id).first():
+    match = db.query(Match).filter(Match.id == event_data.match_id).first()
+    if not match:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
+    _asegurar_puede_dirigir(db, current, match)
     event = MatchStat(**event_data.model_dump(exclude_unset=True))
     db.add(event)
     db.commit()

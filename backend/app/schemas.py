@@ -188,6 +188,8 @@ class TournamentCreate(TournamentBase):
 class TournamentResponse(TournamentBase):
     id: UUID
     status: str
+    owner_id: Optional[UUID] = None
+    visibility: Optional[Dict[str, Any]] = None
     stages: List[StageResponse] = []
 
     class Config:
@@ -217,6 +219,8 @@ class TournamentUpdate(BaseModel):
     banner_url: Optional[str] = None
     max_matches_per_day: Optional[int] = None
     status: Optional[str] = None
+    # Qué se publica en el marcador público: sanciones, nominas, metricas.
+    visibility: Optional[Dict[str, Any]] = None
 
 
 # --------------------------------------------------------------------------- #

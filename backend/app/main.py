@@ -24,20 +24,29 @@ run_sqlite_migrations()
 
 
 def seed_admin():
-    """Crea el usuario administrador definido en el .env si aún no existe."""
+    """Crea el superadministrador definido en el .env si aún no existe.
+
+    Si la base viene de una versión anterior (donde el rol máximo era `admin`),
+    promueve a ese usuario a superadmin: de lo contrario nadie podría gestionar
+    usuarios después de actualizar.
+    """
     if not settings.ADMIN_EMAIL or not settings.ADMIN_PASSWORD:
         return
     db = SessionLocal()
     try:
-        if not db.query(User).filter(User.email == settings.ADMIN_EMAIL).first():
+        user = db.query(User).filter(User.email == settings.ADMIN_EMAIL).first()
+        if not user:
             db.add(
                 User(
                     email=settings.ADMIN_EMAIL,
                     hashed_password=get_password_hash(settings.ADMIN_PASSWORD),
-                    role="admin",
+                    role="superadmin",
                     is_active=True,
                 )
             )
+            db.commit()
+        elif not db.query(User).filter(User.role == "superadmin").first():
+            user.role = "superadmin"
             db.commit()
     finally:
         db.close()

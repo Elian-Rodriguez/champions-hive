@@ -149,6 +149,8 @@ export const api = {
   register: (data: any) =>
     req('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   listUsers: () => req('/auth/users'),
+  /** Árbitros asignables. A diferencia de listUsers, la puede llamar un admin. */
+  listReferees: () => req('/auth/referees'),
   deleteUser: (id: string) => req(`/auth/users/${id}`, { method: 'DELETE' }),
   changePassword: (current_password: string, new_password: string) =>
     req('/auth/change_password', {
@@ -186,6 +188,8 @@ export const api = {
   metrics: (id: string) => req(`/tournaments/${id}/metrics`),
   fairplay: (id: string, scope?: StatScope) =>
     req(`/tournaments/${id}/fairplay${scopeQuery(scope)}`),
+  valla: (id: string, scope?: StatScope) =>
+    req(`/tournaments/${id}/valla${scopeQuery(scope)}`),
   updateLogo: (id: string, url: string) =>
     req(`/tournaments/${id}/logo`, { method: 'PUT', body: JSON.stringify({ url }) }),
   updateBanner: (id: string, url: string) =>
@@ -271,6 +275,8 @@ export const api = {
   bestThirds: (sid: string, count = 4) =>
     req(`/tournaments/stages/${sid}/best_thirds?count=${count}`),
   qualifiers: (sid: string) => req(`/tournaments/stages/${sid}/qualifiers`),
+  bracketPreview: (sid: string) => req(`/tournaments/stages/${sid}/bracket_preview`),
+  qualificationPresets: () => req('/tournaments/qualification_presets'),
 
   // ---- Teams & players ----
   getTeams: (tid: string) => req(`/tournaments/${tid}/teams`),

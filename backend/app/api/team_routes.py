@@ -5,9 +5,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_staff
+from app.core.deps import (
+    get_current_user_optional,
+    puede_administrar,
+    require_staff,
+)
 from app.db.database import get_db
-from app.db.models import Player, Team, TeamPlayer, Tournament, TournamentTeam
+from app.db.models import Player, Team, TeamPlayer, Tournament, TournamentTeam, User
 from app.schemas import (
     GroupAssignment,
     PlayerCreate,
@@ -19,6 +23,18 @@ from app.schemas import (
 )
 
 router = APIRouter()
+
+
+def _torneo_administrable(db: Session, tournament_id, user: User) -> Tournament:
+    """Carga el torneo y verifica que el usuario pueda administrarlo."""
+    t = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    if not puede_administrar(user, t):
+        raise HTTPException(
+            status_code=403, detail="Este torneo pertenece a otro administrador"
+        )
+    return t
 
 
 def _team_payload(team: Team, link: TournamentTeam | None) -> dict:
@@ -46,10 +62,9 @@ def register_team_in_tournament(
     tournament_id: UUID,
     team: TeamCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _torneo_administrable(db, tournament_id, current)
     colors = team.colors or ([team.color] if team.color else None)
     obj = Team(
         name=team.name,
@@ -92,8 +107,9 @@ def shuffle_teams_into_groups(
     tournament_id: UUID,
     payload_in: ShuffleGroupsRequest,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     links = (
         db.query(TournamentTeam)
         .filter(TournamentTeam.tournament_id == tournament_id)
@@ -121,8 +137,9 @@ def update_team_group(
     team_id: UUID,
     payload_in: GroupAssignment,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     link = (
         db.query(TournamentTeam)
         .filter(
@@ -144,7 +161,7 @@ def update_team(
     team_id: UUID,
     payload_in: TeamBase,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
@@ -166,8 +183,9 @@ def remove_team_from_tournament(
     tournament_id: UUID,
     team_id: UUID,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     link = (
         db.query(TournamentTeam)
         .filter(
@@ -194,7 +212,7 @@ def register_player_in_team(
     team_id: UUID,
     player: PlayerCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     if not db.query(Team).filter(Team.id == team_id).first():
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
@@ -216,7 +234,30 @@ def register_player_in_team(
 
 
 @router.get("/teams/{team_id}/players", response_model=List[PlayerResponse])
-def get_players_in_team(team_id: UUID, db: Session = Depends(get_db)):
+def get_players_in_team(
+    team_id: UUID,
+    db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
+):
+    """Nómina del equipo.
+
+    Si TODOS los torneos donde juega el equipo tienen las nóminas ocultas, solo
+    la ve quien administra alguno de ellos. Basta que un torneo la publique para
+    que la nómina siga siendo pública.
+    """
+    torneos = [
+        t
+        for t in db.query(Tournament)
+        .join(TournamentTeam, TournamentTeam.tournament_id == Tournament.id)
+        .filter(TournamentTeam.team_id == team_id)
+        .all()
+    ]
+    if torneos and not any((t.visibility or {}).get("nominas", True) for t in torneos):
+        if not any(puede_administrar(current, t) for t in torneos):
+            raise HTTPException(
+                status_code=403,
+                detail="El organizador no publica las nóminas de este torneo",
+            )
     links = db.query(TeamPlayer).filter(TeamPlayer.team_id == team_id).all()
     result = []
     for link in links:
@@ -234,7 +275,7 @@ def update_player(
     player_id: UUID,
     payload_in: PlayerCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     player = db.query(Player).filter(Player.id == player_id).first()
     if not player:
@@ -264,7 +305,7 @@ def remove_player_from_team(
     team_id: UUID,
     player_id: UUID,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     link = (
         db.query(TeamPlayer)

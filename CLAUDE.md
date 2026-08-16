@@ -68,7 +68,7 @@ No test suite exists.
 - **`schemas.py`** — Pydantic v2 request/response schemas (`from_attributes=True`) for every resource.
 - **`core/config.py`** — pydantic-settings `Settings` loaded from `.env`: `SECRET_KEY` (defaults to the insecure `dev-insecure-key-change-in-production`), `ALGORITHM` (`HS256`), `ACCESS_TOKEN_EXPIRE_MINUTES`, `DATABASE_URL`.
 - **`core/security.py`** — bcrypt hashing via passlib (`get_password_hash`/`verify_password`) and JWT via python-jose (`create_access_token`/`decode_access_token`).
-- **`core/deps.py`** — auth dependencies: `get_current_user` (decodes the Bearer JWT, loads the active `User`), and `require_roles(...)` → `require_admin` / `require_staff` (roles seen: `admin`, `referee`). 401 on bad token, 403 on wrong role.
+- **`core/deps.py`** — auth dependencies and the **permission model**. Roles: `superadmin` (sees/administers everything, the only one who manages users and can `reset_all`), `admin` (owns the tournaments they create), `referee` (only loads results for matches assigned to them). `require_staff` means *can administer a tournament* and is `admin`+`superadmin` — **referees are not staff**. `puede_administrar(user, tournament)` is the ownership check: superadmin always, admin only for their own; a tournament with `owner_id IS NULL` is legacy (created before ownership existed) and stays editable by any admin so nothing is orphaned. 401 on bad token, 403 on wrong role or another admin's tournament.
 - **`core/limiter.py`** — shared slowapi `Limiter` keyed by remote address, default `600/minute` (login is further limited to `10/minute`).
 - **`services/strategy.py`** — the standings engine, Strategy pattern. `StrategyFactory.get_strategy(sport_type)` returns `BasketballStrategy` (win/loss only, no draw) or `FootballStrategy` (win/draw/loss; also used for `micro` and `banquitas` — see `FOOTBALL_LIKE_SPORTS`); unknown sports raise `ValueError`. `SPORT_DEFAULTS` holds the per-discipline defaults (`points_config`, `match_duration`, `waiting_time`) that `create_tournament` fills in for fields the organizer omits. `calculate_standings(matches, sport_type, tiebreaker_rules)` accumulates per-team points/goals, derives fair-play penalties from card events, then sorts by an **ordered, configurable tiebreaker list**. **Standings are computed on the fly and never persisted.**
 - **`api/`** — one router per domain: `auth_routes`, `team_routes`, `tournament_routes` (the largest — holds the fixture/bracket engine), `venue_routes`, `match_routes`.
@@ -110,6 +110,16 @@ This router is the non-obvious core. Key endpoints (paths recovered from bytecod
 - **teams** (`/`): teams within a tournament, `shuffle_groups` (random group assignment), per-team group reassignment, and players within teams (with jersey numbers).
 - **venues** (`/venues`): venue + court CRUD.
 - **matches** (`/matches`): `list`, `schedule`, `update_match_status` (scheduled→live→finished), live event recording (`record_event`/`get_match_events`), and a stateless `POST /standings` that computes a table from a posted match list + rules.
+
+### Ownership, roles and public visibility
+
+`Tournament.owner_id` is the admin who created it; `GET /tournaments` returns only your own when authenticated as admin (all of them to superadmin, and all of them unauthenticated — the public scoreboard needs them). Every write path goes through `_torneo_administrable` / `_fase_administrable` in `tournament_routes.py` (and the equivalents in `team_routes.py` / `match_routes.py`). Referees write only through `_asegurar_puede_dirigir`, which requires `Match.referee_id == user.id`; `GET /auth/referees` exists so an admin can assign referees without being able to list or manage users.
+
+`Tournament.visibility` is a JSON of publish switches — `sanciones`, `nominas`, `metricas` — checked by `_asegurar_visible`. A missing key means public, so existing tournaments keep publishing everything. Positions, calendar, goleadores and valla are always public by design. Hidden sections return 403 to the public and 200 to the owner/superadmin; the frontend catches the 403 and just omits the section.
+
+### Qualification systems
+
+`QUALIFICATION_PRESETS` (in `tournament_routes.py`, exposed by `GET /tournaments/qualification_presets`) names the common systems; `stage.config["preset"]` selects one and any explicit `qualifiers_per_group` / `best_thirds_count` in the config overrides it (`_reglas_clasificacion`). `stage.config["cross_tiebreakers"]` orders the comparison between teams from different groups (`cross_group_sort_key` in `strategy.py`; `PARTIDO_DIRECTO` is excluded because they never met). `GET /stages/{id}/bracket_preview` shows the crossings that the current configuration would produce — seeded by merit, best vs worst — without creating anything.
 
 ### Stage-scoped statistics
 

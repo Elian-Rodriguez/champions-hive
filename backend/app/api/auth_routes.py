@@ -5,7 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_current_user_optional, require_admin
+from app.core.deps import (
+    ROL_ADMIN,
+    ROL_REFEREE,
+    ROL_SUPERADMIN,
+    es_superadmin,
+    get_current_user,
+    get_current_user_optional,
+    require_staff,
+    require_superadmin,
+)
 from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
@@ -25,11 +34,12 @@ def register(
     current=Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
-    # Bootstrap: si aún no hay usuarios se permite crear el primero.
-    # Después, solo un administrador autenticado puede crear usuarios.
-    if db.query(User).count() > 0 and (current is None or current.role != "admin"):
+    # Bootstrap: si aún no hay usuarios, el primero se crea como superadmin.
+    # Después, solo el superadmin puede crear usuarios.
+    primer_usuario = db.query(User).count() == 0
+    if not primer_usuario and not es_superadmin(current):
         raise HTTPException(
-            status_code=403, detail="Solo un administrador puede crear usuarios"
+            status_code=403, detail="Solo el superadministrador puede crear usuarios"
         )
     if db.query(User).filter(User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="El email ya está registrado")
@@ -37,10 +47,13 @@ def register(
         raise HTTPException(
             status_code=400, detail="La contraseña debe tener al menos 6 caracteres"
         )
+    rol = ROL_SUPERADMIN if primer_usuario else (user_in.role or ROL_ADMIN)
+    if rol not in (ROL_SUPERADMIN, ROL_ADMIN, ROL_REFEREE):
+        raise HTTPException(status_code=400, detail=f"Rol no válido: {rol}")
     user = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
-        role=user_in.role or "admin",
+        role=rol,
         is_active=True,
     )
     db.add(user)
@@ -89,13 +102,23 @@ def change_password(
 
 
 @router.get("/users", response_model=List[UserResponse])
-def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def list_users(db: Session = Depends(get_db), _: User = Depends(require_superadmin)):
     return db.query(User).all()
+
+
+@router.get("/referees", response_model=List[UserResponse])
+def list_referees(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Árbitros disponibles para asignar a un partido.
+
+    Existe aparte de /users porque un admin necesita asignar árbitros pero no
+    debe poder listar ni gestionar el resto de usuarios.
+    """
+    return db.query(User).filter(User.role == ROL_REFEREE, User.is_active).all()
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
-    user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_admin)
+    user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_superadmin)
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

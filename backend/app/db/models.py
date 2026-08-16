@@ -92,6 +92,12 @@ class Tournament(Base):
     sport_type = Column(SQLEnum(SportType), nullable=False)
     category = Column(String, default="masculino")
     status = Column(String, default="draft")
+    # Admin dueño del torneo. NULL = torneo heredado de antes de que existiera
+    # la propiedad: lo puede administrar cualquier admin (ver _puede_administrar).
+    owner_id = Column(GUID(), nullable=True)
+    # Qué secciones se publican en el marcador público. Ausente = todo público.
+    # Claves: sanciones, nominas, metricas.
+    visibility = Column(JSON)
     logo_url = Column(String)
     banner_url = Column(String)
     points_config = Column(JSON)
@@ -283,6 +289,8 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    # superadmin: ve y administra todo, único que gestiona usuarios.
+    # admin: dueño de sus propios torneos. referee: solo dirige partidos.
     role = Column(String, default="admin")
 
 

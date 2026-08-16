@@ -7,7 +7,13 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_staff, require_admin
+from app.core.deps import (
+    es_superadmin,
+    get_current_user_optional,
+    puede_administrar,
+    require_staff,
+    require_superadmin,
+)
 from app.db.database import get_db
 from app.db.models import (
     Court,
@@ -44,10 +50,12 @@ from app.schemas import (
     TournamentUpdate,
 )
 from app.services.strategy import (
+    DEFAULT_CROSS_TIEBREAKERS,
     SPORT_DEFAULTS,
     TIEBREAKER_LABELS,
     StrategyFactory,
     calculate_standings,
+    cross_group_sort_key,
 )
 
 router = APIRouter()
@@ -107,6 +115,55 @@ def _matches_to_dicts(db: Session, matches: List[Match]) -> List[Dict[str, Any]]
             }
         )
     return out
+
+
+def _torneo_administrable(db: Session, tournament_id, user: User) -> Tournament:
+    """Carga el torneo y verifica que el usuario pueda administrarlo."""
+    t = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    if not puede_administrar(user, t):
+        raise HTTPException(
+            status_code=403, detail="Este torneo pertenece a otro administrador"
+        )
+    return t
+
+
+def _fase_administrable(db: Session, stage_id, user: User) -> Stage:
+    """Carga la fase y verifica la propiedad del torneo al que pertenece."""
+    stage = db.query(Stage).filter(Stage.id == stage_id).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    _torneo_administrable(db, stage.tournament_id, user)
+    return stage
+
+
+def _torneos_visibles(db: Session, user: User) -> List[Tournament]:
+    """Torneos que el usuario puede administrar (todos, si es superadmin)."""
+    q = db.query(Tournament)
+    if es_superadmin(user):
+        return q.all()
+    return [t for t in q.all() if puede_administrar(user, t)]
+
+
+# Secciones que el organizador puede publicar u ocultar en el marcador público.
+SECCIONES_PUBLICABLES = ("sanciones", "nominas", "metricas")
+
+
+def _es_publica(tournament: Tournament, seccion: str) -> bool:
+    """Por defecto todo es público; solo se oculta si el organizador lo apaga."""
+    return bool((tournament.visibility or {}).get(seccion, True))
+
+
+def _asegurar_visible(tournament: Tournament, seccion: str, user) -> None:
+    """Deja pasar si la sección es pública o si quien pregunta la administra."""
+    if _es_publica(tournament, seccion):
+        return
+    if not puede_administrar(user, tournament):
+        raise HTTPException(
+            status_code=403,
+            detail="El organizador no publica esta sección de este torneo",
+        )
 
 
 def _ordered_stages(db: Session, tournament_id) -> List[Stage]:
@@ -246,24 +303,67 @@ def _build_group_standings(db: Session, stage: Stage) -> Dict[str, List[Dict]]:
     return result
 
 
-def _cross_group_rank_key(r: Dict) -> tuple:
-    """Criterios para comparar equipos de grupos distintos:
-    puntos -> diferencia -> goles a favor -> goles en contra (menor)."""
-    return (
-        r.get("league_points", 0),
-        r.get("diff", 0),
-        r.get("points_scored", 0),
-        -r.get("points_conceded", 0),
-    )
+# Sistemas de clasificación predefinidos. El organizador elige uno por nombre y
+# se traduce a los números que usa _compute_qualifiers.
+QUALIFICATION_PRESETS: Dict[str, Dict[str, Any]] = {
+    "dos_por_grupo": {
+        "label": "2 mejores de cada grupo (+ repesca para completar)",
+        "qualifiers_per_group": 2,
+        "best_thirds_count": "auto",
+    },
+    "dos_sin_repesca": {
+        "label": "2 mejores de cada grupo, sin repescados",
+        "qualifiers_per_group": 2,
+        "best_thirds_count": 0,
+    },
+    "campeones_de_grupo": {
+        "label": "Solo el campeón de cada grupo",
+        "qualifiers_per_group": 1,
+        "best_thirds_count": 0,
+    },
+    "campeon_y_repesca": {
+        "label": "Campeón de grupo + mejores segundos",
+        "qualifiers_per_group": 1,
+        "best_thirds_count": "auto",
+    },
+    "cuatro_por_grupo": {
+        "label": "4 mejores de cada grupo",
+        "qualifiers_per_group": 4,
+        "best_thirds_count": 0,
+    },
+}
+
+
+def _reglas_clasificacion(stage: Stage) -> Dict[str, Any]:
+    """Resuelve la configuración de clasificación de una fase.
+
+    Si hay `preset`, sus valores son la base; cualquier clave puesta a mano en
+    el config manda sobre el preset.
+    """
+    cfg = _stage_config(stage)
+    base = dict(QUALIFICATION_PRESETS.get(cfg.get("preset") or "", {}))
+    base.pop("label", None)
+    for clave in ("qualifiers_per_group", "best_thirds_count"):
+        if cfg.get(clave) is not None:
+            base[clave] = cfg[clave]
+    return {
+        "preset": cfg.get("preset"),
+        "qualifiers_per_group": max(1, int(base.get("qualifiers_per_group") or 2)),
+        "best_thirds_count": base.get("best_thirds_count", "auto"),
+        "cross_tiebreakers": cfg.get("cross_tiebreakers") or None,
+    }
 
 
 def _compute_best_thirds(
-    group_standings: Dict[str, List[Dict]], index: int = 2
+    group_standings: Dict[str, List[Dict]],
+    index: int = 2,
+    cross_tiebreakers: Optional[List[str]] = None,
 ) -> List[Dict]:
     """
     De cada grupo toma el equipo en la posición `index` (0-based) y los rankea
     entre sí. Con index=2 son los clásicos "mejores terceros"; el índice se
-    ajusta según cuántos clasifican directo por grupo.
+    ajusta según cuántos clasifican directo por grupo. El orden usa los
+    criterios configurados en la fase (`cross_tiebreakers`) o los por defecto.
     """
     thirds = []
     for g, rows in group_standings.items():
@@ -272,7 +372,7 @@ def _compute_best_thirds(
             row["from_group"] = g
             thirds.append(row)
 
-    thirds.sort(key=_cross_group_rank_key, reverse=True)
+    thirds.sort(key=lambda r: cross_group_sort_key(r, cross_tiebreakers), reverse=True)
     return thirds
 
 
@@ -301,8 +401,8 @@ def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
     Los "repescados" son los equipos que quedan justo debajo del corte en cada
     grupo (los terceros si pasan 2, los segundos si pasa 1), rankeados entre sí.
     """
-    cfg = _stage_config(stage)
-    per_group = max(1, int(cfg.get("qualifiers_per_group") or 2))
+    reglas = _reglas_clasificacion(stage)
+    per_group = reglas["qualifiers_per_group"]
 
     standings = _build_group_standings(db, stage)
     groups = {g: rows for g, rows in standings.items() if g != "Sin Grupo" and rows}
@@ -316,9 +416,11 @@ def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
             r["from_group"] = g
             direct.append(r)
 
-    extras = _compute_best_thirds(groups, index=per_group)
+    extras = _compute_best_thirds(
+        groups, index=per_group, cross_tiebreakers=reglas["cross_tiebreakers"]
+    )
 
-    raw = cfg.get("best_thirds_count")
+    raw = reglas["best_thirds_count"]
     if raw is None or raw == "auto":
         base = len(direct)
         total = base + len(extras)
@@ -334,7 +436,11 @@ def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
     for i, r in enumerate(extras):
         r["qualifies"] = i < needed
 
+    preset = QUALIFICATION_PRESETS.get(reglas["preset"] or "")
     return {
+        "preset": reglas["preset"],
+        "preset_label": preset["label"] if preset else None,
+        "cross_tiebreakers": reglas["cross_tiebreakers"] or DEFAULT_CROSS_TIEBREAKERS,
         "qualifiers_per_group": per_group,
         "extras_needed": needed,
         "bracket_size": len(direct) + needed,
@@ -342,6 +448,42 @@ def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
         "direct": direct,
         "extras": extras,
     }
+
+
+def _preview_cruces(qualifiers: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Cruces que quedarían armados con los clasificados actuales.
+
+    Se siembran todos los clasificados por mérito (criterios entre grupos) y se
+    cruza el mejor contra el peor: 1 vs N, 2 vs N-1, etc.
+    """
+    clasificados = list(qualifiers["direct"]) + [
+        e for e in qualifiers["extras"] if e.get("qualifies")
+    ]
+    orden = sorted(
+        clasificados,
+        key=lambda r: cross_group_sort_key(r, qualifiers.get("cross_tiebreakers")),
+        reverse=True,
+    )
+    cruces = []
+    izq, der = 0, len(orden) - 1
+    while izq < der:
+        local, visita = orden[izq], orden[der]
+        cruces.append(
+            {
+                "match": len(cruces) + 1,
+                "home_seed": izq + 1,
+                "away_seed": der + 1,
+                "home_team_id": local.get("team_id"),
+                "home_team_name": local.get("team_name"),
+                "home_group": local.get("from_group"),
+                "away_team_id": visita.get("team_id"),
+                "away_team_name": visita.get("team_name"),
+                "away_group": visita.get("from_group"),
+            }
+        )
+        izq += 1
+        der -= 1
+    return cruces
 
 
 def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
@@ -388,7 +530,7 @@ def get_tiebreaker_options():
 
 
 @router.delete("/reset_all")
-def reset_all(db: Session = Depends(get_db), _=Depends(require_admin)):
+def reset_all(db: Session = Depends(get_db), current: User = Depends(require_superadmin)):
     """Elimina TODOS los torneos y sus datos (equipos, jugadores, partidos,
     eventos, fases). Conserva sedes, canchas y usuarios. Solo admin."""
     n = db.query(Tournament).count()
@@ -408,16 +550,29 @@ def reset_all(db: Session = Depends(get_db), _=Depends(require_admin)):
 
 
 @router.get("/dashboard")
-def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
-    """Agregados globales para el panel: totales, distribuciones y gráficas."""
-    tournaments = db.query(Tournament).all()
+def dashboard(db: Session = Depends(get_db), current: User = Depends(require_staff)):
+    """Agregados del panel: totales, distribuciones y gráficas.
+
+    El superadmin ve el global; cada admin ve solo sus propios torneos.
+    """
+    tournaments = _torneos_visibles(db, current)
     by_status: Dict[str, int] = defaultdict(int)
     by_sport: Dict[str, int] = defaultdict(int)
     for t in tournaments:
         by_status[t.status or "draft"] += 1
         by_sport[_sport_type_str(t)] += 1
 
-    matches = db.query(Match).all()
+    # Todo lo agregado se limita a los torneos visibles: un admin no debe ver
+    # goles, tarjetas ni goleadores de los torneos de otro organizador.
+    tour_ids = [t.id for t in tournaments]
+    stage_ids = (
+        [s.id for s in db.query(Stage).filter(Stage.tournament_id.in_(tour_ids)).all()]
+        if tour_ids
+        else []
+    )
+    matches = (
+        db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
+    )
     finished = [m for m in matches if _status_str(m) == "finished"]
     live = sum(1 for m in matches if _status_str(m) == "live")
     total_goals = sum((m.home_score or 0) + (m.away_score or 0) for m in finished)
@@ -427,9 +582,15 @@ def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
         d = m.scheduled_start.date().isoformat() if m.scheduled_start else "Sin fecha"
         gbd[d] += (m.home_score or 0) + (m.away_score or 0)
 
+    match_ids = [m.id for m in matches]
+    eventos = (
+        db.query(MatchStat).filter(MatchStat.match_id.in_(match_ids)).all()
+        if match_ids
+        else []
+    )
     goals_by_player: Dict[str, int] = defaultdict(int)
     d_yellow = d_blue = d_red = d_fouls = 0
-    for e in db.query(MatchStat).all():
+    for e in eventos:
         et = (e.event_type or "").upper()
         if et in ("GOL", "GOAL"):
             if e.player_id:
@@ -471,12 +632,38 @@ def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
     return {
         "totals": {
             "tournaments": len(tournaments),
-            "teams": db.query(TournamentTeam).count(),
+            "teams": (
+                db.query(TournamentTeam)
+                .filter(TournamentTeam.tournament_id.in_(tour_ids))
+                .count()
+                if tour_ids
+                else 0
+            ),
             "matches": len(matches),
             "finished": len(finished),
             "live": live,
             "goals": total_goals,
-            "players": db.query(Player).count(),
+            "players": len(
+                {
+                    str(l.player_id)
+                    for l in (
+                        db.query(TeamPlayer)
+                        .filter(
+                            TeamPlayer.team_id.in_(
+                                [
+                                    tt.team_id
+                                    for tt in db.query(TournamentTeam)
+                                    .filter(TournamentTeam.tournament_id.in_(tour_ids))
+                                    .all()
+                                ]
+                            )
+                        )
+                        .all()
+                        if tour_ids
+                        else []
+                    )
+                }
+            ),
             "venues": db.query(Venue).count(),
         },
         "by_status": dict(by_status),
@@ -500,7 +687,7 @@ def dashboard(db: Session = Depends(get_db), _=Depends(require_staff)):
 def create_tournament(
     tournament: TournamentCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     data = tournament.model_dump(exclude_unset=True)
     # Cada disciplina trae sus valores por defecto (puntos, duración y
@@ -513,7 +700,9 @@ def create_tournament(
         if data.get(field) is None:
             data[field] = value
 
-    obj = Tournament(**data, status="draft")
+    # El admin que lo crea queda como dueño del torneo.
+    data.pop("owner_id", None)
+    obj = Tournament(**data, status="draft", owner_id=current.id)
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -521,8 +710,21 @@ def create_tournament(
 
 
 @router.get("", response_model=List[TournamentResponse])
-def get_tournaments(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(Tournament).offset(skip).limit(limit).all()
+def get_tournaments(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
+):
+    """Lista de torneos.
+
+    Sin sesión (marcador público) devuelve todos: el público puede consultar
+    cualquier torneo. Con sesión de admin devuelve solo los suyos, para que el
+    panel de administración no muestre torneos de otros organizadores.
+    """
+    if current is None or current.role == "referee":
+        return db.query(Tournament).offset(skip).limit(limit).all()
+    return _torneos_visibles(db, current)[skip : skip + limit]
 
 
 # --- Stages -------------------------------------------------------------- #
@@ -535,10 +737,9 @@ def create_stage_for_tournament(
     tournament_id: UUID,
     stage: StageCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _torneo_administrable(db, tournament_id, current)
     data = stage.model_dump()
     if data.get("order_index") is None:
         # Se agrega al final del torneo.
@@ -560,12 +761,10 @@ def update_stage(
     stage_id: UUID,
     payload: StageUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     """Renombra una fase, cambia su tipo o actualiza su configuración."""
-    stage = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    stage = _fase_administrable(db, stage_id, current)
 
     data = payload.model_dump(exclude_unset=True)
     if "type" in data and data["type"] is not None:
@@ -598,9 +797,10 @@ def reorder_stages(
     tournament_id: UUID,
     payload: StageReorder,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     """Reordena las fases del torneo según la lista recibida (primera → última)."""
+    _torneo_administrable(db, tournament_id, current)
     stages = _ordered_stages(db, tournament_id)
     by_id = {str(s.id): s for s in stages}
     incoming = [str(sid) for sid in payload.stage_ids]
@@ -619,10 +819,8 @@ def reorder_stages(
 
 
 @router.delete("/stages/{stage_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_stage(stage_id: UUID, db: Session = Depends(get_db), _=Depends(require_staff)):
-    stage = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Fase no encontrada")
+def delete_stage(stage_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_staff)):
+    stage = _fase_administrable(db, stage_id, current)
     db.delete(stage)
     db.commit()
 
@@ -703,11 +901,9 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/stages/{stage_id}/generate_fixture")
 def generate_fixture(
-    stage_id: UUID, db: Session = Depends(get_db), _=Depends(require_staff)
+    stage_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_staff)
 ):
-    stage = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    stage = _fase_administrable(db, stage_id, current)
 
     courts = db.query(Court).all()
     if not courts:
@@ -788,13 +984,11 @@ def generate_fixture(
 
 @router.post("/stages/{stage_id}/swiss_round")
 def generate_swiss_round(
-    stage_id: UUID, db: Session = Depends(get_db), _=Depends(require_staff)
+    stage_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_staff)
 ):
     """Genera la siguiente ronda de sistema suizo: ronda 1 al azar; las
     siguientes emparejan por posición actual evitando repetir enfrentamientos."""
-    stage = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    stage = _fase_administrable(db, stage_id, current)
     tournament = (
         db.query(Tournament).filter(Tournament.id == stage.tournament_id).first()
     )
@@ -906,12 +1100,50 @@ def get_qualifiers(stage_id: UUID, db: Session = Depends(get_db)):
     return _compute_qualifiers(db, stage)
 
 
+@router.get("/qualification_presets")
+def get_qualification_presets():
+    """Sistemas de clasificación predefinidos, para elegir por nombre."""
+    return {
+        "presets": [
+            {"value": clave, **datos} for clave, datos in QUALIFICATION_PRESETS.items()
+        ],
+        "cross_tiebreaker_options": [
+            {"value": k, "label": v}
+            for k, v in TIEBREAKER_LABELS.items()
+            if k != "PARTIDO_DIRECTO"
+        ],
+        "default_cross_tiebreakers": DEFAULT_CROSS_TIEBREAKERS,
+    }
+
+
+@router.get("/stages/{stage_id}/bracket_preview")
+def get_bracket_preview(stage_id: UUID, db: Session = Depends(get_db)):
+    """Vista previa de los cruces que se armarían con la configuración actual.
+
+    No crea nada: sirve para revisar antes de generar la siguiente fase.
+    """
+    stage = db.query(Stage).filter(Stage.id == stage_id).first()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    qualifiers = _compute_qualifiers(db, stage)
+    if not qualifiers:
+        return None
+    cruces = _preview_cruces(qualifiers)
+    return {
+        "bracket_size": qualifiers["bracket_size"],
+        "preset_label": qualifiers["preset_label"],
+        "es_potencia_de_dos": qualifiers["bracket_size"] > 0
+        and _next_pow2(qualifiers["bracket_size"]) == qualifiers["bracket_size"],
+        "pairings": cruces,
+    }
+
+
 @router.post("/stages/{stage_id}/advance")
 def advance_to_next_phase(
     stage_id: UUID,
     payload: Dict[str, Any] = Body(...),
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     """
     Toma los standings reales de la fase actual y crea los partidos en la fase
@@ -924,12 +1156,8 @@ def advance_to_next_phase(
     pairings = payload.get("pairings", [])
     if not next_stage_id:
         raise HTTPException(status_code=400, detail="Falta next_stage_id")
-    src = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not src:
-        raise HTTPException(status_code=404, detail="Fase origen no encontrada")
-    dst = db.query(Stage).filter(Stage.id == next_stage_id).first()
-    if not dst:
-        raise HTTPException(status_code=404, detail="Fase destino no encontrada")
+    src = _fase_administrable(db, stage_id, current)
+    dst = _fase_administrable(db, next_stage_id, current)
 
     gs = _build_group_standings(db, src)
     best_thirds = _compute_best_thirds(gs)
@@ -981,7 +1209,7 @@ def seed_bracket(
     stage_id: UUID,
     payload: Dict[str, Any] = Body(...),
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     """
     Crea el árbol completo del bracket knockout a partir de los cruces de la
@@ -1000,9 +1228,7 @@ def seed_bracket(
         raise HTTPException(
             status_code=400, detail="round1 debe tener cantidad par de cruces"
         )
-    dst = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not dst:
-        raise HTTPException(status_code=404, detail="Fase destino no encontrada")
+    dst = _fase_administrable(db, stage_id, current)
     if not db.query(Stage).filter(Stage.id == source_stage_id).first():
         raise HTTPException(status_code=404, detail="Fase origen no encontrada")
 
@@ -1189,11 +1415,9 @@ def get_bracket_tree(stage_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/stages/{stage_id}/resolve_position_slots")
 def resolve_position_slots(
-    stage_id: UUID, db: Session = Depends(get_db), _=Depends(require_staff)
+    stage_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_staff)
 ):
-    stage = db.query(Stage).filter(Stage.id == stage_id).first()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Fase no encontrada")
+    stage = _fase_administrable(db, stage_id, current)
     slots = (
         db.query(StageSlot)
         .filter(
@@ -1254,10 +1478,9 @@ def add_photo(
     tournament_id: UUID,
     photo: PhotoCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _torneo_administrable(db, tournament_id, current)
     obj = TournamentPhoto(tournament_id=tournament_id, **photo.model_dump())
     db.add(obj)
     db.commit()
@@ -1271,8 +1494,9 @@ def update_photo(
     photo_id: UUID,
     photo: PhotoCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     obj = db.query(TournamentPhoto).filter(TournamentPhoto.id == photo_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="Foto no encontrada")
@@ -1290,8 +1514,9 @@ def delete_photo(
     tournament_id: UUID,
     photo_id: UUID,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     obj = db.query(TournamentPhoto).filter(TournamentPhoto.id == photo_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="Foto no encontrada")
@@ -1319,10 +1544,9 @@ def create_sponsor(
     tournament_id: UUID,
     sponsor: SponsorCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    if not db.query(Tournament).filter(Tournament.id == tournament_id).first():
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _torneo_administrable(db, tournament_id, current)
     obj = Sponsor(tournament_id=tournament_id, **sponsor.model_dump())
     db.add(obj)
     db.commit()
@@ -1336,8 +1560,9 @@ def update_sponsor(
     sponsor_id: UUID,
     sponsor: SponsorCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     obj = db.query(Sponsor).filter(Sponsor.id == sponsor_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="Patrocinador no encontrado")
@@ -1355,8 +1580,9 @@ def delete_sponsor(
     tournament_id: UUID,
     sponsor_id: UUID,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
+    _torneo_administrable(db, tournament_id, current)
     obj = db.query(Sponsor).filter(Sponsor.id == sponsor_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="Patrocinador no encontrado")
@@ -1370,11 +1596,9 @@ def schedule_tournament_calendar(
     tournament_id: UUID,
     payload: Dict[str, Any] = Body(default={}),
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
     start = payload.get("start")
     start_dt = datetime.fromisoformat(start) if start else datetime.utcnow()
     duration = payload.get("match_duration") or tournament.match_duration or 60
@@ -1597,8 +1821,77 @@ def get_team_stats(
         return []
     dicts = _matches_to_dicts(db, matches)
     return calculate_standings(
-        dicts, _sport_type_str(tournament), tournament.tiebreaker_rules or None
+        dicts, _sport_type_str(tournament), tournament.tiebreaker_rules or None,
     )
+
+
+@router.get("/{tournament_id}/valla")
+def get_valla(
+    tournament_id: UUID,
+    stage_id: Optional[UUID] = None,
+    mode: str = "from",
+    db: Session = Depends(get_db),
+):
+    """Ranking de valla menos vencida.
+
+    Ordena por menos goles en contra; a igualdad, mejor promedio por partido y
+    más vallas invictas. `vallas_invictas` cuenta los partidos terminados sin
+    recibir gol. Acepta el mismo filtro de fase que el resto de estadísticas.
+    """
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    stage_ids = _stage_ids_for_stats(db, tournament, stage_id, mode)
+    matches = (
+        db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
+    )
+    finished = [
+        m
+        for m in matches
+        if _status_str(m) == "finished"
+        and m.home_team_id
+        and m.away_team_id
+        and m.home_score is not None
+        and m.away_score is not None
+    ]
+    if not finished:
+        return []
+
+    agg: Dict[str, Dict[str, Any]] = {}
+    for m in finished:
+        for tid, recibidos, anotados in (
+            (str(m.home_team_id), m.away_score, m.home_score),
+            (str(m.away_team_id), m.home_score, m.away_score),
+        ):
+            a = agg.setdefault(
+                tid,
+                {"matches_played": 0, "conceded": 0, "scored": 0, "clean_sheets": 0},
+            )
+            a["matches_played"] += 1
+            a["conceded"] += int(recibidos)
+            a["scored"] += int(anotados)
+            if int(recibidos) == 0:
+                a["clean_sheets"] += 1
+
+    names = _name_map(db, {m.home_team_id for m in finished} | {m.away_team_id for m in finished})
+    out = []
+    for tid, a in agg.items():
+        pj = a["matches_played"] or 1
+        out.append(
+            {
+                "team_id": tid,
+                "team_name": names.get(tid, "—"),
+                "matches_played": a["matches_played"],
+                "conceded": a["conceded"],
+                "scored": a["scored"],
+                "conceded_avg": round(a["conceded"] / pj, 2),
+                "clean_sheets": a["clean_sheets"],
+            }
+        )
+    out.sort(key=lambda r: (r["conceded"], r["conceded_avg"], -r["clean_sheets"]))
+    for i, r in enumerate(out, start=1):
+        r["position"] = i
+    return out
 
 
 @router.get("/{tournament_id}/fairplay")
@@ -1607,6 +1900,7 @@ def fairplay(
     stage_id: Optional[UUID] = None,
     mode: str = "from",
     db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
 ):
     """Tabla de juego limpio: ranking por menor penalización (tarjetas/faltas).
     Pesos: amarilla=1, azul=2, roja=3, falta=1. Menos puntos = más limpio.
@@ -1614,6 +1908,7 @@ def fairplay(
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _asegurar_visible(tournament, "sanciones", current)
     stage_ids = _stage_ids_for_stats(db, tournament, stage_id, mode)
     matches = (
         db.query(Match).filter(Match.stage_id.in_(stage_ids)).all() if stage_ids else []
@@ -1683,11 +1978,16 @@ def fairplay(
 
 
 @router.get("/{tournament_id}/metrics")
-def get_metrics(tournament_id: UUID, db: Session = Depends(get_db)):
+def get_metrics(
+    tournament_id: UUID,
+    db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
+):
     """Métricas agregadas para gráficas: goles por fecha y totales del torneo."""
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
     if not tournament:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _asegurar_visible(tournament, "metricas", current)
     stage_ids = [s.id for s in tournament.stages]
     empty = {"goals": 0, "matches": 0, "yellow": 0, "blue": 0, "red": 0}
     if not stage_ids:
@@ -1763,11 +2063,9 @@ def update_tournament_logo(
     tournament_id: UUID,
     payload_in: ImageUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
     tournament.logo_url = payload_in.url
     db.commit()
     db.refresh(tournament)
@@ -1779,11 +2077,9 @@ def update_tournament_banner(
     tournament_id: UUID,
     payload_in: ImageUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
     tournament.banner_url = payload_in.url
     db.commit()
     db.refresh(tournament)
@@ -1804,13 +2100,11 @@ def update_tournament(
     tournament_id: UUID,
     payload_in: TournamentUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
     """Actualiza la configuración del torneo: puntos, criterios de desempate,
     duración/espera de partidos, categoría y branding."""
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
     for key, value in payload_in.model_dump(exclude_unset=True).items():
         setattr(tournament, key, value)
     db.commit()
@@ -1823,11 +2117,9 @@ def update_tournament_status(
     tournament_id: UUID,
     payload_in: StatusUpdate,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
     tournament.status = payload_in.status
     db.commit()
     db.refresh(tournament)
@@ -1839,11 +2131,9 @@ def rename_tournament(
     tournament_id: UUID,
     payload_in: RenameRequest,
     db: Session = Depends(get_db),
-    _=Depends(require_staff),
+    current: User = Depends(require_staff),
 ):
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
     tournament.name = payload_in.name
     db.commit()
     db.refresh(tournament)
@@ -1852,11 +2142,9 @@ def rename_tournament(
 
 @router.delete("/{tournament_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_tournament(
-    tournament_id: UUID, db: Session = Depends(get_db), _=Depends(require_staff)
+    tournament_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_staff)
 ):
-    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
-    if not tournament:
-        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    tournament = _torneo_administrable(db, tournament_id, current)
 
     stage_ids = [
         s.id for s in db.query(Stage).filter(Stage.tournament_id == tournament_id).all()

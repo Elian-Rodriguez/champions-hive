@@ -66,5 +66,36 @@ def require_roles(*roles: str):
     return checker
 
 
-require_admin = require_roles("admin")
-require_staff = require_roles("admin", "referee")
+ROL_SUPERADMIN = "superadmin"
+ROL_ADMIN = "admin"
+ROL_REFEREE = "referee"
+
+# Solo el superadmin gestiona usuarios y ve todos los torneos.
+require_superadmin = require_roles(ROL_SUPERADMIN)
+require_admin = require_roles(ROL_ADMIN, ROL_SUPERADMIN)
+# require_staff = quien puede administrar un torneo. Los árbitros YA NO entran
+# aquí: solo pueden cargar resultados y eventos de los partidos que tienen
+# asignados (ver require_referee_or_admin en match_routes).
+require_staff = require_roles(ROL_ADMIN, ROL_SUPERADMIN)
+# Cualquier usuario autenticado, incluidos árbitros (endpoints de lectura).
+require_authenticated = require_roles(ROL_ADMIN, ROL_SUPERADMIN, ROL_REFEREE)
+
+
+def es_superadmin(user: User) -> bool:
+    return user is not None and user.role == ROL_SUPERADMIN
+
+
+def puede_administrar(user: User, tournament) -> bool:
+    """True si el usuario puede administrar ese torneo.
+
+    El superadmin puede con todos. Un admin solo con los suyos; los torneos
+    sin `owner_id` (creados antes de que existiera la propiedad) quedan
+    accesibles para cualquier admin para no perderlos.
+    """
+    if user is None or tournament is None:
+        return False
+    if es_superadmin(user):
+        return True
+    if user.role != ROL_ADMIN:
+        return False
+    return tournament.owner_id is None or str(tournament.owner_id) == str(user.id)
