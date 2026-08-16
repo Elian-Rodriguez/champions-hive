@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../services/api'
 import { Badge, Button, Card, EmptyState, Icon, Input, Select, Spinner } from './ui'
+import { AsaArrastre, ListaOrdenable, useArrastreEntreZonas } from './dnd'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
@@ -508,6 +509,121 @@ function TeamColors({
   )
 }
 
+// Zona del tablero para los equipos que todavía no tienen grupo.
+const SIN_GRUPO = '__sin__'
+
+// Tablero de grupos: cada tarjeta es una zona donde soltar equipos. Arrastrar
+// un equipo a otra tarjeta lo reasigna de grupo.
+function TableroGrupos({
+  teams,
+  grupos,
+  onMover,
+  onNuevoGrupo,
+}: {
+  teams: any[]
+  grupos: string[]
+  onMover: (teamId: string, grupo: string | null) => void
+  onNuevoGrupo: () => void
+}) {
+  const { idArrastrado, zonaActiva, iniciar, fantasma } = useArrastreEntreZonas(
+    (id, zona) => {
+      const grupo = zona === SIN_GRUPO ? null : zona
+      const equipo = teams.find((t) => t.id === id)
+      if (!equipo || (equipo.group_name || null) === grupo) return
+      onMover(id, grupo)
+    },
+  )
+
+  const zonas = [
+    ...grupos.map((g) => ({
+      id: g,
+      titulo: `Grupo ${g}`,
+      equipos: teams.filter((t) => t.group_name === g),
+    })),
+    {
+      id: SIN_GRUPO,
+      titulo: 'Sin grupo',
+      equipos: teams.filter((t) => !t.group_name),
+    },
+  ]
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1 text-xs text-on-surface-variant">
+          <Icon name="drag_indicator" className="text-base" />
+          Arrastra un equipo a otra tarjeta para cambiarlo de grupo.
+        </p>
+        <Button variant="ghost" onClick={onNuevoGrupo}>
+          <Icon name="add" /> Grupo
+        </Button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {zonas.map((z) => {
+          const activa = zonaActiva === z.id
+          return (
+            <div
+              key={z.id}
+              data-zona={z.id}
+              className={`min-h-[5.5rem] rounded-xl border-2 border-dashed p-2.5 transition ${
+                activa
+                  ? 'border-secondary bg-secondary/10'
+                  : idArrastrado
+                    ? 'border-outline-variant bg-surface-container-high/60'
+                    : 'border-transparent bg-surface-container-high'
+              }`}
+            >
+              <p className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                <span>{z.titulo}</span>
+                <span className="font-normal normal-case">{z.equipos.length}</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {z.equipos.map((t) => (
+                  <span
+                    key={t.id}
+                    onPointerDown={(e) => {
+                      // Con mouse se agarra desde cualquier punto del chip; con
+                      // el dedo solo desde el asa, para no bloquear el scroll.
+                      if (e.pointerType === 'mouse') iniciar(t.id, t.name)(e)
+                    }}
+                    className={`inline-flex select-none items-center gap-1 rounded-full border border-outline-variant bg-surface-container-lowest px-2 py-1 text-xs transition ${
+                      idArrastrado === t.id ? 'opacity-40' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Arrastrar ${t.name} a otro grupo`}
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        iniciar(t.id, t.name)(e)
+                      }}
+                      style={{ touchAction: 'none' }}
+                      className="cursor-grab text-on-surface-variant active:cursor-grabbing"
+                    >
+                      <Icon name="drag_indicator" className="text-sm" />
+                    </button>
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full border border-outline-variant"
+                      style={{ background: t.color || '#64748b' }}
+                    />
+                    {t.name}
+                  </span>
+                ))}
+                {z.equipos.length === 0 && (
+                  <span className="text-xs text-on-surface-variant/70">
+                    {idArrastrado ? 'Suelta aquí' : 'Vacío'}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {fantasma}
+    </div>
+  )
+}
+
 function EquiposTab({ tournament }: { tournament: any }) {
   const [teams, setTeams] = useState<any[]>([])
   const [name, setName] = useState('')
@@ -515,12 +631,42 @@ function EquiposTab({ tournament }: { tournament: any }) {
   const [color, setColor] = useState('#39d353')
   const [numGroups, setNumGroups] = useState(2)
   const [expanded, setExpanded] = useState<string | null>(null)
+  // Grupos creados a mano que todavía no tienen equipos.
+  const [gruposExtra, setGruposExtra] = useState<string[]>([])
+  const [msg, setMsg] = useState<string | null>(null)
   async function load() {
     setTeams(await api.getTeams(tournament.id))
   }
   useEffect(() => {
     load()
   }, [tournament.id])
+
+  const grupos = Array.from(
+    new Set([...teams.map((t) => t.group_name).filter(Boolean), ...gruposExtra]),
+  ).sort() as string[]
+
+  // Reasigna de grupo de forma optimista y revierte si el backend la rechaza.
+  async function moverEquipo(teamId: string, grupo: string | null) {
+    const previos = teams
+    setMsg(null)
+    setTeams((ts) => ts.map((t) => (t.id === teamId ? { ...t, group_name: grupo } : t)))
+    try {
+      await api.updateTeamGroup(tournament.id, teamId, grupo)
+    } catch (e: any) {
+      setTeams(previos)
+      setMsg(e.message)
+    }
+  }
+
+  function nuevoGrupo() {
+    for (let i = 0; i < 26; i++) {
+      const letra = String.fromCharCode(65 + i)
+      if (!grupos.includes(letra)) {
+        setGruposExtra([...gruposExtra, letra])
+        return
+      }
+    }
+  }
   return (
     <div className="space-y-4">
       <form
@@ -572,6 +718,17 @@ function EquiposTab({ tournament }: { tournament: any }) {
         </Button>
       </div>
 
+      {msg && <p className="text-sm text-error">{msg}</p>}
+
+      {teams.length > 0 && (
+        <TableroGrupos
+          teams={teams}
+          grupos={grupos}
+          onMover={moverEquipo}
+          onNuevoGrupo={nuevoGrupo}
+        />
+      )}
+
       {teams.length === 0 ? (
         <EmptyState icon="groups" title="Sin equipos inscritos" />
       ) : (
@@ -591,7 +748,19 @@ function EquiposTab({ tournament }: { tournament: any }) {
                   {t.name}
                 </button>
                 <span className="flex items-center gap-2">
-                  <Badge className="bg-surface-container-highest text-on-surface-variant">{t.group_name || 'Sin grupo'}</Badge>
+                  <Select
+                    value={t.group_name || ''}
+                    onChange={(e) => moverEquipo(t.id, e.target.value || null)}
+                    className="w-28 px-2 py-1 text-xs"
+                    title="Grupo del equipo"
+                  >
+                    <option value="">Sin grupo</option>
+                    {grupos.map((g) => (
+                      <option key={g} value={g}>
+                        Grupo {g}
+                      </option>
+                    ))}
+                  </Select>
                   <TeamColors
                     team={t}
                     onChange={async (cols) => {
@@ -664,16 +833,6 @@ function StageConfig({
     api.qualificationPresets().then(setPresets).catch(() => setPresets(null))
     api.bracketPreview(stage.id).then(setPreview).catch(() => setPreview(null))
   }, [stage.id])
-
-  // Sube/baja un criterio de desempate entre grupos.
-  const moverCriterio = (i: number, d: number) =>
-    setCrossTb((prev) => {
-      const next = [...prev]
-      const j = i + d
-      if (j < 0 || j >= next.length) return prev
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
 
   const toggleTeam = (id: string) =>
     setTeamIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -796,36 +955,30 @@ function StageConfig({
           propios se usa: {(presets?.default_cross_tiebreakers || []).join(' → ')}.
         </p>
         {crossTb.length > 0 && (
-          <ul className="mb-2 space-y-1">
-            {crossTb.map((k, i) => (
-              <li
-                key={k}
-                className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1 text-sm"
-              >
+          <ListaOrdenable
+            items={crossTb}
+            idDe={(k) => k}
+            onReordenar={setCrossTb}
+            className="mb-2 space-y-1"
+            claseItem="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1 text-sm"
+          >
+            {(k, i) => (
+              <>
+                <AsaArrastre />
                 <span className="text-xs text-on-surface-variant">{i + 1}.</span>
                 <span className="flex-1">
                   {(presets?.cross_tiebreaker_options || []).find((o: any) => o.value === k)
                     ?.label || k}
                 </span>
-                <button onClick={() => moverCriterio(i, -1)} disabled={i === 0} className="disabled:opacity-25">
-                  <Icon name="keyboard_arrow_up" className="text-base" />
-                </button>
-                <button
-                  onClick={() => moverCriterio(i, 1)}
-                  disabled={i === crossTb.length - 1}
-                  className="disabled:opacity-25"
-                >
-                  <Icon name="keyboard_arrow_down" className="text-base" />
-                </button>
                 <button
                   onClick={() => setCrossTb(crossTb.filter((x) => x !== k))}
                   className="text-error/80 hover:text-error"
                 >
                   <Icon name="close" className="text-base" />
                 </button>
-              </li>
-            ))}
-          </ul>
+              </>
+            )}
+          </ListaOrdenable>
         )}
         <div className="flex flex-wrap gap-1.5">
           {(presets?.cross_tiebreaker_options || [])
@@ -932,24 +1085,28 @@ function FasesTab({ tournament }: { tournament: any }) {
   const [type, setType] = useState('group')
   const [msg, setMsg] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
+  // Último orden que el backend confirmó, para no reenviarlo si soltaste la
+  // fase donde mismo estaba.
+  const ordenGuardado = useRef<string[]>([])
   async function load() {
-    setStages(await api.getStages(tournament.id))
+    const st = await api.getStages(tournament.id)
+    ordenGuardado.current = st.map((s: any) => s.id)
+    setStages(st)
   }
   useEffect(() => {
     load()
     api.getTeams(tournament.id).then(setTeams).catch(() => setTeams([]))
   }, [tournament.id])
 
-  // Mueve una fase una posición arriba/abajo y persiste el orden completo.
-  async function move(index: number, delta: number) {
-    const next = [...stages]
-    const target = index + delta
-    if (target < 0 || target >= next.length) return
-    ;[next[index], next[target]] = [next[target], next[index]]
-    setStages(next)
+  // Persiste el orden completo tras soltar (o mover con el teclado) una fase.
+  async function guardarOrden(next: any[]) {
+    const ids = next.map((s) => s.id)
+    if (ids.join() === ordenGuardado.current.join()) return
     setMsg(null)
     try {
-      setStages(await api.reorderStages(tournament.id, next.map((s) => s.id)))
+      const st = await api.reorderStages(tournament.id, ids)
+      ordenGuardado.current = st.map((s: any) => s.id)
+      setStages(st)
     } catch (e: any) {
       setMsg(e.message)
       load()
@@ -990,29 +1147,26 @@ function FasesTab({ tournament }: { tournament: any }) {
       {stages.length === 0 ? (
         <EmptyState icon="account_tree" title="Sin fases" />
       ) : (
-        <ul className="space-y-2">
-          {stages.map((s, i) => (
-            <li key={s.id} className="rounded-lg bg-surface-container-high px-3 py-2.5">
+        <>
+        {stages.length > 1 && (
+          <p className="flex items-center gap-1 text-xs text-on-surface-variant">
+            <Icon name="drag_indicator" className="text-base" />
+            Arrastra las fases para cambiar su orden en el torneo.
+          </p>
+        )}
+        <ListaOrdenable
+          items={stages}
+          idDe={(s: any) => s.id}
+          onReordenar={setStages}
+          onSoltar={guardarOrden}
+          className="space-y-2"
+          claseItem="rounded-lg bg-surface-container-high px-3 py-2.5"
+        >
+          {(s: any, i: number) => (
+            <>
               <div className="flex items-center justify-between gap-2">
               <span className="flex min-w-0 items-center gap-1">
-                <span className="mr-1 flex flex-col">
-                  <button
-                    onClick={() => move(i, -1)}
-                    disabled={i === 0}
-                    title="Subir fase"
-                    className="text-on-surface-variant transition hover:text-on-surface disabled:opacity-25"
-                  >
-                    <Icon name="keyboard_arrow_up" className="text-base" />
-                  </button>
-                  <button
-                    onClick={() => move(i, 1)}
-                    disabled={i === stages.length - 1}
-                    title="Bajar fase"
-                    className="text-on-surface-variant transition hover:text-on-surface disabled:opacity-25"
-                  >
-                    <Icon name="keyboard_arrow_down" className="text-base" />
-                  </button>
-                </span>
+                <AsaArrastre className="mr-1" titulo="Arrastra para reordenar la fase (o usa ↑ ↓)" />
                 <span className="truncate">
                   <span className="mr-1 text-xs text-on-surface-variant">{i + 1}.</span>
                   <span className="font-medium">{s.name}</span>{' '}
@@ -1082,9 +1236,10 @@ function FasesTab({ tournament }: { tournament: any }) {
                   }}
                 />
               )}
-            </li>
-          ))}
-        </ul>
+            </>
+          )}
+        </ListaOrdenable>
+        </>
       )}
     </div>
   )
@@ -1450,13 +1605,6 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
 
   const labelOf = (k: string) => options.find((o) => o.key === k)?.label || k
   const available = options.filter((o) => !rules.includes(o.key))
-  function move(i: number, dir: number) {
-    const j = i + dir
-    if (j < 0 || j >= rules.length) return
-    const r = [...rules]
-    ;[r[i], r[j]] = [r[j], r[i]]
-    setRules(r)
-  }
 
   async function save() {
     try {
@@ -1567,26 +1715,28 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
       <div>
         <h3 className="mb-1 font-display font-semibold">Criterios de desempate (en orden)</h3>
         <p className="mb-2 text-xs text-on-surface-variant">
-          Define cómo se clasifican los equipos empatados. El primero tiene mayor prioridad.
+          Define cómo se clasifican los equipos empatados. El primero tiene mayor
+          prioridad: arrastra los criterios para cambiar el orden.
         </p>
-        <ul className="space-y-1.5">
-          {rules.map((r, i) => (
-            <li key={r} className="flex items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2">
+        <ListaOrdenable
+          items={rules}
+          idDe={(r) => r}
+          onReordenar={setRules}
+          className="space-y-1.5"
+          claseItem="flex items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2"
+        >
+          {(r, i) => (
+            <>
+              <AsaArrastre />
               <span className="w-5 text-on-surface-variant">{i + 1}.</span>
               <span className="flex-1">{labelOf(r)}</span>
               <span className="text-xs text-on-surface-variant/60">{r}</span>
-              <button onClick={() => move(i, -1)} className="text-on-surface-variant hover:text-on-surface">
-                <Icon name="arrow_upward" className="text-base" />
-              </button>
-              <button onClick={() => move(i, 1)} className="text-on-surface-variant hover:text-on-surface">
-                <Icon name="arrow_downward" className="text-base" />
-              </button>
               <button onClick={() => setRules(rules.filter((x) => x !== r))} className="text-error/80 hover:text-error">
                 <Icon name="close" className="text-base" />
               </button>
-            </li>
-          ))}
-        </ul>
+            </>
+          )}
+        </ListaOrdenable>
         {available.length > 0 && (
           <Select
             value=""

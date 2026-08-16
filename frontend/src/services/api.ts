@@ -293,7 +293,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  updateTeamGroup: (tid: string, teamId: string, group_name: string) =>
+  // `group_name: null` saca al equipo de todo grupo ("Sin grupo").
+  updateTeamGroup: (tid: string, teamId: string, group_name: string | null) =>
     req(`/tournaments/${tid}/teams/${teamId}/group`, {
       method: 'PUT',
       body: JSON.stringify({ group_name }),
