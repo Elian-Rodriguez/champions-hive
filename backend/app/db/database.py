@@ -1,6 +1,6 @@
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import Enum as SQLEnum, create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.core.config import settings
@@ -36,14 +36,66 @@ def get_db():
         db.close()
 
 
+def enums_del_modelo():
+    """Mapa {nombre_del_tipo: etiquetas} de los enums nativos del modelo.
+
+    SQLAlchemy guarda los NOMBRES de los miembros (FOOTBALL, SWISS…), no sus
+    valores en minúscula; son esas etiquetas las que viven en el tipo ENUM de
+    PostgreSQL.
+    """
+    tipos = {}
+    for table in Base.metadata.sorted_tables:
+        for column in table.columns:
+            t = column.type
+            if isinstance(t, SQLEnum) and t.native_enum and t.name:
+                tipos.setdefault(t.name, list(t.enums))
+    return tipos
+
+
+def _sincronizar_enums_postgres():
+    """Agrega a los tipos ENUM de PostgreSQL los valores nuevos del modelo.
+
+    create_all() nunca altera un tipo ya creado: al sumar una disciplina (como
+    `banquitas` en SportType) las bases existentes rechazan el INSERT con un
+    error de dato inválido. ALTER TYPE ... ADD VALUE exige correr fuera de una
+    transacción (en Postgres < 12; en los demás el valor no sería usable dentro
+    de la misma), por eso la conexión va en AUTOCOMMIT.
+    """
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        for tipo, etiquetas in enums_del_modelo().items():
+            existentes = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT e.enumlabel FROM pg_enum e "
+                        "JOIN pg_type t ON t.oid = e.enumtypid "
+                        "WHERE t.typname = :tipo"
+                    ),
+                    {"tipo": tipo},
+                )
+            }
+            if not existentes:
+                # El tipo aún no existe; create_all() lo crea ya completo.
+                continue
+            for etiqueta in etiquetas:
+                if etiqueta not in existentes:
+                    conn.execute(
+                        text(f"ALTER TYPE {tipo} ADD VALUE IF NOT EXISTS '{etiqueta}'")
+                    )
+
+
 def run_sqlite_migrations():
-    """Agrega columnas faltantes a tablas existentes (SQLite y PostgreSQL).
+    """Agrega columnas y valores de enum faltantes (SQLite y PostgreSQL).
 
     Workaround ligero (no hay historial de Alembic): para cada tabla ya creada,
     compara las columnas del modelo con las de la base y agrega con ALTER TABLE
-    las que falten (siempre nullable, así no rompe filas existentes).
+    las que falten (siempre nullable, así no rompe filas existentes). En
+    PostgreSQL además sincroniza los tipos ENUM nativos con los del modelo.
     """
     is_sqlite = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
+
+    if not is_sqlite:
+        _sincronizar_enums_postgres()
 
     with engine.connect() as conn:
         for table in Base.metadata.sorted_tables:
