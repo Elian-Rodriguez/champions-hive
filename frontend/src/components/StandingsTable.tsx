@@ -1,9 +1,12 @@
 export default function StandingsTable({
   rows,
   onRowClick,
+  logos,
 }: {
   rows: any[]
   onRowClick?: (row: any) => void
+  /** team_id → logo_url; si algún equipo tiene logo, se muestra a la izquierda del nombre. */
+  logos?: Record<string, string | null | undefined>
 }) {
   if (!rows || rows.length === 0) {
     return (
@@ -12,6 +15,7 @@ export default function StandingsTable({
       </p>
     )
   }
+  const conLogos = rows.some((r) => logos?.[r.team_id])
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -42,7 +46,21 @@ export default function StandingsTable({
                 {r.position ?? i + 1}
               </td>
               <td className="px-2 py-2 font-medium">
-                {r.team_name || String(r.team_id).slice(0, 8)}
+                <span className="flex items-center gap-2">
+                  {conLogos &&
+                    (logos?.[r.team_id] ? (
+                      <img
+                        src={logos[r.team_id] as string}
+                        alt=""
+                        className="h-5 w-5 shrink-0 rounded object-cover"
+                      />
+                    ) : (
+                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-surface-container-highest text-[10px] font-bold text-on-surface-variant">
+                        {(r.team_name || '?').trim().charAt(0).toUpperCase()}
+                      </span>
+                    ))}
+                  <span className="truncate">{r.team_name || String(r.team_id).slice(0, 8)}</span>
+                </span>
               </td>
               <td className="px-2 py-2 text-center">{r.matches_played ?? 0}</td>
               <td className="px-2 py-2 text-center">{r.wins ?? 0}</td>

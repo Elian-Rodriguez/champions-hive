@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
-import { exportStandingsPDF } from '../utils/pdf'
+import { exportImagePDF, exportStandingsPDF } from '../utils/pdf'
 import {
   downloadImage,
   makeBracketImage,
@@ -55,6 +55,100 @@ function ShareChip({ onClick, title }: { onClick: () => void; title?: string }) 
   )
 }
 
+const STAGE_TYPE_META: Record<string, { label: string; icon: string }> = {
+  group: { label: 'Fase de grupos', icon: 'workspaces' },
+  knockout: { label: 'Eliminación directa', icon: 'account_tree' },
+  league: { label: 'Liga · todos contra todos', icon: 'format_list_numbered' },
+  swiss: { label: 'Sistema suizo', icon: 'shuffle' },
+}
+
+// Resumen público del formato: cómo está configurada cada fase y cómo se
+// define quién pasa (preset de clasificación, repescados, desempates).
+function FormatoTorneo({
+  tournament,
+  stages,
+  presetCat,
+  tbLabels,
+}: {
+  tournament: any
+  stages: any[]
+  presetCat: any
+  tbLabels: Record<string, string>
+}) {
+  if (!stages.length) return null
+  const label = (k: string) => tbLabels[k] || k
+
+  const clasificacion = (s: any): string | null => {
+    const cfg = s.config || {}
+    if (s.type === 'knockout') return 'Avanza el ganador de cada llave.'
+    if (s.type === 'league') return 'La clasificación la define la tabla general, todos contra todos.'
+    if (s.type === 'swiss')
+      return 'Rondas emparejadas por posición en la tabla, evitando repetir rivales.'
+    // Fase de grupos: preset elegido o reglas puestas a mano.
+    const preset = (presetCat?.presets || []).find((p: any) => p.value === cfg.preset)
+    if (preset && cfg.qualifiers_per_group == null && cfg.best_thirds_count == null)
+      return `Clasifican: ${preset.label.toLowerCase()}.`
+    const per = cfg.qualifiers_per_group ?? preset?.qualifiers_per_group ?? 2
+    const bt = cfg.best_thirds_count ?? preset?.best_thirds_count ?? 'auto'
+    const repesca =
+      bt === 'auto'
+        ? ' + repesca de los mejores siguientes hasta completar el cuadro'
+        : Number(bt) > 0
+          ? ` + ${bt} repescado${Number(bt) > 1 ? 's' : ''} entre los mejores siguientes`
+          : ', sin repescados'
+    return `Clasifican los ${per} mejores de cada grupo${repesca}.`
+  }
+
+  const reglas = tournament?.tiebreaker_rules || []
+  return (
+    <Card className="mt-6 p-4">
+      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+        <Icon name="rule" className="text-secondary" /> Formato del torneo
+      </h3>
+      <ol className="space-y-3">
+        {stages.map((s, i) => {
+          const meta = STAGE_TYPE_META[s.type] || { label: s.type, icon: 'flag' }
+          const cfg = s.config || {}
+          const cruz: string[] = cfg.cross_tiebreakers || []
+          return (
+            <li key={s.id} className="rounded-lg border border-outline-variant/30 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-secondary/15 text-xs font-bold text-secondary">
+                  {i + 1}
+                </span>
+                <span className="font-semibold">{s.name}</span>
+                <Badge className="bg-surface-container-highest text-on-surface-variant">
+                  <Icon name={meta.icon} className="mr-1 text-sm" />
+                  {meta.label}
+                </Badge>
+                <Badge className="bg-surface-container-highest text-on-surface-variant">
+                  {cfg.team_ids?.length ? `${cfg.team_ids.length} equipos` : 'Todos los equipos'}
+                </Badge>
+                {cfg.double_round && (
+                  <Badge className="bg-surface-container-highest text-on-surface-variant">Ida y vuelta</Badge>
+                )}
+              </div>
+              {clasificacion(s) && (
+                <p className="mt-1.5 text-sm text-on-surface-variant">{clasificacion(s)}</p>
+              )}
+              {cruz.length > 0 && (
+                <p className="mt-1 text-xs text-on-surface-variant">
+                  Desempate entre grupos: {cruz.map(label).join(' → ')}
+                </p>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+      {reglas.length > 0 && (
+        <p className="mt-3 text-xs text-on-surface-variant">
+          Criterios de desempate: {reglas.map(label).join(' → ')}
+        </p>
+      )}
+    </Card>
+  )
+}
+
 export default function PublicView({
   onBack,
   initialTournamentId,
@@ -83,6 +177,13 @@ export default function PublicView({
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
   const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
+  // team_id → logo_url del torneo abierto: alimenta las tablas en pantalla y
+  // las imágenes de posiciones y calendario.
+  const [teamLogos, setTeamLogos] = useState<Record<string, string | null>>({})
+  // Catálogos para el resumen de formato: presets de clasificación y
+  // etiquetas de los criterios de desempate.
+  const [presetCat, setPresetCat] = useState<any>(null)
+  const [tbLabels, setTbLabels] = useState<Record<string, string>>({})
   // Filtros del calendario ('todas' = sin filtro); también definen qué entra
   // en la imagen publicitaria de la programación.
   const [calDate, setCalDate] = useState<string>('todas')
@@ -133,6 +234,13 @@ export default function PublicView({
       })
       .catch(() => {})
       .finally(() => setLoading(false))
+    api.qualificationPresets().then(setPresetCat).catch(() => {})
+    api
+      .getTiebreakerOptions()
+      .then((opts: any[]) =>
+        setTbLabels(Object.fromEntries((opts || []).map((o) => [o.key, o.label]))),
+      )
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -166,6 +274,13 @@ export default function PublicView({
     setKoStage(null)
     setCalDate('todas')
     setCalCourt('todas')
+    setTeamLogos({})
+    api
+      .getTeams(t.id)
+      .then((teams: any[]) =>
+        setTeamLogos(Object.fromEntries((teams || []).map((e) => [e.id, e.logo_url || null]))),
+      )
+      .catch(() => {})
     const st = await api.getStages(t.id)
     setStages(st)
     api.tournamentStats(t.id).then(setStats).catch(() => {})
@@ -467,15 +582,33 @@ export default function PublicView({
                         <Card key={group} className="p-4">
                           <div className="mb-2 flex items-center justify-between gap-2">
                             <h3 className="font-display font-semibold">{group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}</h3>
-                            <button
-                              onClick={() => genShare('tabla', () => makeStandingsImage(selected, group, rows, sponsors))}
-                              className="flex shrink-0 items-center gap-1 rounded-lg bg-surface-container-high px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-surface-bright"
-                              title="Generar imagen para redes"
-                            >
-                              <Icon name="ios_share" className="text-sm" /> Compartir
-                            </button>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    downloadImage(
+                                      await makeStandingsImage(selected, group, rows, sponsors, teamLogos),
+                                      `posiciones-${selected.name}${group !== 'Sin Grupo' ? `-grupo-${group}` : ''}.png`,
+                                    )
+                                  } catch {
+                                    /* no se pudo generar la imagen */
+                                  }
+                                }}
+                                className="flex items-center gap-1 rounded-lg bg-surface-container-high px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-surface-bright"
+                                title="Descargar la tabla como imagen PNG"
+                              >
+                                <Icon name="download" className="text-sm" /> PNG
+                              </button>
+                              <button
+                                onClick={() => genShare('tabla', () => makeStandingsImage(selected, group, rows, sponsors, teamLogos))}
+                                className="flex items-center gap-1 rounded-lg bg-surface-container-high px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-surface-bright"
+                                title="Generar imagen para redes"
+                              >
+                                <Icon name="ios_share" className="text-sm" /> Compartir
+                              </button>
+                            </div>
                           </div>
-                          <StandingsTable rows={rows} onRowClick={openProfile} />
+                          <StandingsTable rows={rows} onRowClick={openProfile} logos={teamLogos} />
                         </Card>
                       ))}
                       {(() => {
@@ -545,6 +678,12 @@ export default function PublicView({
                       })()}
                     </div>
                   )}
+                  <FormatoTorneo
+                    tournament={selected}
+                    stages={stages}
+                    presetCat={presetCat}
+                    tbLabels={tbLabels}
+                  />
                 </div>
               )}
 
@@ -557,17 +696,34 @@ export default function PublicView({
                       </Button>
                     ))}
                     {(bracket?.rounds?.length ?? 0) > 0 && (
-                      <Button
-                        variant="outline"
-                        className="ml-auto"
-                        onClick={() =>
-                          genShare('bracket', () =>
-                            makeBracketImage(selected, koStage?.name || null, bracket, sponsors),
-                          )
-                        }
-                      >
-                        <Icon name="ios_share" /> Imagen del bracket
-                      </Button>
+                      <div className="ml-auto flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await exportImagePDF(
+                                await makeBracketImage(selected, koStage?.name || null, bracket, sponsors),
+                                `bracket-${selected.name}.pdf`,
+                                { landscape: true },
+                              )
+                            } catch {
+                              /* no se pudo generar el PDF */
+                            }
+                          }}
+                        >
+                          <Icon name="picture_as_pdf" /> PDF
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            genShare('bracket', () =>
+                              makeBracketImage(selected, koStage?.name || null, bracket, sponsors),
+                            )
+                          }
+                        >
+                          <Icon name="ios_share" /> Imagen del bracket
+                        </Button>
+                      </div>
                     )}
                   </div>
                   {koStages.length === 0 ? (
@@ -626,6 +782,7 @@ export default function PublicView({
                                   courtLabel: calCourt === 'todas' ? null : calCourt,
                                 },
                                 sponsors,
+                                teamLogos,
                               ),
                             )
                           }
@@ -655,11 +812,21 @@ export default function PublicView({
                                 <span className="w-12 text-on-surface-variant">
                                   {m.scheduled_start ? String(m.scheduled_start).slice(11, 16) : '--:--'}
                                 </span>
-                                <span className="flex-1 truncate text-right font-medium">{m.home_team_name || 'Por definir'}</span>
+                                <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5 font-medium">
+                                  {m.home_team_id && teamLogos[m.home_team_id] && (
+                                    <img src={teamLogos[m.home_team_id]!} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
+                                  )}
+                                  <span className="truncate">{m.home_team_name || 'Por definir'}</span>
+                                </span>
                                 <span className="font-display font-bold tabular-nums">
                                   {m.status === 'scheduled' ? 'vs' : `${m.home_score ?? 0} - ${m.away_score ?? 0}`}
                                 </span>
-                                <span className="flex-1 truncate font-medium">{m.away_team_name || 'Por definir'}</span>
+                                <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
+                                  <span className="truncate">{m.away_team_name || 'Por definir'}</span>
+                                  {m.away_team_id && teamLogos[m.away_team_id] && (
+                                    <img src={teamLogos[m.away_team_id]!} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
+                                  )}
+                                </span>
                                 <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
                                 <button
                                   onClick={() => genShare('partido', () => makeMatchImage(selected, m, sponsors))}

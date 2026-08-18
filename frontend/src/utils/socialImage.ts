@@ -238,6 +238,41 @@ function fmtDate(iso?: string): string {
   return hm ? `${d} · ${hm}` : d
 }
 
+// Mapa team_id → logo_url que arman las vistas; las funciones que lo reciben
+// dibujan el logo junto al nombre cuando el equipo tiene uno.
+export type TeamLogos = Record<string, string | null | undefined>
+
+// Logo cuadrado con esquinas redondeadas; si el equipo no tiene, un círculo
+// tenue con la inicial para que la columna quede alineada.
+function drawTeamLogo(
+  ctx: Ctx,
+  img: HTMLImageElement | null,
+  name: string,
+  x: number,
+  yC: number,
+  size: number,
+) {
+  const y = yC - size / 2
+  if (img) {
+    ctx.save()
+    rr(ctx, x, y, size, size, size * 0.28)
+    ctx.clip()
+    ctx.drawImage(img, x, y, size, size)
+    ctx.restore()
+    return
+  }
+  ctx.fillStyle = 'rgba(216,227,251,0.12)'
+  rr(ctx, x, y, size, size, size / 2)
+  ctx.fill()
+  ctx.fillStyle = MUTED
+  ctx.font = `800 ${Math.round(size * 0.52)}px Lexend, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText((name || '?').trim().charAt(0).toUpperCase(), x + size / 2, yC + 1)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+}
+
 function teamRow(ctx: Ctx, name: string, score: string | null, y: number, win: boolean) {
   const cw = ctx.canvas.width
   ctx.fillStyle = win ? GREEN : TEXT
@@ -302,6 +337,7 @@ export async function makeStandingsImage(
   group: string,
   rows: any[],
   sponsors: any[],
+  logos?: TeamLogos,
 ): Promise<Blob> {
   const { canvas, ctx } = await newCanvas()
   await drawBase(ctx, t, 'Tabla de posiciones')
@@ -314,6 +350,11 @@ export async function makeStandingsImage(
   ctx.textAlign = 'left'
 
   const top = (rows || []).slice(0, 10)
+  // El logo va ANTES del nombre (la columna Equipo queda a la izquierda); se
+  // reserva la columna solo si algún equipo de la tabla tiene logo.
+  const logoImgs = await Promise.all(top.map((r: any) => loadImg(logos?.[r.team_id])))
+  const conLogos = logoImgs.some(Boolean)
+  const logoCol = conLogos ? 52 : 0
   const x0 = 64
   const tw = W - 128
   let y = 360
@@ -323,7 +364,7 @@ export async function makeStandingsImage(
   ctx.fillStyle = MUTED
   ctx.font = '700 24px Inter, sans-serif'
   ctx.fillText('#', x0 + 16, y + 36)
-  ctx.fillText('EQUIPO', x0 + 80, y + 36)
+  ctx.fillText('EQUIPO', x0 + 80 + logoCol, y + 36)
   ctx.textAlign = 'right'
   ctx.fillText('PJ', x0 + tw - 230, y + 36)
   ctx.fillText('DG', x0 + tw - 120, y + 36)
@@ -342,10 +383,17 @@ export async function makeStandingsImage(
     ctx.font = '800 30px Lexend, sans-serif'
     ctx.fillText(String(r.position ?? i + 1), x0 + 18, y + rowH / 2 + 10)
 
+    if (conLogos) {
+      drawTeamLogo(ctx, logoImgs[i], r.team_name || '', x0 + 76, y + rowH / 2, Math.min(40, rowH - 14))
+    }
     ctx.fillStyle = TEXT
     ctx.font = '700 30px Lexend, sans-serif'
     ctx.textBaseline = 'middle'
-    ctx.fillText(ellipsize(ctx, r.team_name || '—', tw - 420), x0 + 80, y + rowH / 2)
+    ctx.fillText(
+      ellipsize(ctx, r.team_name || '—', tw - 420 - logoCol),
+      x0 + 80 + logoCol,
+      y + rowH / 2,
+    )
     ctx.textBaseline = 'alphabetic'
 
     ctx.textAlign = 'right'
@@ -375,6 +423,7 @@ export async function makeCalendarImage(
   matches: any[],
   opts: { dateLabel?: string | null; courtLabel?: string | null },
   sponsors: any[],
+  logos?: TeamLogos,
 ): Promise<Blob> {
   const { canvas, ctx } = await newCanvas()
   await drawBase(ctx, t, 'Calendario')
@@ -419,11 +468,22 @@ export async function makeCalendarImage(
   const footer = list.length - shown.length
   const rowH = Math.min(92, areaH / (shown.length + (footer ? 1 : 0)))
 
+  // Logos junto al nombre: el local queda a la izquierda del centro, así que
+  // su logo se antepone al nombre; el visitante queda a la derecha y su logo
+  // va después del nombre.
+  const logoImgs = await Promise.all(
+    shown.map((m) =>
+      Promise.all([loadImg(logos?.[m.home_team_id]), loadImg(logos?.[m.away_team_id])]),
+    ),
+  )
+  const conLogos = logoImgs.some(([h, a]) => h || a)
+  const logoSize = Math.min(34, rowH - 22)
+
   const timeW = multiDate ? 180 : 110
   const courtW = showCourt ? 200 : 0
   const nameArea = tw - timeW - courtW
   const cxm = x0 + timeW + nameArea / 2
-  const nameMax = nameArea / 2 - 70
+  const nameMax = nameArea / 2 - 70 - (conLogos ? logoSize + 10 : 0)
 
   shown.forEach((m, i) => {
     if (i % 2 === 0) {
@@ -451,13 +511,30 @@ export async function makeCalendarImage(
     ctx.font = `800 ${finished || live ? 30 : 24}px Lexend, sans-serif`
     ctx.fillText(finished || live ? `${m.home_score ?? 0} - ${m.away_score ?? 0}` : 'vs', cxm, cy)
 
-    // equipos
+    // equipos (con su logo si lo tienen)
     ctx.fillStyle = TEXT
     ctx.font = '700 28px Lexend, sans-serif'
+    const homeName = ellipsize(ctx, m.home_team_name || 'Por definir', nameMax)
+    const awayName = ellipsize(ctx, m.away_team_name || 'Por definir', nameMax)
     ctx.textAlign = 'right'
-    ctx.fillText(ellipsize(ctx, m.home_team_name || 'Por definir', nameMax), cxm - 58, cy)
+    ctx.fillText(homeName, cxm - 58, cy)
     ctx.textAlign = 'left'
-    ctx.fillText(ellipsize(ctx, m.away_team_name || 'Por definir', nameMax), cxm + 58, cy)
+    ctx.fillText(awayName, cxm + 58, cy)
+    const [homeLogo, awayLogo] = logoImgs[i]
+    if (homeLogo) {
+      ctx.font = '700 28px Lexend, sans-serif'
+      const wName = ctx.measureText(homeName).width
+      drawTeamLogo(ctx, homeLogo, m.home_team_name || '', cxm - 58 - wName - 10 - logoSize, cy, logoSize)
+    }
+    if (awayLogo) {
+      ctx.font = '700 28px Lexend, sans-serif'
+      const wName = ctx.measureText(awayName).width
+      drawTeamLogo(ctx, awayLogo, m.away_team_name || '', cxm + 58 + wName + 10, cy, logoSize)
+    }
+    // drawTeamLogo restablece la baseline; la fila sigue dibujando centrada.
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'left'
+    ctx.fillStyle = TEXT
 
     // cancha (si no se filtró por una sola)
     if (showCourt) {

@@ -41,6 +41,38 @@ export function exportStandingsPDF(
   doc.save(`posiciones-${tournamentName}.pdf`)
 }
 
+// Exporta un PNG ya generado (p. ej. la imagen del bracket) como PDF de una
+// página, centrado y ajustado al tamaño de la hoja.
+export async function exportImagePDF(
+  blob: Blob,
+  filename: string,
+  opts: { landscape?: boolean } = {},
+) {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(String(fr.result))
+    fr.onerror = () => reject(new Error('No se pudo leer la imagen'))
+    fr.readAsDataURL(blob)
+  })
+  const { width, height } = await new Promise<{ width: number; height: number }>(
+    (resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.width, height: img.height })
+      img.onerror = () => reject(new Error('No se pudo leer la imagen'))
+      img.src = dataUrl
+    },
+  )
+  const doc = new jsPDF({ orientation: opts.landscape ? 'landscape' : 'portrait' })
+  const pw = doc.internal.pageSize.getWidth()
+  const ph = doc.internal.pageSize.getHeight()
+  const margin = 8
+  const scale = Math.min((pw - margin * 2) / width, (ph - margin * 2) / height)
+  const w = width * scale
+  const h = height * scale
+  doc.addImage(dataUrl, 'PNG', (pw - w) / 2, (ph - h) / 2, w, h)
+  doc.save(filename)
+}
+
 export function exportMatchReportPDF(
   match: any,
   events: any[],
