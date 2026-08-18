@@ -1,6 +1,8 @@
 // Generador de imágenes para redes (WhatsApp/Instagram): resultado, próximo
-// partido y tabla de posiciones, con logo, banner y patrocinadores del torneo.
-// Dibuja en un canvas 1080×1080 y devuelve un PNG (Blob) para descargar/compartir.
+// partido, tabla de posiciones, calendario (por fecha y/o cancha), bracket y
+// cuadros de estadísticas, con logo, banner y patrocinadores del torneo.
+// Dibuja en un canvas (1080×1080; el bracket en 1920×1080) y devuelve un PNG
+// (Blob) para descargar/compartir.
 
 const W = 1080
 const H = 1080
@@ -47,62 +49,65 @@ function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   )
 }
 
-async function newCanvas(): Promise<{ canvas: HTMLCanvasElement; ctx: Ctx }> {
+async function newCanvas(w = W, h = H): Promise<{ canvas: HTMLCanvasElement; ctx: Ctx }> {
   try {
     await (document as any).fonts?.ready
   } catch {
     /* sin API de fonts: seguimos */
   }
   const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
+  canvas.width = w
+  canvas.height = h
   const ctx = canvas.getContext('2d') as Ctx
   return { canvas, ctx }
 }
 
 // Fondo de marca + cabecera con logo + nombre del torneo. Devuelve la Y donde
-// puede empezar el contenido.
+// puede empezar el contenido. Se adapta al tamaño real del canvas.
 async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
+  const cw = ctx.canvas.width
+  const ch = ctx.canvas.height
+
   // Fondo base
-  const bg = ctx.createLinearGradient(0, 0, W, H)
+  const bg = ctx.createLinearGradient(0, 0, cw, ch)
   bg.addColorStop(0, '#0a1424')
   bg.addColorStop(1, '#0d1f33')
   ctx.fillStyle = bg
-  ctx.fillRect(0, 0, W, H)
+  ctx.fillRect(0, 0, cw, ch)
 
   // Banner difuminado arriba (si hay)
   const banner = await loadImg(t.banner_url)
   if (banner) {
     ctx.save()
-    rr(ctx, 0, 0, W, 360, 0)
+    rr(ctx, 0, 0, cw, 360, 0)
     ctx.clip()
-    const scale = Math.max(W / banner.width, 360 / banner.height)
+    const scale = Math.max(cw / banner.width, 360 / banner.height)
     const bw = banner.width * scale
     const bh = banner.height * scale
     ctx.globalAlpha = 0.35
-    ctx.drawImage(banner, (W - bw) / 2, (360 - bh) / 2, bw, bh)
+    ctx.drawImage(banner, (cw - bw) / 2, (360 - bh) / 2, bw, bh)
     ctx.globalAlpha = 1
     const fade = ctx.createLinearGradient(0, 0, 0, 360)
     fade.addColorStop(0, 'rgba(10,20,36,0.45)')
     fade.addColorStop(1, 'rgba(10,20,36,1)')
     ctx.fillStyle = fade
-    ctx.fillRect(0, 0, W, 360)
+    ctx.fillRect(0, 0, cw, 360)
     ctx.restore()
   }
 
   // Glow verde
-  const glow = ctx.createRadialGradient(W - 120, 80, 0, W - 120, 80, 520)
+  const glow = ctx.createRadialGradient(cw - 120, 80, 0, cw - 120, 80, 520)
   glow.addColorStop(0, 'rgba(74,225,118,0.16)')
   glow.addColorStop(1, 'rgba(74,225,118,0)')
   ctx.fillStyle = glow
-  ctx.fillRect(0, 0, W, H)
+  ctx.fillRect(0, 0, cw, ch)
 
   // Barra de acento superior
-  const top = ctx.createLinearGradient(0, 0, W, 0)
+  const top = ctx.createLinearGradient(0, 0, cw, 0)
   top.addColorStop(0, GREEN)
   top.addColorStop(1, GREEN_DK)
   ctx.fillStyle = top
-  ctx.fillRect(0, 0, W, 10)
+  ctx.fillRect(0, 0, cw, 10)
 
   // Cabecera: logo + nombre
   const logo = await loadImg(t.logo_url)
@@ -135,39 +140,41 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
   ctx.textBaseline = 'alphabetic'
   ctx.fillStyle = GREEN
   ctx.font = '700 26px Inter, sans-serif'
-  ctx.fillText(eyebrow.toUpperCase(), x, cy - 24)
+  ctx.fillText(ellipsize(ctx, eyebrow.toUpperCase(), cw - x - 64), x, cy - 24)
   ctx.fillStyle = TEXT
   ctx.font = '800 48px Lexend, sans-serif'
-  ctx.fillText(ellipsize(ctx, t.name || 'Torneo', W - x - 64), x, cy + 24)
+  ctx.fillText(ellipsize(ctx, t.name || 'Torneo', cw - x - 64), x, cy + 24)
 
   // Marca Champion Hive (arriba derecha)
   ctx.textAlign = 'right'
   ctx.fillStyle = MUTED
   ctx.font = '700 22px Lexend, sans-serif'
-  ctx.fillText('CHAMPION HIVE', W - 64, 56)
+  ctx.fillText('CHAMPION HIVE', cw - 64, 56)
   ctx.textAlign = 'left'
 
   return 260
 }
 
-// Franja de patrocinadores al pie. Devuelve nada; ocupa los últimos ~150px.
+// Franja de patrocinadores al pie. Ocupa los últimos ~150px del canvas.
 async function drawSponsors(ctx: Ctx, sponsors: any[]) {
+  const cw = ctx.canvas.width
+  const ch = ctx.canvas.height
   const list = (sponsors || []).slice(0, 5)
-  const baseY = H - 150
+  const baseY = ch - 150
   // separador
   ctx.fillStyle = 'rgba(216,227,251,0.08)'
-  ctx.fillRect(64, baseY, W - 128, 2)
+  ctx.fillRect(64, baseY, cw - 128, 2)
   ctx.fillStyle = MUTED
   ctx.font = '700 22px Inter, sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillText('PATROCINAN', W / 2, baseY + 44)
+  ctx.fillText('PATROCINAN', cw / 2, baseY + 44)
   ctx.textAlign = 'left'
 
   if (!list.length) {
     ctx.fillStyle = MUTED
     ctx.font = '600 24px Lexend, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Champion Hive', W / 2, baseY + 96)
+    ctx.fillText('Champion Hive', cw / 2, baseY + 96)
     ctx.textAlign = 'left'
     return
   }
@@ -182,7 +189,7 @@ async function drawSponsors(ctx: Ctx, sponsors: any[]) {
     imgs[i] ? cellH * (imgs[i]!.width / imgs[i]!.height) : ctx.measureText(s.name || '').width,
   )
   const total = widths.reduce((a, b) => a + b, 0) + gap * (list.length - 1)
-  let x = (W - total) / 2
+  let x = (cw - total) / 2
   for (let i = 0; i < list.length; i++) {
     if (imgs[i]) {
       const w = widths[i]
@@ -232,6 +239,7 @@ function fmtDate(iso?: string): string {
 }
 
 function teamRow(ctx: Ctx, name: string, score: string | null, y: number, win: boolean) {
+  const cw = ctx.canvas.width
   ctx.fillStyle = win ? GREEN : TEXT
   ctx.font = `${win ? 800 : 700} 64px Lexend, sans-serif`
   ctx.textAlign = 'left'
@@ -240,7 +248,7 @@ function teamRow(ctx: Ctx, name: string, score: string | null, y: number, win: b
     ctx.textAlign = 'right'
     ctx.fillStyle = win ? GREEN : TEXT
     ctx.font = '800 76px Lexend, sans-serif'
-    ctx.fillText(score, W - 90, y + 6)
+    ctx.fillText(score, cw - 90, y + 6)
     ctx.textAlign = 'left'
   }
 }
@@ -352,6 +360,417 @@ export async function makeStandingsImage(
     ctx.textAlign = 'left'
     y += rowH
   })
+
+  await drawSponsors(ctx, sponsors)
+  return canvasBlob(canvas)
+}
+
+// ---- Calendario (por fecha y/o cancha) ----
+
+// Imagen publicitaria de la programación: los partidos ya vienen filtrados por
+// el llamador (por fecha y/o cancha) y los filtros aplicados se muestran como
+// título y chip. Si abarca varias fechas, cada fila incluye su fecha.
+export async function makeCalendarImage(
+  t: any,
+  matches: any[],
+  opts: { dateLabel?: string | null; courtLabel?: string | null },
+  sponsors: any[],
+): Promise<Blob> {
+  const { canvas, ctx } = await newCanvas()
+  await drawBase(ctx, t, 'Calendario')
+
+  ctx.fillStyle = TEXT
+  ctx.font = '800 40px Lexend, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText(ellipsize(ctx, opts.dateLabel || 'Todas las fechas', W - 128), W / 2, 300)
+  if (opts.courtLabel) {
+    ctx.fillStyle = ORANGE
+    ctx.font = '700 26px Inter, sans-serif'
+    ctx.fillText(ellipsize(ctx, `📍 ${opts.courtLabel}`, W - 128), W / 2, 344)
+  }
+  ctx.textAlign = 'left'
+
+  // Los partidos sin programar van al final, no encabezando la imagen.
+  const list = (matches || [])
+    .slice()
+    .sort((a, b) =>
+      String(a.scheduled_start || '9999').localeCompare(String(b.scheduled_start || '9999')),
+    )
+  const multiDate = !opts.dateLabel
+  const showCourt = !opts.courtLabel
+
+  const x0 = 64
+  const tw = W - 128
+  let y = opts.courtLabel ? 376 : 340
+  const areaH = H - 170 - y
+
+  if (!list.length) {
+    ctx.fillStyle = MUTED
+    ctx.font = '600 30px Lexend, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('Sin partidos programados', W / 2, y + 80)
+    ctx.textAlign = 'left'
+    await drawSponsors(ctx, sponsors)
+    return canvasBlob(canvas)
+  }
+
+  const maxRows = Math.max(4, Math.floor(areaH / 60))
+  const shown = list.length > maxRows ? list.slice(0, maxRows - 1) : list
+  const footer = list.length - shown.length
+  const rowH = Math.min(92, areaH / (shown.length + (footer ? 1 : 0)))
+
+  const timeW = multiDate ? 180 : 110
+  const courtW = showCourt ? 200 : 0
+  const nameArea = tw - timeW - courtW
+  const cxm = x0 + timeW + nameArea / 2
+  const nameMax = nameArea / 2 - 70
+
+  shown.forEach((m, i) => {
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(216,227,251,0.05)'
+      rr(ctx, x0, y + 2, tw, rowH - 6, 12)
+      ctx.fill()
+    }
+    const cy = y + rowH / 2
+    ctx.textBaseline = 'middle'
+
+    // hora (y fecha si abarca varias)
+    const s = m.scheduled_start ? String(m.scheduled_start) : ''
+    const hora = s ? s.slice(11, 16) : '--:--'
+    const cuando = multiDate && s ? `${s.slice(8, 10)}/${s.slice(5, 7)} ${hora}` : hora
+    ctx.fillStyle = GREEN
+    ctx.font = '800 26px Lexend, sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText(cuando, x0 + 12, cy)
+
+    // marcador o "vs"
+    const finished = m.status === 'finished'
+    const live = m.status === 'live'
+    ctx.textAlign = 'center'
+    ctx.fillStyle = finished ? GREEN : live ? ORANGE : MUTED
+    ctx.font = `800 ${finished || live ? 30 : 24}px Lexend, sans-serif`
+    ctx.fillText(finished || live ? `${m.home_score ?? 0} - ${m.away_score ?? 0}` : 'vs', cxm, cy)
+
+    // equipos
+    ctx.fillStyle = TEXT
+    ctx.font = '700 28px Lexend, sans-serif'
+    ctx.textAlign = 'right'
+    ctx.fillText(ellipsize(ctx, m.home_team_name || 'Por definir', nameMax), cxm - 58, cy)
+    ctx.textAlign = 'left'
+    ctx.fillText(ellipsize(ctx, m.away_team_name || 'Por definir', nameMax), cxm + 58, cy)
+
+    // cancha (si no se filtró por una sola)
+    if (showCourt) {
+      const cancha = [m.court_name, m.venue_name].filter(Boolean).join(' · ')
+      if (cancha) {
+        ctx.fillStyle = MUTED
+        ctx.font = '600 20px Inter, sans-serif'
+        ctx.textAlign = 'right'
+        ctx.fillText(ellipsize(ctx, cancha, courtW - 16), x0 + tw - 12, cy)
+      }
+    }
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    y += rowH
+  })
+
+  if (footer > 0) {
+    ctx.fillStyle = MUTED
+    ctx.font = '600 24px Inter, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(`+ ${footer} partido${footer > 1 ? 's' : ''} más`, W / 2, y + rowH / 2 + 8)
+    ctx.textAlign = 'left'
+  }
+
+  await drawSponsors(ctx, sponsors)
+  return canvasBlob(canvas)
+}
+
+// ---- Cuadros de estadísticas (tabla genérica) ----
+
+export type TableCol = {
+  header: string
+  cell: (r: any, i: number) => string
+  /** Ancho fijo en px; la (única) columna sin ancho se estira. */
+  width?: number
+  align?: 'left' | 'right'
+  /** Resaltada en verde (la métrica principal del cuadro). */
+  accent?: boolean
+}
+
+// Imagen de un cuadro de estadísticas (goleadores, valla, sanciones, juego
+// limpio…): título + subtítulo (alcance de fases) y una tabla de columnas
+// configurables.
+export async function makeStatsImage(
+  t: any,
+  title: string,
+  subtitle: string | null,
+  cols: TableCol[],
+  rows: any[],
+  sponsors: any[],
+): Promise<Blob> {
+  const { canvas, ctx } = await newCanvas()
+  await drawBase(ctx, t, 'Estadísticas')
+
+  ctx.textAlign = 'center'
+  ctx.fillStyle = TEXT
+  ctx.font = '800 40px Lexend, sans-serif'
+  ctx.fillText(ellipsize(ctx, title, W - 128), W / 2, 300)
+  if (subtitle) {
+    ctx.fillStyle = MUTED
+    ctx.font = '600 24px Inter, sans-serif'
+    ctx.fillText(ellipsize(ctx, subtitle, W - 128), W / 2, 340)
+  }
+  ctx.textAlign = 'left'
+
+  const x0 = 64
+  const tw = W - 128
+  const gap = 18
+  const fixed = cols.reduce((a, c) => a + (c.width || 0), 0)
+  const flexW = Math.max(120, tw - fixed - gap * (cols.length - 1))
+  const xs: number[] = []
+  let acc = x0
+  for (const c of cols) {
+    xs.push(acc)
+    acc += (c.width || flexW) + gap
+  }
+
+  const top = (rows || []).slice(0, 12)
+  let y = subtitle ? 372 : 348
+  const rowH = Math.min(56, (H - 170 - y - 44) / Math.max(top.length, 1))
+
+  // encabezados
+  ctx.fillStyle = MUTED
+  ctx.font = '700 22px Inter, sans-serif'
+  cols.forEach((c, ci) => {
+    const cwCol = c.width || flexW
+    ctx.textAlign = c.align === 'right' ? 'right' : 'left'
+    ctx.fillText(
+      ellipsize(ctx, c.header.toUpperCase(), cwCol),
+      c.align === 'right' ? xs[ci] + cwCol : xs[ci],
+      y + 26,
+    )
+  })
+  ctx.textAlign = 'left'
+  y += 44
+
+  top.forEach((r, i) => {
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(216,227,251,0.05)'
+      rr(ctx, x0 - 12, y, tw + 24, rowH - 5, 10)
+      ctx.fill()
+    }
+    ctx.textBaseline = 'middle'
+    const cy = y + (rowH - 5) / 2
+    cols.forEach((c, ci) => {
+      const cwCol = c.width || flexW
+      if (c.accent) {
+        ctx.fillStyle = GREEN
+        ctx.font = '800 30px Lexend, sans-serif'
+      } else if (!c.width) {
+        // la columna flexible es el nombre principal del cuadro
+        ctx.fillStyle = TEXT
+        ctx.font = '700 28px Lexend, sans-serif'
+      } else {
+        ctx.fillStyle = MUTED
+        ctx.font = '600 26px Inter, sans-serif'
+      }
+      const val = String(c.cell(r, i) ?? '')
+      ctx.textAlign = c.align === 'right' ? 'right' : 'left'
+      ctx.fillText(ellipsize(ctx, val, cwCol), c.align === 'right' ? xs[ci] + cwCol : xs[ci], cy)
+    })
+    ctx.textBaseline = 'alphabetic'
+    ctx.textAlign = 'left'
+    y += rowH
+  })
+
+  if ((rows || []).length > top.length) {
+    ctx.fillStyle = MUTED
+    ctx.font = '600 22px Inter, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(`+ ${rows.length - top.length} más`, W / 2, y + 28)
+    ctx.textAlign = 'left'
+  }
+
+  await drawSponsors(ctx, sponsors)
+  return canvasBlob(canvas)
+}
+
+// ---- Bracket ----
+
+function roundLabel(count: number): string {
+  return count === 1
+    ? 'Final'
+    : count === 2
+      ? 'Semifinales'
+      : count === 4
+        ? 'Cuartos de final'
+        : count === 8
+          ? 'Octavos de final'
+          : count === 16
+            ? 'Dieciseisavos'
+            : `Ronda de ${count * 2}`
+}
+
+function drawKoMatch(ctx: Ctx, m: any, x: number, yC: number, w: number, h: number) {
+  const finished = m.status === 'finished'
+  const live = m.status === 'live'
+  const homeWin = finished && (m.home_score ?? 0) >= (m.away_score ?? 0)
+  const awayWin = finished && (m.away_score ?? 0) > (m.home_score ?? 0)
+  const y = yC - h / 2
+
+  ctx.fillStyle = 'rgba(216,227,251,0.06)'
+  rr(ctx, x, y, w, h, 14)
+  ctx.fill()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = live ? 'rgba(255,182,144,0.8)' : 'rgba(216,227,251,0.14)'
+  rr(ctx, x, y, w, h, 14)
+  ctx.stroke()
+
+  const nameFont = h >= 80 ? 24 : 20
+  const row = (name: string | null, score: number | null, win: boolean, ry: number) => {
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'left'
+    ctx.fillStyle = win ? GREEN : TEXT
+    ctx.font = `${win ? 800 : 600} ${nameFont}px Lexend, sans-serif`
+    ctx.fillText(ellipsize(ctx, name || 'Por definir', w - 74), x + 16, ry)
+    ctx.textAlign = 'right'
+    ctx.fillStyle = win ? GREEN : finished || live ? TEXT : MUTED
+    ctx.font = `800 ${nameFont + 2}px Lexend, sans-serif`
+    ctx.fillText(finished || live ? String(score ?? 0) : '–', x + w - 14, ry)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+  }
+  row(m.home_team_name, m.home_score, homeWin, y + h * 0.3)
+  row(m.away_team_name, m.away_score, awayWin, y + h * 0.72)
+}
+
+// Imagen del bracket completo en formato horizontal (1920×1080): columnas por
+// ronda con conectores, tercer puesto aparte y campeón si la final terminó.
+export async function makeBracketImage(
+  t: any,
+  stageName: string | null,
+  tree: any,
+  sponsors: any[],
+): Promise<Blob> {
+  const CW = 1920
+  const CH = 1080
+  const { canvas, ctx } = await newCanvas(CW, CH)
+  await drawBase(ctx, t, stageName ? `Bracket · ${stageName}` : 'Bracket')
+
+  const rounds: any[] = tree?.rounds || []
+  if (!rounds.length) {
+    ctx.fillStyle = MUTED
+    ctx.font = '600 34px Lexend, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('El bracket aún no ha sido generado', CW / 2, CH / 2)
+    ctx.textAlign = 'left'
+    await drawSponsors(ctx, sponsors)
+    return canvasBlob(canvas)
+  }
+
+  const finalRound = rounds[rounds.length - 1]
+  const finalMatch = (finalRound?.matches || []).find((m: any) => !m.is_third_place)
+  const champion =
+    finalMatch && finalMatch.status === 'finished'
+      ? (finalMatch.home_score ?? 0) >= (finalMatch.away_score ?? 0)
+        ? finalMatch.home_team_name
+        : finalMatch.away_team_name
+      : null
+
+  const x0 = 64
+  const rightPad = champion ? 360 : 64
+  const availW = CW - x0 - rightPad
+  const colW = availW / rounds.length
+  const boxW = Math.min(colW - 24, 330)
+  const y0 = 250
+  const areaH = CH - 180 - y0
+
+  const mains = rounds.map((rnd) => (rnd.matches || []).filter((m: any) => !m.is_third_place))
+  const slot0 = areaH / Math.max(mains[0].length, 1)
+  const boxH = Math.max(54, Math.min(96, slot0 - 14))
+
+  // centros verticales: la primera ronda se reparte pareja; las siguientes se
+  // centran entre sus dos partidos de origen (o heredan si no cuadra el árbol)
+  const centers: number[][] = []
+  mains.forEach((main: any[], ri: number) => {
+    const cs: number[] = []
+    const prev = centers[ri - 1]
+    main.forEach((_m, i) => {
+      if (ri > 0 && prev && prev.length >= (i + 1) * 2) {
+        cs.push((prev[2 * i] + prev[2 * i + 1]) / 2)
+      } else if (ri > 0 && prev && prev.length === main.length) {
+        cs.push(prev[i])
+      } else {
+        const slot = areaH / main.length
+        cs.push(y0 + slot * i + slot / 2)
+      }
+    })
+    centers.push(cs)
+  })
+
+  const colX = (ri: number) => x0 + colW * ri + (colW - boxW) / 2
+
+  // conectores (debajo de las cajas)
+  ctx.strokeStyle = 'rgba(216,227,251,0.18)'
+  ctx.lineWidth = 2
+  for (let ri = 1; ri < mains.length; ri++) {
+    const prev = centers[ri - 1]
+    mains[ri].forEach((_m: any, i: number) => {
+      if (prev.length < (i + 1) * 2) return
+      const xFrom = colX(ri - 1) + boxW
+      const xTo = colX(ri)
+      const xMid = (xFrom + xTo) / 2
+      for (const child of [2 * i, 2 * i + 1]) {
+        ctx.beginPath()
+        ctx.moveTo(xFrom, prev[child])
+        ctx.lineTo(xMid, prev[child])
+        ctx.lineTo(xMid, centers[ri][i])
+        ctx.lineTo(xTo, centers[ri][i])
+        ctx.stroke()
+      }
+    })
+  }
+
+  // rondas
+  mains.forEach((main: any[], ri: number) => {
+    ctx.fillStyle = MUTED
+    ctx.font = '700 22px Inter, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(roundLabel(main.length || 1).toUpperCase(), x0 + colW * ri + colW / 2, y0 - 22)
+    ctx.textAlign = 'left'
+    main.forEach((m, i) => drawKoMatch(ctx, m, colX(ri), centers[ri][i], boxW, boxH))
+  })
+
+  // tercer puesto (abajo, en la columna de la final)
+  const thirdPlace = (finalRound?.matches || []).find((m: any) => m.is_third_place)
+  if (thirdPlace) {
+    const ri = rounds.length - 1
+    const yC = y0 + areaH - boxH / 2
+    if (Math.abs(yC - centers[ri][0]) > boxH + 30) {
+      ctx.fillStyle = MUTED
+      ctx.font = '700 20px Inter, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('TERCER PUESTO', x0 + colW * ri + colW / 2, yC - boxH / 2 - 12)
+      ctx.textAlign = 'left'
+      drawKoMatch(ctx, thirdPlace, colX(ri), yC, boxW, boxH)
+    }
+  }
+
+  // campeón
+  if (champion) {
+    const cx = CW - rightPad / 2 - 20
+    ctx.textAlign = 'center'
+    ctx.font = '110px sans-serif'
+    ctx.fillText('🏆', cx, y0 + areaH / 2 - 40)
+    ctx.fillStyle = GREEN
+    ctx.font = '800 42px Lexend, sans-serif'
+    ctx.fillText(ellipsize(ctx, champion, rightPad - 60), cx, y0 + areaH / 2 + 40)
+    ctx.fillStyle = MUTED
+    ctx.font = '700 24px Inter, sans-serif'
+    ctx.fillText('CAMPEÓN', cx, y0 + areaH / 2 + 84)
+    ctx.textAlign = 'left'
+  }
 
   await drawSponsors(ctx, sponsors)
   return canvasBlob(canvas)

@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { exportStandingsPDF } from '../utils/pdf'
-import { downloadImage, makeMatchImage, makeStandingsImage, shareImage } from '../utils/socialImage'
+import {
+  downloadImage,
+  makeBracketImage,
+  makeCalendarImage,
+  makeMatchImage,
+  makeStandingsImage,
+  makeStatsImage,
+  shareImage,
+} from '../utils/socialImage'
+import type { TableCol } from '../utils/socialImage'
 import QRCode from 'qrcode'
 import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
 import StandingsTable from './StandingsTable'
@@ -33,6 +42,19 @@ function teamForm(allMatches: any[], teamId: string): string[] {
     })
 }
 
+// Botón compacto "generar imagen para redes" de los cuadros de estadísticas.
+function ShareChip({ onClick, title }: { onClick: () => void; title?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex shrink-0 items-center gap-1 rounded-lg bg-surface-container-high px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-surface-bright"
+      title={title || 'Generar imagen para redes'}
+    >
+      <Icon name="ios_share" className="text-sm" /> Imagen
+    </button>
+  )
+}
+
 export default function PublicView({
   onBack,
   initialTournamentId,
@@ -61,6 +83,10 @@ export default function PublicView({
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
   const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
+  // Filtros del calendario ('todas' = sin filtro); también definen qué entra
+  // en la imagen publicitaria de la programación.
+  const [calDate, setCalDate] = useState<string>('todas')
+  const [calCourt, setCalCourt] = useState<string>('todas')
   const [qr, setQr] = useState<{ data: string; link: string } | null>(null)
 
   async function genShare(label: string, make: () => Promise<Blob>) {
@@ -138,6 +164,8 @@ export default function PublicView({
     setAllMatches([])
     setPosStage(null)
     setKoStage(null)
+    setCalDate('todas')
+    setCalCourt('todas')
     const st = await api.getStages(t.id)
     setStages(st)
     api.tournamentStats(t.id).then(setStats).catch(() => {})
@@ -217,12 +245,87 @@ export default function PublicView({
   const scoreLabel = sportOf(sport).scoreLabel
   const discCols = sportOf(sport).discColumns
 
+  // Calendario: filtros por fecha y/o cancha (alimentan la vista y la imagen).
+  const matchDay = (m: any) =>
+    m.scheduled_start ? String(m.scheduled_start).slice(0, 10) : 'Sin programar'
+  const courtLabelOf = (m: any) => [m.court_name, m.venue_name].filter(Boolean).join(' · ')
+  const fmtDia = (d: string) =>
+    d === 'Sin programar' ? d : `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
+  const allDates = Array.from(new Set(allMatches.map(matchDay))).sort()
+  const courts = Array.from(new Set(allMatches.map(courtLabelOf).filter(Boolean))).sort()
+  const calMatches = allMatches.filter(
+    (m) =>
+      (calDate === 'todas' || matchDay(m) === calDate) &&
+      (calCourt === 'todas' || courtLabelOf(m) === calCourt),
+  )
   const byDate: Record<string, any[]> = {}
-  allMatches.forEach((m) => {
-    const d = m.scheduled_start ? String(m.scheduled_start).slice(0, 10) : 'Sin programar'
+  calMatches.forEach((m) => {
+    const d = matchDay(m)
     ;(byDate[d] = byDate[d] || []).push(m)
   })
   const dates = Object.keys(byDate).sort()
+
+  // Alcance de fases elegido en "Cuentan desde": subtítulo de las imágenes de
+  // estadísticas para que se lea qué se está contando.
+  const scopeStage = stages.find((s) => s.id === statScope.stageId)
+  const scopeLabel = !scopeStage
+    ? 'Todo el torneo'
+    : statScope.mode === 'only'
+      ? `Solo ${scopeStage.name}`
+      : `Desde ${scopeStage.name}`
+
+  // Columnas de las imágenes de los cuadros de estadísticas.
+  const discImgCols = (w: number): TableCol[] =>
+    discCols.map((dc) => ({
+      header: dc.label,
+      width: w,
+      align: 'right' as const,
+      cell: (r: any) => String(r[dc.key] ?? 0),
+    }))
+  const golCols: TableCol[] = [
+    { header: '#', width: 56, cell: (_r, i) => String(i + 1) },
+    { header: 'Jugador', cell: (r) => r.player_name || '—' },
+    { header: 'Equipo', width: 280, cell: (r) => r.team_name || '—' },
+    { header: scoreLabel, width: 130, align: 'right', accent: true, cell: (r) => String(r.goals ?? 0) },
+  ]
+  const vallaCols: TableCol[] = [
+    { header: '#', width: 56, cell: (r, i) => String(r.position ?? i + 1) },
+    { header: 'Equipo', cell: (r) => r.team_name || '—' },
+    { header: 'PJ', width: 80, align: 'right', cell: (r) => String(r.matches_played ?? 0) },
+    { header: 'GC', width: 80, align: 'right', accent: true, cell: (r) => String(r.conceded ?? 0) },
+    { header: 'Prom', width: 110, align: 'right', cell: (r) => String(r.conceded_avg ?? 0) },
+    { header: 'Invicta', width: 120, align: 'right', cell: (r) => String(r.clean_sheets ?? 0) },
+  ]
+  const sancCols: TableCol[] = [
+    { header: '#', width: 56, cell: (_r, i) => String(i + 1) },
+    { header: 'Jugador', cell: (r) => r.player_name || '—' },
+    { header: 'Equipo', width: 250, cell: (r) => r.team_name || '—' },
+    ...discImgCols(90),
+  ]
+  const fairCols: TableCol[] = [
+    { header: '#', width: 56, cell: (r, i) => String(r.position ?? i + 1) },
+    { header: 'Equipo', cell: (r) => r.team_name || '—' },
+    { header: 'PJ', width: 80, align: 'right', cell: (r) => String(r.matches_played ?? 0) },
+    ...discImgCols(84),
+    { header: 'Pts', width: 90, align: 'right', accent: true, cell: (r) => String(r.penalty ?? 0) },
+  ]
+  const teamCols: TableCol[] = [
+    { header: '#', width: 56, cell: (r, i) => String(r.position ?? i + 1) },
+    { header: 'Equipo', cell: (r) => r.team_name || '—' },
+    { header: 'PJ', width: 80, align: 'right', cell: (r) => String(r.matches_played ?? 0) },
+    { header: 'GF', width: 84, align: 'right', cell: (r) => String(r.points_scored ?? 0) },
+    { header: 'GC', width: 84, align: 'right', cell: (r) => String(r.points_conceded ?? 0) },
+    {
+      header: 'DG',
+      width: 84,
+      align: 'right',
+      cell: (r) => {
+        const d = r.diff ?? 0
+        return (d > 0 ? '+' : '') + d
+      },
+    },
+    { header: 'Pts', width: 90, align: 'right', accent: true, cell: (r) => String(r.league_points ?? 0) },
+  ]
 
   const TABS: { key: PubTab; label: string; icon: string }[] = [
     { key: 'posiciones', label: 'Posiciones / Grupos', icon: 'leaderboard' },
@@ -453,6 +556,19 @@ export default function PublicView({
                         {s.name}
                       </Button>
                     ))}
+                    {(bracket?.rounds?.length ?? 0) > 0 && (
+                      <Button
+                        variant="outline"
+                        className="ml-auto"
+                        onClick={() =>
+                          genShare('bracket', () =>
+                            makeBracketImage(selected, koStage?.name || null, bracket, sponsors),
+                          )
+                        }
+                      >
+                        <Icon name="ios_share" /> Imagen del bracket
+                      </Button>
+                    )}
                   </div>
                   {koStages.length === 0 ? (
                     <EmptyState icon="account_tree" title="Sin fases de eliminación" />
@@ -469,6 +585,62 @@ export default function PublicView({
                   <EmptyState icon="event_busy" title="Sin partidos" />
                 ) : (
                   <div className="space-y-5">
+                    <Card className="p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="flex items-center gap-1.5 text-sm font-semibold">
+                          <Icon name="filter_alt" className="text-base text-secondary" /> Filtrar
+                        </span>
+                        <select
+                          value={calDate}
+                          onChange={(e) => setCalDate(e.target.value)}
+                          className="rounded-lg border border-outline-variant/50 bg-surface-container-high px-2.5 py-1.5 text-sm"
+                        >
+                          <option value="todas">Todas las fechas</option>
+                          {allDates.map((d) => (
+                            <option key={d} value={d}>{fmtDia(d)}</option>
+                          ))}
+                        </select>
+                        {courts.length > 0 && (
+                          <select
+                            value={calCourt}
+                            onChange={(e) => setCalCourt(e.target.value)}
+                            className="max-w-[240px] rounded-lg border border-outline-variant/50 bg-surface-container-high px-2.5 py-1.5 text-sm"
+                          >
+                            <option value="todas">Todas las canchas</option>
+                            {courts.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        )}
+                        <Button
+                          variant="outline"
+                          className="ml-auto"
+                          disabled={calMatches.length === 0}
+                          onClick={() =>
+                            genShare('calendario', () =>
+                              makeCalendarImage(
+                                selected,
+                                calMatches,
+                                {
+                                  dateLabel: calDate === 'todas' ? null : fmtDia(calDate),
+                                  courtLabel: calCourt === 'todas' ? null : calCourt,
+                                },
+                                sponsors,
+                              ),
+                            )
+                          }
+                        >
+                          <Icon name="ios_share" /> Imagen del calendario
+                        </Button>
+                      </div>
+                      <p className="mt-1.5 text-xs text-on-surface-variant">
+                        La imagen para redes incluye solo los partidos del filtro elegido (fecha y/o cancha), con los
+                        logos de los patrocinadores.
+                      </p>
+                    </Card>
+                    {calMatches.length === 0 && (
+                      <EmptyState icon="event_busy" title="Sin partidos con ese filtro" />
+                    )}
                     {dates.map((d) => (
                       <div key={d}>
                         <h3 className="mb-2 font-display font-semibold text-secondary">
@@ -662,9 +834,18 @@ export default function PublicView({
                   <div className="grid gap-6 lg:grid-cols-2">
                   {valla.length > 0 && (
                     <Card className="p-4">
-                      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                        <Icon name="shield" className="text-secondary" /> Valla menos vencida
-                      </h3>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 className="flex items-center gap-2 font-display font-semibold">
+                          <Icon name="shield" className="text-secondary" /> Valla menos vencida
+                        </h3>
+                        <ShareChip
+                          onClick={() =>
+                            genShare('valla', () =>
+                              makeStatsImage(selected, 'Valla menos vencida', scopeLabel, vallaCols, valla, sponsors),
+                            )
+                          }
+                        />
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
@@ -714,9 +895,20 @@ export default function PublicView({
                     </Card>
                   )}
                   <Card className="p-4">
-                    <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                      <Icon name="sports_soccer" className="text-secondary" /> Goleadores
-                    </h3>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h3 className="flex items-center gap-2 font-display font-semibold">
+                        <Icon name="sports_soccer" className="text-secondary" /> Goleadores
+                      </h3>
+                      {playerStats.length > 0 && (
+                        <ShareChip
+                          onClick={() =>
+                            genShare('goleadores', () =>
+                              makeStatsImage(selected, 'Goleadores', scopeLabel, golCols, playerStats, sponsors),
+                            )
+                          }
+                        />
+                      )}
+                    </div>
                     {playerStats.length === 0 ? (
                       <p className="text-sm text-on-surface-variant">Sin datos de jugadores.</p>
                     ) : (
@@ -751,9 +943,20 @@ export default function PublicView({
                     )}
                   </Card>
                   <Card className="p-4">
-                    <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                      <Icon name="groups" className="text-secondary" /> Estadísticas por equipo
-                    </h3>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h3 className="flex items-center gap-2 font-display font-semibold">
+                        <Icon name="groups" className="text-secondary" /> Estadísticas por equipo
+                      </h3>
+                      {teamStats.length > 0 && (
+                        <ShareChip
+                          onClick={() =>
+                            genShare('equipos', () =>
+                              makeStatsImage(selected, 'Estadísticas por equipo', scopeLabel, teamCols, teamStats, sponsors),
+                            )
+                          }
+                        />
+                      )}
+                    </div>
                     <StandingsTable rows={teamStats} onRowClick={openProfile} />
                   </Card>
                   </div>
@@ -835,9 +1038,18 @@ export default function PublicView({
                     if (!sanc.length) return null
                     return (
                       <Card className="p-4">
-                        <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                          <Icon name="gavel" className="text-tertiary" /> Sancionados · jugadores
-                        </h3>
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <h3 className="flex items-center gap-2 font-display font-semibold">
+                            <Icon name="gavel" className="text-tertiary" /> Sancionados · jugadores
+                          </h3>
+                          <ShareChip
+                            onClick={() =>
+                              genShare('sancionados', () =>
+                                makeStatsImage(selected, 'Sancionados', scopeLabel, sancCols, sanc, sponsors),
+                              )
+                            }
+                          />
+                        </div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead>
@@ -872,9 +1084,18 @@ export default function PublicView({
                   })()}
                   {fairPlay.length > 0 && (
                     <Card className="p-4">
-                      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-                        <Icon name="handshake" className="text-secondary" /> Tabla de juego limpio
-                      </h3>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 className="flex items-center gap-2 font-display font-semibold">
+                          <Icon name="handshake" className="text-secondary" /> Tabla de juego limpio
+                        </h3>
+                        <ShareChip
+                          onClick={() =>
+                            genShare('juego-limpio', () =>
+                              makeStatsImage(selected, 'Tabla de juego limpio', scopeLabel, fairCols, fairPlay, sponsors),
+                            )
+                          }
+                        />
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
