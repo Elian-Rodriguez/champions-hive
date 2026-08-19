@@ -7,7 +7,7 @@ import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
 import DashboardView from './DashboardView'
-import { exportStandingsPDF } from '../utils/pdf'
+import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { SPORT_LIST } from '../sports'
 import { useAppSelector } from '../hooks'
 
@@ -2063,6 +2063,9 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   const [msg, setMsg] = useState<string | null>(null)
   // Cruces del calendario; se revisa al entrar y despues de cada cambio.
   const [validacion, setValidacion] = useState<any>(null)
+  // Equipos del torneo (escudo y colores para el acta) y acta en curso.
+  const [equipos, setEquipos] = useState<Record<string, any>>({})
+  const [acta, setActa] = useState<string | null>(null)
 
   async function revisar() {
     setValidacion(await api.scheduleConflicts(tournament.id).catch(() => null))
@@ -2078,6 +2081,10 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       .listReferees()
       .then(setRefs)
       .catch(() => setRefs([]))
+    api
+      .getTeams(tournament.id)
+      .then((ts: any[]) => setEquipos(Object.fromEntries(ts.map((x) => [String(x.id), x]))))
+      .catch(() => setEquipos({}))
   }, [tournament.id])
 
   async function pick(s: any) {
@@ -2139,6 +2146,32 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       else revisar()
     } catch (e: any) {
       setMsg(e.message)
+    }
+  }
+  async function descargarActa(m: any) {
+    setActa(m.id)
+    setMsg(null)
+    try {
+      const [eventos, local, visita] = await Promise.all([
+        api.matchEvents(m.id),
+        m.home_team_id ? api.getPlayers(m.home_team_id) : Promise.resolve([]),
+        m.away_team_id ? api.getPlayers(m.away_team_id) : Promise.resolve([]),
+      ])
+      const nombre = (id: string | null) =>
+        [...local, ...visita].find((p: any) => p.id === id)?.name || ''
+      await exportMatchReportPDF(m, eventos, nombre, {
+        tournament,
+        tournamentName: tournament.name,
+        homePlayers: local,
+        awayPlayers: visita,
+        homeTeam: equipos[String(m.home_team_id)],
+        awayTeam: equipos[String(m.away_team_id)],
+        refereeName: m.referee_name,
+      })
+    } catch (e: any) {
+      setMsg(e?.message || 'No se pudo generar el acta')
+    } finally {
+      setActa(null)
     }
   }
   async function patch(m: any, field: string, value: any) {
@@ -2308,6 +2341,17 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                   </option>
                 ))}
               </select>
+              <button
+                onClick={() => descargarActa(m)}
+                disabled={acta === m.id}
+                title="Descargar el acta del partido en PDF"
+                className="rounded-lg border border-outline-variant px-2 py-1.5 text-on-surface-variant transition hover:border-secondary/60 hover:text-secondary disabled:opacity-50"
+              >
+                <Icon
+                  name={acta === m.id ? 'hourglass_top' : 'picture_as_pdf'}
+                  className="align-middle text-base"
+                />
+              </button>
             </li>
           ))}
         </ul>
