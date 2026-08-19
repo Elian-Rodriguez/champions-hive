@@ -14,6 +14,21 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     role: str = "admin"
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    # Cupo de campeonatos del organizador. None = sin límite. Solo lo fija el
+    # superadministrador; es la palanca comercial de los planes.
+    max_tournaments: Optional[int] = None
+
+
+class UserUpdate(BaseModel):
+    """Edición de una cuenta desde el panel; solo se aplican los campos enviados."""
+
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    max_tournaments: Optional[int] = None
 
 
 class UserResponse(BaseModel):
@@ -21,6 +36,16 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str
     is_active: bool
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    max_tournaments: Optional[int] = None
+    created_by_id: Optional[UUID] = None
+    must_change_password: Optional[bool] = False
+    created_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    # Campos calculados que rellena el panel (no son columnas del modelo).
+    tournaments_count: Optional[int] = None
+    teams_count: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -31,11 +56,83 @@ class Token(BaseModel):
     token_type: str = "bearer"
     role: str
     user_id: Optional[str] = None
+    # El frontend obliga a cambiar la clave cuando soporte la reseteó.
+    must_change_password: bool = False
 
 
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
+
+
+class PasswordReset(BaseModel):
+    """Reseteo hecho por soporte: sin la contraseña actual del usuario.
+
+    Si no se envía `new_password` el backend genera una temporal y la devuelve
+    una sola vez para que quien da soporte se la entregue al usuario.
+    """
+
+    new_password: Optional[str] = None
+
+
+# --------------------------------------------------------------------------- #
+#  Capitanes / responsables de equipo
+# --------------------------------------------------------------------------- #
+class TeamManagerCreate(BaseModel):
+    """Alta o vinculación del capitán de un equipo.
+
+    Si el email no existe se crea la cuenta con rol `captain` (con `password` o
+    con una temporal generada); si ya existe, se vincula al equipo.
+    """
+
+    email: EmailStr
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+    role: str = "captain"  # captain | delegate
+
+
+class TeamManagerResponse(BaseModel):
+    id: UUID
+    team_id: UUID
+    user_id: UUID
+    email: EmailStr
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    role: str
+    is_active: bool = True
+    # Solo viene rellena en el alta que generó una contraseña temporal.
+    temp_password: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --------------------------------------------------------------------------- #
+#  Notificaciones
+# --------------------------------------------------------------------------- #
+class NotificationResponse(BaseModel):
+    id: UUID
+    type: str
+    title: str
+    body: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+    team_id: Optional[UUID] = None
+    tournament_id: Optional[UUID] = None
+    match_id: Optional[UUID] = None
+    read_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationBroadcast(BaseModel):
+    """Aviso manual del organizador a los capitanes de un torneo."""
+
+    title: str
+    body: Optional[str] = None
+    team_ids: Optional[List[UUID]] = None  # vacío o ausente = todos los equipos
 
 
 # --------------------------------------------------------------------------- #

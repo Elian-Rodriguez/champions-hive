@@ -31,6 +31,11 @@ from app.schemas import (
     MatchStatusUpdate,
     StandingsRequest,
 )
+from app.services.notifications import (
+    notificar_cambio_de_partido,
+    notificar_estado_de_partido,
+    snapshot_partido,
+)
 from app.services.strategy import calculate_standings
 
 router = APIRouter()
@@ -145,8 +150,13 @@ def update_match_schedule(
     cambios = payload_in.model_dump(exclude_unset=True)
     if "referee_id" in cambios:
         _asegurar_arbitro_valido(db, cambios["referee_id"])
+    # Foto previa: mover la hora o la cancha de un partido ya programado es lo
+    # que dispara el aviso a los capitanes de los dos equipos.
+    antes = snapshot_partido(match)
     for key, value in cambios.items():
         setattr(match, key, value)
+    db.flush()
+    notificar_cambio_de_partido(db, match, antes)
     db.commit()
     db.refresh(match)
     return match
@@ -163,6 +173,7 @@ def update_match_status(
     if not match:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     _asegurar_puede_dirigir(db, current, match)
+    antes = snapshot_partido(match)
     match.status = payload_in.status
     if payload_in.home_score is not None:
         match.home_score = payload_in.home_score
@@ -198,6 +209,8 @@ def update_match_status(
                     target.away_team_id = team
                 slot.resolved = True
 
+    db.flush()
+    notificar_estado_de_partido(db, match, antes)
     db.commit()
     db.refresh(match)
     return match

@@ -8,16 +8,40 @@ from .conftest import API
 
 
 # --------------------------------------------------------------------------- #
-#  Gestión de usuarios: solo el superadmin
+#  Gestión de usuarios: el superadmin manda; el organizador solo lo suyo
 # --------------------------------------------------------------------------- #
-def test_admin_no_gestiona_usuarios(client, admin):
-    assert client.get(f"{API}/auth/users", headers=admin).status_code == 403
-    r = client.post(
+def test_admin_no_crea_organizadores(client, admin):
+    """Un organizador no da de alta a otro organizador ni a un superadmin.
+
+    Si pudiera, se repartiría cupo y vería la configuración de un colega; el
+    alta de organizadores es del superadministrador, que es quien vende.
+    """
+    for rol in ("admin", "superadmin"):
+        r = client.post(
+            f"{API}/auth/register",
+            json={"email": f"nuevo-{rol}@example.com", "password": "secret1", "role": rol},
+            headers=admin,
+        )
+        assert r.status_code == 403, rol
+
+
+def test_admin_solo_ve_las_cuentas_que_el_creo(client, crear_usuario):
+    """El listado de usuarios de un organizador no muestra los de otro."""
+    admin_a, id_a = crear_usuario("admin")
+    admin_b, id_b = crear_usuario("admin")
+    capitan = client.post(
         f"{API}/auth/register",
-        json={"email": "nuevo@example.com", "password": "secret1", "role": "admin"},
-        headers=admin,
+        json={"email": "cap-aislado@example.com", "password": "secret1", "role": "captain"},
+        headers=admin_a,
     )
-    assert r.status_code == 403
+    assert capitan.status_code == 201, capitan.text
+
+    emails_a = {u["email"] for u in client.get(f"{API}/auth/users", headers=admin_a).json()}
+    emails_b = {u["email"] for u in client.get(f"{API}/auth/users", headers=admin_b).json()}
+    assert "cap-aislado@example.com" in emails_a
+    assert "cap-aislado@example.com" not in emails_b
+    ids_b = {u["id"] for u in client.get(f"{API}/auth/users", headers=admin_b).json()}
+    assert id_a not in ids_b and id_b in ids_b
 
 
 def test_superadmin_gestiona_usuarios(client, superadmin):

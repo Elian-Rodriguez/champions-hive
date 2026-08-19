@@ -4,7 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import puede_administrar_sede, require_staff
+from app.core.deps import (
+    ROL_ADMIN,
+    get_current_user_optional,
+    puede_administrar_sede,
+    require_staff,
+)
 from app.db.database import get_db
 from app.db.models import Court, User, Venue
 from app.schemas import CourtCreate, CourtResponse, VenueBase, VenueCreate, VenueResponse
@@ -39,9 +44,28 @@ def create_venue(
     return obj
 
 
+def sedes_visibles(db: Session, user) -> List[Venue]:
+    """Sedes que el usuario ve en su panel.
+
+    El filtro es solo para el organizador: ve las suyas y las heredadas
+    (`owner_id` NULL), porque la sede es configuración propia y su panel no
+    debe mostrarle las de un colega. Para todos los demás —marcador público,
+    árbitro, capitán y superadministrador— siguen siendo abiertas, como antes.
+    """
+    todas = db.query(Venue).all()
+    if user is None or user.role != ROL_ADMIN:
+        return todas
+    return [v for v in todas if puede_administrar_sede(user, v)]
+
+
 @router.get("", response_model=List[VenueResponse])
-def get_venues(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(Venue).offset(skip).limit(limit).all()
+def get_venues(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
+):
+    return sedes_visibles(db, current)[skip : skip + limit]
 
 
 @router.get("/{venue_id}", response_model=VenueResponse)

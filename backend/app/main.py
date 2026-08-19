@@ -6,7 +6,9 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api import (
     auth_routes,
+    captain_routes,
     match_routes,
+    notification_routes,
     team_routes,
     tournament_routes,
     venue_routes,
@@ -82,6 +84,10 @@ app.include_router(
 )
 app.include_router(venue_routes.router, prefix="/api/v1/venues", tags=["Venues"])
 app.include_router(match_routes.router, prefix="/api/v1/matches", tags=["Matches"])
+app.include_router(
+    notification_routes.router, prefix="/api/v1/notifications", tags=["Notifications"]
+)
+app.include_router(captain_routes.router, prefix="/api/v1/captain", tags=["Captain"])
 
 
 @app.get("/")

@@ -69,20 +69,56 @@ def require_roles(*roles: str):
 ROL_SUPERADMIN = "superadmin"
 ROL_ADMIN = "admin"
 ROL_REFEREE = "referee"
+ROL_CAPTAIN = "captain"
 
-# Solo el superadmin gestiona usuarios y ve todos los torneos.
+ROLES_VALIDOS = (ROL_SUPERADMIN, ROL_ADMIN, ROL_REFEREE, ROL_CAPTAIN)
+
+# Etiquetas para el panel (el rol viaja en inglés, se muestra en español).
+ROL_LABELS = {
+    ROL_SUPERADMIN: "Superadministrador",
+    ROL_ADMIN: "Organizador",
+    ROL_REFEREE: "Árbitro",
+    ROL_CAPTAIN: "Capitán",
+}
+
+# Solo el superadmin gestiona la plataforma entera y ve todos los torneos.
 require_superadmin = require_roles(ROL_SUPERADMIN)
 require_admin = require_roles(ROL_ADMIN, ROL_SUPERADMIN)
-# require_staff = quien puede administrar un torneo. Los árbitros YA NO entran
-# aquí: solo pueden cargar resultados y eventos de los partidos que tienen
-# asignados (ver require_referee_or_admin en match_routes).
+# require_staff = quien puede administrar un torneo. Los árbitros y los
+# capitanes NO entran aquí: el árbitro solo carga los partidos que tiene
+# asignados (ver require_referee_or_admin en match_routes) y el capitán solo
+# consulta lo de su equipo.
 require_staff = require_roles(ROL_ADMIN, ROL_SUPERADMIN)
-# Cualquier usuario autenticado, incluidos árbitros (endpoints de lectura).
-require_authenticated = require_roles(ROL_ADMIN, ROL_SUPERADMIN, ROL_REFEREE)
+require_captain = require_roles(ROL_CAPTAIN, ROL_ADMIN, ROL_SUPERADMIN)
+# Cualquier usuario autenticado (endpoints de lectura y notificaciones).
+require_authenticated = require_roles(*ROLES_VALIDOS)
 
 
 def es_superadmin(user: User) -> bool:
     return user is not None and user.role == ROL_SUPERADMIN
+
+
+def puede_gestionar_usuario(actor: User, objetivo: User) -> bool:
+    """Quién puede tocar la cuenta de quién.
+
+    El superadmin gestiona a todos: es el soporte de la plataforma. Un
+    organizador solo gestiona las cuentas que él mismo dio de alta (los
+    capitanes de sus equipos y sus árbitros), nunca las de otro organizador ni
+    las heredadas (`created_by_id` NULL), que son de la plataforma.
+    """
+    if actor is None or objetivo is None:
+        return False
+    if es_superadmin(actor):
+        return True
+    if actor.role != ROL_ADMIN:
+        return False
+    if str(objetivo.id) == str(actor.id):
+        return True
+    return (
+        objetivo.created_by_id is not None
+        and str(objetivo.created_by_id) == str(actor.id)
+        and objetivo.role in (ROL_CAPTAIN, ROL_REFEREE)
+    )
 
 
 def _es_duenio(user: User, recurso) -> bool:

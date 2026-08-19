@@ -293,9 +293,25 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
-    # superadmin: ve y administra todo, único que gestiona usuarios.
-    # admin: dueño de sus propios torneos. referee: solo dirige partidos.
+    # superadmin: ve y administra toda la plataforma, único que gestiona
+    # organizadores. admin: organizador, dueño de sus propios torneos.
+    # referee: solo dirige los partidos que le asignan.
+    # captain: capitán o delegado de un equipo, solo ve lo suyo.
     role = Column(String, default="admin")
+    name = Column(String)  # nombre visible (el email sigue siendo el usuario)
+    phone = Column(String)
+    # Cupo de campeonatos que el organizador puede crear. NULL = sin límite;
+    # es lo que separa un plan comercial de otro.
+    max_tournaments = Column(Integer, nullable=True)
+    # Quién dio de alta la cuenta. Es la frontera entre organizadores: un admin
+    # solo ve y gestiona los usuarios que él mismo creó (sus capitanes y
+    # árbitros); el superadmin ve todos. NULL = cuenta heredada o sembrada.
+    created_by_id = Column(GUID(), nullable=True)
+    # True tras un reset de contraseña hecho por soporte: la próxima sesión
+    # obliga a cambiarla antes de seguir.
+    must_change_password = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login_at = Column(DateTime)
 
 
 class TournamentPhoto(Base):
@@ -309,3 +325,47 @@ class TournamentPhoto(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tournament = relationship("Tournament", back_populates="photos")
+
+
+class TeamManager(Base):
+    """Capitán o delegado a cargo de un equipo.
+
+    Es la puerta de entrada del rol `captain`: el usuario ve exactamente los
+    equipos que tiene aquí y nada más (partidos, tabla y estadísticas de esos
+    equipos). Un equipo puede tener varios responsables y una persona puede
+    llevar varios equipos.
+    """
+
+    __tablename__ = "team_managers"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    team_id = Column(GUID(), ForeignKey("teams.id"))
+    user_id = Column(GUID(), ForeignKey("users.id"))
+    role = Column(String, default="captain")  # captain | delegate
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Notification(Base):
+    """Aviso dirigido a un usuario (hoy, a los capitanes de los equipos).
+
+    Se genera cuando cambia algo que le afecta: se aplaza o reprograma un
+    partido, cambia la cancha o se carga el resultado. Se guarda en la base en
+    vez de mandarse por correo para que el panel funcione sin infraestructura
+    externa; `read_at` (y no `read`, palabra reservada en SQL) marca la lectura.
+    """
+
+    __tablename__ = "notifications"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id = Column(GUID(), ForeignKey("users.id"), index=True)
+    team_id = Column(GUID(), ForeignKey("teams.id"))
+    tournament_id = Column(GUID(), ForeignKey("tournaments.id"))
+    match_id = Column(GUID(), ForeignKey("matches.id"))
+    # partido_reprogramado | partido_cancha | partido_programado |
+    # partido_resultado | partido_en_vivo | general
+    type = Column(String, default="general")
+    title = Column(String, nullable=False)
+    body = Column(String)
+    data = Column(JSON)
+    read_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

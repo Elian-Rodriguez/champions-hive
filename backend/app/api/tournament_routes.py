@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.venue_routes import sedes_visibles as _sedes_visibles
 from app.core.deps import (
     ROL_REFEREE,
     es_superadmin,
@@ -21,12 +22,14 @@ from app.db.models import (
     Match,
     MatchStat,
     MatchStatus,
+    Notification,
     Player,
     SlotType,
     Sponsor,
     Stage,
     StageSlot,
     Team,
+    TeamManager,
     TeamPlayer,
     Tournament,
     TournamentPhoto,
@@ -49,6 +52,10 @@ from app.schemas import (
     TournamentCreate,
     TournamentResponse,
     TournamentUpdate,
+)
+from app.services.notifications import (
+    notificar_cambio_de_partido,
+    snapshot_partido,
 )
 from app.services.strategy import (
     DEFAULT_CROSS_TIEBREAKERS,
@@ -140,6 +147,38 @@ def _fase_administrable(db: Session, stage_id, user: User) -> Stage:
         raise HTTPException(status_code=404, detail="Fase no encontrada")
     _torneo_administrable(db, stage.tournament_id, user)
     return stage
+
+
+def _canchas_disponibles(db: Session, user: User) -> List[Court]:
+    """Canchas que este organizador puede usar para programar.
+
+    Solo las de sus sedes (y las heredadas, sin dueño): asignarle a un torneo
+    la cancha de otro organizador expondría su configuración y le ocuparía el
+    escenario. El superadmin puede con todas.
+    """
+    venue_ids = [v.id for v in _sedes_visibles(db, user)]
+    if not venue_ids:
+        return []
+    return db.query(Court).filter(Court.venue_id.in_(venue_ids)).all()
+
+
+def _asegurar_cupo_disponible(db: Session, user: User) -> None:
+    """Corta la creación cuando el organizador agotó el cupo de su plan.
+
+    `User.max_tournaments` en NULL significa sin límite, que es como quedan las
+    cuentas existentes: nadie pierde acceso al actualizar.
+    """
+    if user is None or es_superadmin(user) or user.max_tournaments is None:
+        return
+    usados = db.query(Tournament).filter(Tournament.owner_id == user.id).count()
+    if usados >= user.max_tournaments:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Alcanzaste el límite de {user.max_tournaments} campeonato(s) de tu "
+                "plan. Pide una ampliación al administrador de la plataforma."
+            ),
+        )
 
 
 def _torneos_visibles(db: Session, user: User) -> List[Tournament]:
@@ -556,6 +595,10 @@ def reset_all(db: Session = Depends(get_db), current: User = Depends(require_sup
     """Elimina TODOS los torneos y sus datos (equipos, jugadores, partidos,
     eventos, fases). Conserva sedes, canchas y usuarios. Solo admin."""
     n = db.query(Tournament).count()
+    # Los avisos y los capitanes apuntan a partidos y equipos: van primero, o
+    # las claves foráneas de Postgres rechazan el borrado.
+    db.query(Notification).delete(synchronize_session=False)
+    db.query(TeamManager).delete(synchronize_session=False)
     db.query(StageSlot).delete(synchronize_session=False)
     db.query(MatchStat).delete(synchronize_session=False)
     db.query(Match).delete(synchronize_session=False)
@@ -686,7 +729,7 @@ def dashboard(db: Session = Depends(get_db), current: User = Depends(require_sta
                     )
                 }
             ),
-            "venues": db.query(Venue).count(),
+            "venues": len(_sedes_visibles(db, current)),
         },
         "by_status": dict(by_status),
         "by_sport": dict(by_sport),
@@ -721,6 +764,10 @@ def create_tournament(
     for field, value in defaults.items():
         if data.get(field) is None:
             data[field] = value
+
+    # Cupo del plan: el superadministrador le fija a cada organizador cuántos
+    # campeonatos puede tener. NULL = sin límite (y el superadmin nunca topa).
+    _asegurar_cupo_disponible(db, current)
 
     # El admin que lo crea queda como dueño del torneo.
     data.pop("owner_id", None)
@@ -929,10 +976,11 @@ def generate_fixture(
 ):
     stage = _fase_administrable(db, stage_id, current)
 
-    courts = db.query(Court).all()
+    courts = _canchas_disponibles(db, current)
     if not courts:
         raise HTTPException(
-            status_code=400, detail="No hay canchas registradas para asignar partidos"
+            status_code=400,
+            detail="No tienes canchas registradas: crea una sede con sus canchas",
         )
 
     existing = db.query(Match).filter(Match.stage_id == stage_id).all()
@@ -1016,9 +1064,12 @@ def generate_swiss_round(
     tournament = (
         db.query(Tournament).filter(Tournament.id == stage.tournament_id).first()
     )
-    courts = db.query(Court).all()
+    courts = _canchas_disponibles(db, current)
     if not courts:
-        raise HTTPException(status_code=400, detail="No hay canchas registradas")
+        raise HTTPException(
+            status_code=400,
+            detail="No tienes canchas registradas: crea una sede con sus canchas",
+        )
 
     team_ids = list(_team_groups(db, stage.tournament_id).keys())
     if len(team_ids) < 2:
@@ -1202,7 +1253,7 @@ def advance_to_next_phase(
             return None
         return rows[pos - 1]["team_id"]
 
-    courts = db.query(Court).all()
+    courts = _canchas_disponibles(db, current)
     created, ci = 0, 0
     for p in pairings:
         home = team_at(p.get("h_group"), p.get("h_pos"))
@@ -1260,7 +1311,7 @@ def seed_bracket(
         db.delete(m)
     db.flush()
 
-    courts = db.query(Court).all()
+    courts = _canchas_disponibles(db, current)
     ci = 0
 
     def next_court():
@@ -1646,8 +1697,13 @@ def schedule_tournament_calendar(
 
     # ¿Una sola cancha (en secuencia) o varias canchas a la vez (en paralelo)?
     parallel = bool(payload.get("parallel_courts"))
-    courts_all = db.query(Court).all()
+    courts_all = _canchas_disponibles(db, current)
     active_courts = [c for c in courts_all if getattr(c, "is_active", True)] or courts_all
+    if parallel and not active_courts:
+        raise HTTPException(
+            status_code=400,
+            detail="No tienes canchas registradas: crea una sede con sus canchas",
+        )
     num_courts = len(active_courts) or 1
     slot_cap = num_courts if parallel else 1
     rest_raw = payload.get("min_rest_slots")
@@ -1692,14 +1748,20 @@ def schedule_tournament_calendar(
         day_dates.append(nxt)
 
     count = 0
+    avisos = 0
     for slot, (d, s) in zip(slots, slot_day):
         when = day_dates[d] + timedelta(minutes=s * step)
         for ci, m in enumerate(slot):
+            # Se guarda la foto previa partido por partido: regenerar el
+            # calendario mueve horas ya publicadas y cada equipo afectado tiene
+            # que enterarse igual que si se reprogramara a mano.
+            antes = snapshot_partido(m)
             m.scheduled_start = when
             m.scheduled_end = when + timedelta(minutes=duration)
             if parallel:
                 m.court_id = active_courts[ci % num_courts].id
             count += 1
+            avisos += notificar_cambio_de_partido(db, m, antes)
     db.commit()
     return {
         "message": (
@@ -1710,6 +1772,7 @@ def schedule_tournament_calendar(
         "days": n_days,
         "parallel": parallel,
         "courts": num_courts if parallel else 1,
+        "notifications": avisos,
     }
 
 
@@ -2194,6 +2257,22 @@ def delete_tournament(
     )
 
     # Borrado explícito hijo->padre (las claves foráneas de Postgres lo exigen).
+    # Los avisos y los capitanes cuelgan de partidos y equipos, así que se van
+    # con el torneo; la cuenta del capitán se conserva (puede llevar otros).
+    db.query(Notification).filter(Notification.tournament_id == tournament_id).delete(
+        synchronize_session=False
+    )
+    if match_ids:
+        db.query(Notification).filter(Notification.match_id.in_(match_ids)).delete(
+            synchronize_session=False
+        )
+    if team_ids:
+        db.query(Notification).filter(Notification.team_id.in_(team_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(TeamManager).filter(TeamManager.team_id.in_(team_ids)).delete(
+            synchronize_session=False
+        )
     if stage_ids:
         db.query(StageSlot).filter(StageSlot.stage_id.in_(stage_ids)).delete(
             synchronize_session=False

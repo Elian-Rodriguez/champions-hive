@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@championhive.com"
     ADMIN_PASSWORD: str = "admin1234"
 
+    # Los horarios se guardan en UTC y el frontend los pasa a la hora del
+    # dispositivo. Los textos que arma el servidor (los avisos a los capitanes)
+    # no conocen ese dispositivo, así que usan el huso del campeonato: -300 =
+    # UTC-5 (Colombia, Perú, Ecuador). Ajústalo en .env si operas en otro país.
+    TIMEZONE_OFFSET_MINUTES: int = -300
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

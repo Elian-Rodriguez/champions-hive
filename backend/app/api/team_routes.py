@@ -1,17 +1,29 @@
 import random
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.auth_routes import MIN_PASSWORD, generar_password
 from app.core.deps import (
+    ROL_CAPTAIN,
     get_current_user_optional,
     puede_administrar,
     require_staff,
 )
+from app.core.security import get_password_hash
 from app.db.database import get_db
-from app.db.models import Player, Team, TeamPlayer, Tournament, TournamentTeam, User
+from app.db.models import (
+    Player,
+    Team,
+    TeamManager,
+    TeamPlayer,
+    Tournament,
+    TournamentTeam,
+    User,
+)
 from app.schemas import (
     GroupAssignment,
     PlayerCreate,
@@ -19,6 +31,8 @@ from app.schemas import (
     ShuffleGroupsRequest,
     TeamBase,
     TeamCreate,
+    TeamManagerCreate,
+    TeamManagerResponse,
     TeamResponse,
 )
 
@@ -333,5 +347,143 @@ def remove_player_from_team(
     )
     if not link:
         raise HTTPException(status_code=404, detail="Jugador no está en el equipo")
+    db.delete(link)
+    db.commit()
+
+
+# --------------------------------------------------------------------------- #
+#  Capitanes y delegados del equipo
+# --------------------------------------------------------------------------- #
+def _manager_payload(link: TeamManager, user: User, temp: str | None = None) -> dict:
+    return {
+        "id": link.id,
+        "team_id": link.team_id,
+        "user_id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "phone": user.phone,
+        "role": link.role or "captain",
+        "is_active": bool(user.is_active),
+        "temp_password": temp,
+    }
+
+
+@router.get("/teams/{team_id}/managers", response_model=List[TeamManagerResponse])
+def get_team_managers(
+    team_id: UUID,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
+):
+    """Capitanes del equipo. Solo el organizador que administra su torneo."""
+    _asegurar_equipo_administrable(db, team_id, current)
+    links = db.query(TeamManager).filter(TeamManager.team_id == team_id).all()
+    usuarios = {
+        str(u.id): u
+        for u in db.query(User).filter(User.id.in_([l.user_id for l in links])).all()
+    }
+    return [
+        _manager_payload(l, usuarios[str(l.user_id)])
+        for l in links
+        if str(l.user_id) in usuarios
+    ]
+
+
+@router.post(
+    "/teams/{team_id}/managers",
+    response_model=TeamManagerResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_team_manager(
+    team_id: UUID,
+    payload_in: TeamManagerCreate,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
+):
+    """Da de alta (o vincula) al capitán de un equipo.
+
+    Es el único alta de usuarios que hace un organizador: sin esto tendría que
+    pedirle al superadministrador una cuenta por cada equipo, y un torneo de
+    veinte equipos dejaría de ser autoservicio. La cuenta nace con rol
+    `captain`, que no administra nada, y queda a nombre de quien la creó
+    (`created_by_id`), que es lo que la mantiene fuera del panel de los demás.
+    """
+    _asegurar_equipo_administrable(db, team_id, current)
+    usuario = db.query(User).filter(User.email == payload_in.email).first()
+    temporal = None
+    if usuario is None:
+        temporal = payload_in.password or generar_password()
+        if len(temporal) < MIN_PASSWORD:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La contraseña debe tener al menos {MIN_PASSWORD} caracteres",
+            )
+        usuario = User(
+            email=payload_in.email,
+            hashed_password=get_password_hash(temporal),
+            role=ROL_CAPTAIN,
+            is_active=True,
+            name=payload_in.name,
+            phone=payload_in.phone,
+            created_by_id=current.id,
+            # Si la contraseña la generó el sistema, la cambia al entrar.
+            must_change_password=payload_in.password is None,
+            created_at=datetime.utcnow(),
+        )
+        db.add(usuario)
+        db.flush()
+    elif usuario.role not in (ROL_CAPTAIN,):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{usuario.email} ya existe con rol {usuario.role}; usa otro correo "
+                "para la cuenta de capitán"
+            ),
+        )
+    else:
+        # Ya existía: solo se completan los datos que vengan vacíos.
+        if payload_in.name and not usuario.name:
+            usuario.name = payload_in.name
+        if payload_in.phone and not usuario.phone:
+            usuario.phone = payload_in.phone
+
+    ya = (
+        db.query(TeamManager)
+        .filter(TeamManager.team_id == team_id, TeamManager.user_id == usuario.id)
+        .first()
+    )
+    if ya:
+        raise HTTPException(
+            status_code=400, detail="Ese usuario ya es responsable del equipo"
+        )
+    link = TeamManager(
+        team_id=team_id,
+        user_id=usuario.id,
+        role=payload_in.role if payload_in.role in ("captain", "delegate") else "captain",
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    db.refresh(usuario)
+    return _manager_payload(link, usuario, temporal)
+
+
+@router.delete(
+    "/teams/{team_id}/managers/{user_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def remove_team_manager(
+    team_id: UUID,
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
+):
+    """Desvincula al capitán del equipo. La cuenta se conserva."""
+    _asegurar_equipo_administrable(db, team_id, current)
+    link = (
+        db.query(TeamManager)
+        .filter(TeamManager.team_id == team_id, TeamManager.user_id == user_id)
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Ese usuario no dirige el equipo")
     db.delete(link)
     db.commit()
