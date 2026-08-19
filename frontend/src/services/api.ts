@@ -42,6 +42,7 @@ async function rawReq(path: string, options: RequestInit = {}): Promise<any> {
     localStorage.removeItem('token')
     localStorage.removeItem('role')
     localStorage.removeItem('username')
+    localStorage.removeItem('mustChangePassword')
     if (typeof window !== 'undefined') window.location.reload()
     throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.')
   }
@@ -156,7 +157,20 @@ export const api = {
   },
   register: (data: any) =>
     req('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  /** Cuentas que el solicitante gestiona: todas si es superadmin, las que creó
+   *  si es organizador. */
   listUsers: () => req('/auth/users'),
+  /** Perfil propio, con el cupo de campeonatos y cuántos lleva usados. */
+  me: () => req('/auth/me'),
+  listRoles: () => req('/auth/roles'),
+  updateUser: (id: string, data: any) =>
+    req(`/auth/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  /** Reseteo de soporte: devuelve la contraseña temporal una sola vez. */
+  resetUserPassword: (id: string, new_password?: string) =>
+    req(`/auth/users/${id}/reset_password`, {
+      method: 'POST',
+      body: JSON.stringify(new_password ? { new_password } : {}),
+    }),
   /** Árbitros asignables. A diferencia de listUsers, la puede llamar un admin. */
   listReferees: () => req('/auth/referees'),
   deleteUser: (id: string) => req(`/auth/users/${id}`, { method: 'DELETE' }),
@@ -165,6 +179,39 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ current_password, new_password }),
     }),
+
+  // ---- Capitanes del equipo ----
+  teamManagers: (teamId: string) => req(`/teams/${teamId}/managers`),
+  addTeamManager: (teamId: string, data: any) =>
+    req(`/teams/${teamId}/managers`, { method: 'POST', body: JSON.stringify(data) }),
+  removeTeamManager: (teamId: string, userId: string) =>
+    req(`/teams/${teamId}/managers/${userId}`, { method: 'DELETE' }),
+
+  // ---- Notificaciones ----
+  notifications: (unreadOnly = false) =>
+    req(`/notifications${unreadOnly ? '?unread_only=true' : ''}`),
+  unreadCount: () => req('/notifications/unread_count'),
+  markNotificationRead: (id: string) =>
+    req(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () => req('/notifications/read_all', { method: 'POST' }),
+  deleteNotification: (id: string) => req(`/notifications/${id}`, { method: 'DELETE' }),
+  /** Aviso manual del organizador a los capitanes de un torneo. */
+  broadcast: (tid: string, data: any) =>
+    req(`/notifications/broadcast/${tid}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // ---- Panel del capitán ----
+  captainTeams: () => req('/captain/teams'),
+  captainMatches: (teamId?: string) =>
+    req(`/captain/matches${teamId ? `?team_id=${teamId}` : ''}`),
+  captainSummary: (teamId: string, tournamentId?: string) =>
+    req(
+      `/captain/teams/${teamId}/summary${
+        tournamentId ? `?tournament_id=${tournamentId}` : ''
+      }`,
+    ),
 
   // ---- Tournaments ----
   getTournaments: () => req('/tournaments'),

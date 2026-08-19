@@ -36,6 +36,7 @@ export default function LoginView({
           role: data.role,
           username: email,
           userId: data.user_id,
+          mustChangePassword: !!data.must_change_password,
         }),
       )
       onSuccess()

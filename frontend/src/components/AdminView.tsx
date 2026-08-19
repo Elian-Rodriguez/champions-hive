@@ -29,18 +29,15 @@ type Tab =
   | 'marca'
 type Section = 'dashboard' | 'torneos' | 'sedes' | 'usuarios'
 
-// `soloSuperadmin` marca las secciones reservadas al superadministrador:
-// gestionar usuarios y el reset global no son de un organizador cualquiera.
-const SECTIONS: {
-  key: Section
-  label: string
-  icon: string
-  soloSuperadmin?: boolean
-}[] = [
+// Las cuatro secciones las ve cualquier administrador: el superadmin gestiona
+// la plataforma entera y el organizador ve solo lo suyo (sus torneos, sus sedes
+// y las cuentas que él creó), porque eso es lo que le devuelve el backend. Lo
+// único reservado al superadmin es el botón de reset global.
+const SECTIONS: { key: Section; label: string; icon: string }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { key: 'torneos', label: 'Torneos', icon: 'emoji_events' },
   { key: 'sedes', label: 'Sedes', icon: 'stadium' },
-  { key: 'usuarios', label: 'Usuarios', icon: 'group', soloSuperadmin: true },
+  { key: 'usuarios', label: 'Usuarios', icon: 'group' },
 ]
 
 export default function AdminView() {
@@ -55,11 +52,14 @@ export default function AdminView() {
   const [newName, setNewName] = useState('')
   const [newSport, setNewSport] = useState('football')
   const [helpOpen, setHelpOpen] = useState(false)
+  // Perfil propio: trae el cupo de campeonatos del plan y cuántos van usados.
+  const [perfil, setPerfil] = useState<any>(null)
 
   async function refresh() {
     setLoading(true)
     try {
       setTournaments(await api.getTournaments())
+      setPerfil(await api.me().catch(() => null))
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -69,6 +69,10 @@ export default function AdminView() {
   useEffect(() => {
     refresh()
   }, [])
+
+  const cupo: number | null = perfil?.max_tournaments ?? null
+  const usados: number = perfil?.tournaments_count ?? tournaments.length
+  const sinCupo = cupo != null && usados >= cupo
 
   async function createTournament(e: React.FormEvent) {
     e.preventDefault()
@@ -104,7 +108,7 @@ export default function AdminView() {
   return (
     <div className="space-y-5">
       <nav className="flex flex-wrap items-center gap-2">
-        {SECTIONS.filter((s) => !s.soloSuperadmin || esSuperadmin).map((s) => (
+        {SECTIONS.map((s) => (
           <button
             key={s.key}
             onClick={() => setSection(s.key)}
@@ -144,19 +148,38 @@ export default function AdminView() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
           <div className="space-y-4">
             <Card className="p-4">
-              <h2 className="mb-3 font-display font-semibold">Nuevo torneo</h2>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-display font-semibold">Nuevo torneo</h2>
+                {cupo != null && (
+                  <Badge
+                    className={
+                      sinCupo
+                        ? 'bg-error-container text-on-error-container'
+                        : 'bg-secondary/15 text-secondary'
+                    }
+                  >
+                    {usados} de {cupo} campeonatos
+                  </Badge>
+                )}
+              </div>
               <form onSubmit={createTournament} className="space-y-2">
-                <Input placeholder="Nombre del torneo" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                <Select value={newSport} onChange={(e) => setNewSport(e.target.value)}>
+                <Input placeholder="Nombre del torneo" value={newName} onChange={(e) => setNewName(e.target.value)} disabled={sinCupo} />
+                <Select value={newSport} onChange={(e) => setNewSport(e.target.value)} disabled={sinCupo}>
                   {SPORTS.map((s) => (
                     <option key={s.value} value={s.value}>
                       {s.label}
                     </option>
                   ))}
                 </Select>
-                <Button type="submit" className="w-full">
+                <Button type="submit" className="w-full" disabled={sinCupo}>
                   <Icon name="add" /> Crear
                 </Button>
+                {sinCupo && (
+                  <p className="rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-xs text-error">
+                    Alcanzaste el límite de tu plan. Pide una ampliación al administrador
+                    de la plataforma para crear más campeonatos.
+                  </p>
+                )}
               </form>
             </Card>
 
@@ -347,6 +370,67 @@ function HelpModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+/**
+ * Aviso manual a los capitanes del torneo.
+ *
+ * Los cambios de horario y cancha ya avisan solos; esto cubre lo que no
+ * dispara ningún cambio de partido: reunión de delegados, cambio de
+ * reglamento, jornada suspendida por lluvia.
+ */
+function AvisoEquipos({ tournament }: { tournament: any }) {
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  return (
+    <Card className="p-4">
+      <h3 className="mb-1 flex items-center gap-2 font-display font-semibold">
+        <Icon name="campaign" className="text-secondary" /> Avisar a los equipos
+      </h3>
+      <p className="mb-3 text-xs text-on-surface-variant">
+        Llega a la bandeja de los capitanes registrados de este torneo. Los cambios de
+        horario y de cancha se avisan solos al reprogramar.
+      </p>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault()
+          if (!title.trim()) return
+          setEnviando(true)
+          setMsg(null)
+          try {
+            const r = await api.broadcast(tournament.id, { title, body: body || null })
+            setMsg({ ok: true, text: r.message })
+            setTitle('')
+            setBody('')
+          } catch (e: any) {
+            setMsg({ ok: false, text: e.message })
+          } finally {
+            setEnviando(false)
+          }
+        }}
+        className="space-y-2"
+      >
+        <Input
+          placeholder="Título del aviso"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Input
+          placeholder="Detalle (opcional)"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+        {msg && (
+          <p className={`text-sm ${msg.ok ? 'text-secondary' : 'text-error'}`}>{msg.text}</p>
+        )}
+        <Button type="submit" disabled={enviando}>
+          <Icon name="send" /> Enviar aviso
+        </Button>
+      </form>
+    </Card>
+  )
+}
+
 function ResumenTab({ tournament, onChanged }: { tournament: any; onChanged: () => void }) {
   const [stats, setStats] = useState<any>(null)
   useEffect(() => {
@@ -385,6 +469,8 @@ function ResumenTab({ tournament, onChanged }: { tournament: any; onChanged: () 
           ))}
         </div>
       </div>
+      <AvisoEquipos tournament={tournament} />
+
       <Button
         variant="danger"
         onClick={async () => {
@@ -396,6 +482,125 @@ function ResumenTab({ tournament, onChanged }: { tournament: any; onChanged: () 
       >
         <Icon name="delete" /> Eliminar torneo
       </Button>
+    </div>
+  )
+}
+
+/**
+ * Capitanes y delegados del equipo.
+ *
+ * Da de alta la cuenta con la que el responsable del equipo entra a ver su
+ * calendario y sus estadísticas, y a la que le llegan los avisos cuando se
+ * mueve un partido. Si no se escribe contraseña, el backend genera una
+ * temporal y la devuelve una sola vez para entregarla.
+ */
+function CaptainsBlock({ teamId, teamName }: { teamId: string; teamName: string }) {
+  const [managers, setManagers] = useState<any[]>([])
+  const [email, setEmail] = useState('')
+  const [nombre, setNombre] = useState('')
+  const [temp, setTemp] = useState<{ email: string; password: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function load() {
+    try {
+      setManagers(await api.teamManagers(teamId))
+    } catch (e: any) {
+      setError(e.message)
+    }
+  }
+  useEffect(() => {
+    load()
+  }, [teamId])
+
+  return (
+    <div className="mt-2 rounded-lg bg-surface-container-low p-3">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+        <Icon name="shield_person" className="text-base text-secondary" /> Capitanes de{' '}
+        {teamName}
+      </p>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault()
+          if (!email.trim()) return
+          setError(null)
+          try {
+            const r = await api.addTeamManager(teamId, { email, name: nombre || null })
+            if (r?.temp_password) setTemp({ email: r.email, password: r.temp_password })
+            setEmail('')
+            setNombre('')
+            load()
+          } catch (e: any) {
+            setError(e.message)
+          }
+        }}
+        className="flex flex-wrap gap-2"
+      >
+        <Input
+          type="email"
+          placeholder="Email del capitán"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="min-w-[12rem] flex-1"
+        />
+        <Input
+          placeholder="Nombre (opcional)"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          className="min-w-[9rem] flex-1"
+        />
+        <Button type="submit" variant="outline">
+          <Icon name="person_add" />
+        </Button>
+      </form>
+      {error && <p className="mt-2 text-xs text-error">{error}</p>}
+      {temp && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-tertiary/40 bg-tertiary/10 px-2 py-1.5 text-xs">
+          <Icon name="key" className="text-tertiary" />
+          <span>
+            Entrega estos datos a {temp.email}:
+            <code className="ml-1 rounded bg-surface-container-high px-1.5 py-0.5 font-mono">
+              {temp.password}
+            </code>
+          </span>
+          <button
+            onClick={() => navigator.clipboard?.writeText(temp.password)}
+            className="text-secondary hover:underline"
+          >
+            Copiar
+          </button>
+          <button onClick={() => setTemp(null)} className="ml-auto">
+            <Icon name="close" className="text-sm" />
+          </button>
+        </div>
+      )}
+      <ul className="mt-2 space-y-1">
+        {managers.map((m) => (
+          <li key={m.id} className="flex items-center justify-between text-sm">
+            <span className="min-w-0 truncate">
+              {m.name ? `${m.name} · ` : ''}
+              <span className="text-on-surface-variant">{m.email}</span>
+              {!m.is_active && <span className="ml-2 text-xs text-error">inactivo</span>}
+            </span>
+            <button
+              onClick={async () => {
+                if (confirm(`¿Quitar a ${m.email} como capitán de ${teamName}?`)) {
+                  await api.removeTeamManager(teamId, m.user_id)
+                  load()
+                }
+              }}
+              className="text-error/80 hover:text-error"
+              title="Quitar capitán"
+            >
+              <Icon name="close" className="text-base" />
+            </button>
+          </li>
+        ))}
+        {managers.length === 0 && (
+          <li className="text-xs text-on-surface-variant">
+            Sin capitán. Sin él, nadie del equipo recibe los avisos de cambio de horario.
+          </li>
+        )}
+      </ul>
     </div>
   )
 }
@@ -791,7 +996,12 @@ function EquiposTab({ tournament }: { tournament: any }) {
                   </button>
                 </span>
               </div>
-              {expanded === t.id && <PlayersBlock teamId={t.id} />}
+              {expanded === t.id && (
+                <>
+                  <PlayersBlock teamId={t.id} />
+                  <CaptainsBlock teamId={t.id} teamName={t.name} />
+                </>
+              )}
             </li>
           ))}
         </ul>

@@ -1,9 +1,17 @@
 import { useState, type ReactNode } from 'react'
 import { useAppDispatch, useAppSelector } from '../hooks'
-import { logout } from '../store/authSlice'
+import { logout, passwordChanged } from '../store/authSlice'
 import { api } from '../services/api'
 import type { View } from '../App'
 import { Badge, Button, Card, Icon, Input } from './ui'
+import NotificationsBell from './NotificationsBell'
+
+const ROL_LABEL: Record<string, string> = {
+  superadmin: 'Superadmin',
+  admin: 'Organizador',
+  referee: 'Árbitro',
+  captain: 'Capitán',
+}
 
 export default function Layout({
   children,
@@ -13,11 +21,16 @@ export default function Layout({
   onNavigate: (v: View) => void
 }) {
   const dispatch = useAppDispatch()
-  const { username, role } = useAppSelector((s) => s.auth)
+  const { username, role, mustChangePassword } = useAppSelector((s) => s.auth)
   const [pwOpen, setPwOpen] = useState(false)
   const [cur, setCur] = useState('')
   const [next, setNext] = useState('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Tras un reseteo de soporte la clave es temporal: el modal se abre solo y
+  // no se puede cerrar hasta cambiarla.
+  const forzado = !!mustChangePassword
+  const abierto = pwOpen || forzado
 
   async function submitPassword(e: React.FormEvent) {
     e.preventDefault()
@@ -27,6 +40,8 @@ export default function Layout({
       setMsg({ ok: true, text: 'Contraseña actualizada' })
       setCur('')
       setNext('')
+      dispatch(passwordChanged())
+      if (forzado) setPwOpen(false)
     } catch (err: any) {
       setMsg({ ok: false, text: err.message || 'Error' })
     }
@@ -50,9 +65,10 @@ export default function Layout({
               <Icon name="scoreboard" className="text-base" /> Marcador público
             </button>
             <Badge className="bg-primary-container text-on-primary-container">
-              {role === 'referee' ? 'Árbitro' : 'Admin'}
+              {ROL_LABEL[role || ''] || 'Admin'}
             </Badge>
             <span className="hidden text-sm text-on-surface-variant md:block">{username}</span>
+            <NotificationsBell />
             <button
               onClick={() => {
                 setMsg(null)
@@ -77,21 +93,44 @@ export default function Layout({
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
 
-      {pwOpen && (
-        <div className="fixed inset-0 z-30 grid place-items-center bg-black/60 p-4" onClick={() => setPwOpen(false)}>
-          <Card className="w-full max-w-sm p-6" >
+      {abierto && (
+        <div
+          className="fixed inset-0 z-30 grid place-items-center bg-black/60 p-4"
+          onClick={() => !forzado && setPwOpen(false)}
+        >
+          <Card className="w-full max-w-sm p-6">
             <div onClick={(e) => e.stopPropagation()}>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="flex items-center gap-2 font-display text-lg font-bold">
                   <Icon name="key" className="text-secondary" /> Cambiar contraseña
                 </h3>
-                <button onClick={() => setPwOpen(false)}>
-                  <Icon name="close" />
-                </button>
+                {!forzado && (
+                  <button onClick={() => setPwOpen(false)}>
+                    <Icon name="close" />
+                  </button>
+                )}
               </div>
+              {forzado && (
+                <p className="mb-3 rounded-lg border border-tertiary/40 bg-tertiary/10 px-3 py-2 text-sm text-tertiary">
+                  Tu contraseña fue restablecida por el administrador. Define una nueva
+                  para continuar.
+                </p>
+              )}
               <form onSubmit={submitPassword} className="space-y-3">
-                <Input type="password" placeholder="Contraseña actual" value={cur} onChange={(e) => setCur(e.target.value)} required />
-                <Input type="password" placeholder="Nueva contraseña" value={next} onChange={(e) => setNext(e.target.value)} required />
+                <Input
+                  type="password"
+                  placeholder={forzado ? 'Contraseña temporal' : 'Contraseña actual'}
+                  value={cur}
+                  onChange={(e) => setCur(e.target.value)}
+                  required
+                />
+                <Input
+                  type="password"
+                  placeholder="Nueva contraseña (mínimo 6 caracteres)"
+                  value={next}
+                  onChange={(e) => setNext(e.target.value)}
+                  required
+                />
                 {msg && (
                   <p className={`text-sm ${msg.ok ? 'text-secondary' : 'text-error'}`}>{msg.text}</p>
                 )}

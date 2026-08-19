@@ -6,6 +6,7 @@ import PublicView from './components/PublicView'
 import LoginView from './components/LoginView'
 import AdminView from './components/AdminView'
 import RefereeView from './components/RefereeView'
+import CaptainView from './components/CaptainView'
 
 export type View = 'landing' | 'public' | 'login' | 'app'
 
@@ -24,9 +25,17 @@ export default function App() {
   }, [])
 
   if (view === 'app' && token) {
+    // Cada rol entra a su propio panel: el árbitro carga partidos, el capitán
+    // solo consulta lo de su equipo y el resto administra.
     return (
       <Layout onNavigate={setView}>
-        {role === 'referee' ? <RefereeView /> : <AdminView />}
+        {role === 'referee' ? (
+          <RefereeView />
+        ) : role === 'captain' ? (
+          <CaptainView />
+        ) : (
+          <AdminView />
+        )}
       </Layout>
     )
   }
