@@ -29,8 +29,8 @@ from app.schemas import (
     PlayerCreate,
     PlayerResponse,
     ShuffleGroupsRequest,
-    TeamBase,
     TeamCreate,
+    TeamUpdate,
     TeamManagerCreate,
     TeamManagerResponse,
     TeamResponse,
@@ -193,12 +193,19 @@ def update_team_group(
 @router.put("/teams/{team_id}", response_model=TeamResponse)
 def update_team(
     team_id: UUID,
-    payload_in: TeamBase,
+    payload_in: TeamUpdate,
     db: Session = Depends(get_db),
     current: User = Depends(require_staff),
 ):
     team = _asegurar_equipo_administrable(db, team_id, current)
-    for key, value in payload_in.model_dump(exclude_unset=True).items():
+    cambios = payload_in.model_dump(exclude_unset=True)
+    # Lo único que no puede quedar vacío es el nombre: un equipo sin nombre no
+    # se puede mostrar en ninguna tabla. El escudo sí se borra mandando null.
+    if "name" in cambios and not (cambios["name"] or "").strip():
+        raise HTTPException(
+            status_code=422, detail="El nombre del equipo no puede quedar vacío"
+        )
+    for key, value in cambios.items():
         setattr(team, key, value)
     if team.colors:
         team.color = team.colors[0]

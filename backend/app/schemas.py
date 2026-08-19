@@ -1,8 +1,9 @@
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 from app.db.models import MatchStatus, SportType, StageType
 
@@ -157,7 +158,43 @@ class PlayerResponse(PlayerBase):
         from_attributes = True
 
 
+# Un escudo llega de dos maneras: como enlace (https://…) o como la imagen misma
+# en un data URI, que es lo que manda el panel cuando el organizador la sube —el
+# navegador la reduce antes de enviarla—. Guardarla así hace que el escudo viaje
+# con la base (backup, cambio de servidor) en vez de depender de un sitio ajeno
+# que mañana responde 404 o niega CORS justo cuando el acta lo va a dibujar.
+# Cualquier otro esquema se rechaza: `logo_url` termina en un `<img src>`.
+MAX_IMAGEN = 400_000  # caracteres; ~300 KB de imagen ya codificada
+_DATA_URI_IMAGEN = re.compile(
+    r"^data:image/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=\s]+$"
+)
+
+
+def validar_imagen(valor: Optional[str]) -> Optional[str]:
+    """Acepta enlace http(s) o imagen en base64; vacío se guarda como nada."""
+    if valor is None:
+        return None
+    limpio = valor.strip()
+    if not limpio:
+        return None
+    if len(limpio) > MAX_IMAGEN:
+        raise ValueError(
+            f"La imagen supera el máximo de {MAX_IMAGEN // 1000} KB; usa una más pequeña"
+        )
+    if limpio.startswith("data:"):
+        if not _DATA_URI_IMAGEN.match(limpio):
+            raise ValueError("La imagen debe ser png, jpeg, webp o gif en base64")
+        return limpio
+    if limpio.startswith("http://") or limpio.startswith("https://"):
+        return limpio
+    raise ValueError("La imagen debe ser un enlace http(s) o una imagen en base64")
+
+
 class TeamBase(BaseModel):
+    """Campos comunes del equipo. Sin validación de imagen a propósito:
+    `TeamResponse` hereda de aquí y lo ya guardado se lee tal cual; quien
+    valida es la entrada (`TeamCreate` / `TeamUpdate`)."""
+
     name: str
     logo_url: Optional[str] = None
     photo_url: Optional[str] = None
@@ -165,8 +202,34 @@ class TeamBase(BaseModel):
     colors: Optional[List[str]] = None
 
 
+class TeamUpdate(BaseModel):
+    """Edición de un equipo; solo se aplica lo que venga.
+
+    A diferencia de `TeamBase`, aquí `name` es opcional: crear un equipo exige
+    nombre, pero cambiarle el escudo o los uniformes no puede obligar a
+    reenviarlo. Con `TeamBase` en el PUT, el selector de colores del panel
+    respondía 422 y no guardaba nada.
+    """
+
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    photo_url: Optional[str] = None
+    color: Optional[str] = None
+    colors: Optional[List[str]] = None
+
+    @field_validator("logo_url", "photo_url")
+    @classmethod
+    def _validar_imagenes(cls, v: Optional[str]) -> Optional[str]:
+        return validar_imagen(v)
+
+
 class TeamCreate(TeamBase):
     group_name: Optional[str] = None
+
+    @field_validator("logo_url", "photo_url")
+    @classmethod
+    def _validar_imagenes(cls, v: Optional[str]) -> Optional[str]:
+        return validar_imagen(v)
 
 
 class TeamResponse(TeamBase):

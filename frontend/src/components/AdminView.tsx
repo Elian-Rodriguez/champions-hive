@@ -8,6 +8,7 @@ import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
 import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
+import { escudoDesdeArchivo } from '../utils/imagen'
 import { SPORT_LIST } from '../sports'
 import { useAppSelector } from '../hooks'
 
@@ -714,6 +715,89 @@ function TeamColors({
   )
 }
 
+/** Escudo del equipo: vista previa, subir y quitar.
+ *
+ *  La imagen se reduce en el navegador y se guarda como data URI dentro de
+ *  `logo_url` (ver `utils/imagen.ts`), así que subir un escudo no necesita
+ *  servidor de archivos y el acta lo dibuja sin pelear con CORS. */
+function TeamLogo({
+  team,
+  onChange,
+}: {
+  team: any
+  onChange: (logo: string | null) => Promise<void>
+}) {
+  const [error, setError] = useState<string | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+  const archivo = useRef<HTMLInputElement>(null)
+  const inicial = (team.name || '?').trim().charAt(0).toUpperCase()
+
+  async function elegir(f: File | undefined) {
+    if (!f) return
+    setError(null)
+    setOcupado(true)
+    try {
+      await onChange(await escudoDesdeArchivo(f))
+    } catch (e: any) {
+      setError(e?.message || 'No se pudo subir el escudo')
+    } finally {
+      setOcupado(false)
+      // Permite volver a elegir el mismo archivo si el primer intento falló.
+      if (archivo.current) archivo.current.value = ''
+    }
+  }
+
+  return (
+    <span className="relative flex items-center gap-1">
+      <input
+        ref={archivo}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => elegir(e.target.files?.[0])}
+      />
+      <button
+        type="button"
+        onClick={() => archivo.current?.click()}
+        disabled={ocupado}
+        title={team.logo_url ? 'Cambiar escudo' : 'Subir escudo'}
+        className="grid h-7 w-7 place-items-center overflow-hidden rounded-full border border-outline-variant bg-surface-container-low text-[10px] font-bold text-on-surface-variant transition hover:border-secondary disabled:opacity-50"
+      >
+        {ocupado ? (
+          <Icon name="progress_activity" className="animate-spin text-sm" />
+        ) : team.logo_url ? (
+          <img src={team.logo_url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <Icon name="add_photo_alternate" className="text-sm" />
+        )}
+      </button>
+      {team.logo_url && !ocupado && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          title="Quitar escudo"
+          className="text-on-surface-variant hover:text-error"
+        >
+          <Icon name="close" className="text-sm" />
+        </button>
+      )}
+      {error && (
+        <span className="absolute left-0 top-8 z-10 w-52 rounded border border-error/40 bg-surface-container-high px-2 py-1 text-[11px] text-error shadow-lg">
+          {error}
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="ml-1 font-bold"
+          >
+            ×
+          </button>
+        </span>
+      )}
+      <span className="sr-only">{inicial}</span>
+    </span>
+  )
+}
+
 // Zona del tablero para los equipos que todavía no tienen grupo.
 const SIN_GRUPO = '__sin__'
 
@@ -946,10 +1030,18 @@ function EquiposTab({ tournament }: { tournament: any }) {
                   className="flex items-center gap-2 font-medium"
                 >
                   <Icon name={expanded === t.id ? 'expand_more' : 'chevron_right'} className="text-base text-on-surface-variant" />
-                  <span
-                    className="h-3 w-3 shrink-0 rounded-full border border-outline-variant"
-                    style={{ background: t.color || '#64748b' }}
-                  />
+                  {t.logo_url ? (
+                    <img
+                      src={t.logo_url}
+                      alt=""
+                      className="h-5 w-5 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full border border-outline-variant"
+                      style={{ background: t.color || '#64748b' }}
+                    />
+                  )}
                   {t.name}
                 </button>
                 <span className="flex items-center gap-2">
@@ -966,6 +1058,13 @@ function EquiposTab({ tournament }: { tournament: any }) {
                       </option>
                     ))}
                   </Select>
+                  <TeamLogo
+                    team={t}
+                    onChange={async (logo) => {
+                      await api.updateTeam(t.id, { logo_url: logo })
+                      load()
+                    }}
+                  />
                   <TeamColors
                     team={t}
                     onChange={async (cols) => {
