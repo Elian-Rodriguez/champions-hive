@@ -332,85 +332,154 @@ export async function makeMatchImage(t: any, m: any, sponsors: any[]): Promise<B
   return canvasBlob(canvas)
 }
 
+// ---- Listas largas: varias imágenes en vez de recortar ----
+
+// Un calendario de 20 partidos o una liga de 16 equipos no caben en 1080×1080.
+// Recortar con un "+ 12 más" es lo peor que se puede publicar, porque el equipo
+// que falta suele ser justo el que iba a compartir la imagen: en vez de eso la
+// lista se reparte en varias imágenes numeradas —un carrusel— con el mismo alto
+// de fila en todas para que se vean como una sola publicación.
+
+/** Reparte las filas en páginas de a lo sumo `porPagina`, parejas entre sí:
+ *  13 filas con tope de 10 salen 7 y 6, no 10 y 3. */
+export function paginar<T>(filas: T[], porPagina: number): T[][] {
+  const todas = filas || []
+  const tope = Math.max(1, porPagina)
+  if (todas.length <= tope) return [todas]
+  const paginas = Math.ceil(todas.length / tope)
+  const base = Math.floor(todas.length / paginas)
+  let resto = todas.length % paginas // se reparte de a una entre las primeras
+  const out: T[][] = []
+  let i = 0
+  for (let p = 0; p < paginas; p++) {
+    const tam = base + (resto > 0 ? 1 : 0)
+    if (resto > 0) resto--
+    out.push(todas.slice(i, i + tam))
+    i += tam
+  }
+  return out
+}
+
+/** Chip "2 / 3" bajo la marca; solo aparece cuando hay más de una imagen. */
+function marcaDePagina(ctx: Ctx, indice: number, total: number) {
+  if (total <= 1) return
+  const cw = ctx.canvas.width
+  const label = `${indice + 1} / ${total}`
+  ctx.font = '800 22px Inter, sans-serif'
+  const w = ctx.measureText(label).width + 40
+  rr(ctx, cw - 64 - w, 74, w, 40, 20)
+  ctx.fillStyle = 'rgba(74,225,118,0.14)'
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(74,225,118,0.45)'
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.fillStyle = GREEN
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(label, cw - 64 - w / 2, 95)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+}
+
+/** Cuántas filas caben en `alto` sin bajar de `minimo` px por fila. */
+function filasQueCaben(alto: number, minimo: number, piso = 4): number {
+  return Math.max(piso, Math.floor(alto / minimo))
+}
+
+// Tabla de posiciones. Devuelve una imagen por página: ningún equipo se queda
+// fuera de la tabla que se publica.
 export async function makeStandingsImage(
   t: any,
   group: string,
   rows: any[],
   sponsors: any[],
   logos?: TeamLogos,
-): Promise<Blob> {
-  const { canvas, ctx } = await newCanvas()
-  await drawBase(ctx, t, 'Tabla de posiciones')
-
+): Promise<Blob[]> {
+  const filas = rows || []
   const title = group && group !== 'Sin Grupo' ? `Grupo ${group}` : 'Clasificación'
-  ctx.fillStyle = TEXT
-  ctx.font = '800 40px Lexend, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText(title, W / 2, 300)
-  ctx.textAlign = 'left'
+  const yTabla = 360
+  const areaH = H - 150 - yTabla
+  // Una fila de menos de 50 px queda apretada; el encabezado ocupa una.
+  const paginas = paginar(filas, filasQueCaben(areaH, 50) - 1)
+  const mayor = Math.max(1, ...paginas.map((p) => p.length))
+  const rowH = Math.min(58, areaH / (mayor + 1))
 
-  const top = (rows || []).slice(0, 10)
-  // El logo va ANTES del nombre (la columna Equipo queda a la izquierda); se
-  // reserva la columna solo si algún equipo de la tabla tiene logo.
-  const logoImgs = await Promise.all(top.map((r: any) => loadImg(logos?.[r.team_id])))
+  // Los logos se cargan una sola vez para todas las páginas.
+  const logoImgs = await Promise.all(filas.map((r: any) => loadImg(logos?.[r.team_id])))
   const conLogos = logoImgs.some(Boolean)
   const logoCol = conLogos ? 52 : 0
   const x0 = 64
   const tw = W - 128
-  let y = 360
-  const rowH = Math.min(58, (H - 150 - y) / Math.max(top.length + 1, 1))
 
-  // encabezado
-  ctx.fillStyle = MUTED
-  ctx.font = '700 24px Inter, sans-serif'
-  ctx.fillText('#', x0 + 16, y + 36)
-  ctx.fillText('EQUIPO', x0 + 80 + logoCol, y + 36)
-  ctx.textAlign = 'right'
-  ctx.fillText('PJ', x0 + tw - 230, y + 36)
-  ctx.fillText('DG', x0 + tw - 120, y + 36)
-  ctx.fillText('PTS', x0 + tw - 24, y + 36)
-  ctx.textAlign = 'left'
-  y += rowH
+  const out: Blob[] = []
+  let desde = 0
+  for (let p = 0; p < paginas.length; p++) {
+    const { canvas, ctx } = await newCanvas()
+    await drawBase(ctx, t, 'Tabla de posiciones')
+    marcaDePagina(ctx, p, paginas.length)
 
-  top.forEach((r: any, i: number) => {
-    if (i % 2 === 0) {
-      ctx.fillStyle = 'rgba(216,227,251,0.05)'
-      rr(ctx, x0, y, tw, rowH - 6, 12)
-      ctx.fill()
-    }
-    const qualified = i < 2
-    ctx.fillStyle = qualified ? GREEN : MUTED
-    ctx.font = '800 30px Lexend, sans-serif'
-    ctx.fillText(String(r.position ?? i + 1), x0 + 18, y + rowH / 2 + 10)
-
-    if (conLogos) {
-      drawTeamLogo(ctx, logoImgs[i], r.team_name || '', x0 + 76, y + rowH / 2, Math.min(40, rowH - 14))
-    }
     ctx.fillStyle = TEXT
-    ctx.font = '700 30px Lexend, sans-serif'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(
-      ellipsize(ctx, r.team_name || '—', tw - 420 - logoCol),
-      x0 + 80 + logoCol,
-      y + rowH / 2,
-    )
-    ctx.textBaseline = 'alphabetic'
+    ctx.font = '800 40px Lexend, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(title, W / 2, 300)
+    ctx.textAlign = 'left'
 
-    ctx.textAlign = 'right'
+    let y = yTabla
     ctx.fillStyle = MUTED
-    ctx.font = '600 28px Inter, sans-serif'
-    ctx.fillText(String(r.matches_played ?? 0), x0 + tw - 230, y + rowH / 2 + 9)
-    const dg = r.diff ?? 0
-    ctx.fillText((dg > 0 ? '+' : '') + dg, x0 + tw - 120, y + rowH / 2 + 9)
-    ctx.fillStyle = GREEN
-    ctx.font = '800 32px Lexend, sans-serif'
-    ctx.fillText(String(r.league_points ?? 0), x0 + tw - 24, y + rowH / 2 + 10)
+    ctx.font = '700 24px Inter, sans-serif'
+    ctx.fillText('#', x0 + 16, y + 36)
+    ctx.fillText('EQUIPO', x0 + 80 + logoCol, y + 36)
+    ctx.textAlign = 'right'
+    ctx.fillText('PJ', x0 + tw - 230, y + 36)
+    ctx.fillText('DG', x0 + tw - 120, y + 36)
+    ctx.fillText('PTS', x0 + tw - 24, y + 36)
     ctx.textAlign = 'left'
     y += rowH
-  })
 
-  await drawSponsors(ctx, sponsors)
-  return canvasBlob(canvas)
+    paginas[p].forEach((r: any, i: number) => {
+      // g es la posición real en la tabla; i, la fila dentro de esta imagen.
+      const g = desde + i
+      if (i % 2 === 0) {
+        ctx.fillStyle = 'rgba(216,227,251,0.05)'
+        rr(ctx, x0, y, tw, rowH - 6, 12)
+        ctx.fill()
+      }
+      const qualified = g < 2
+      ctx.fillStyle = qualified ? GREEN : MUTED
+      ctx.font = '800 30px Lexend, sans-serif'
+      ctx.fillText(String(r.position ?? g + 1), x0 + 18, y + rowH / 2 + 10)
+
+      if (conLogos) {
+        drawTeamLogo(ctx, logoImgs[g], r.team_name || '', x0 + 76, y + rowH / 2, Math.min(40, rowH - 14))
+      }
+      ctx.fillStyle = TEXT
+      ctx.font = '700 30px Lexend, sans-serif'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(
+        ellipsize(ctx, r.team_name || '—', tw - 420 - logoCol),
+        x0 + 80 + logoCol,
+        y + rowH / 2,
+      )
+      ctx.textBaseline = 'alphabetic'
+
+      ctx.textAlign = 'right'
+      ctx.fillStyle = MUTED
+      ctx.font = '600 28px Inter, sans-serif'
+      ctx.fillText(String(r.matches_played ?? 0), x0 + tw - 230, y + rowH / 2 + 9)
+      const dg = r.diff ?? 0
+      ctx.fillText((dg > 0 ? '+' : '') + dg, x0 + tw - 120, y + rowH / 2 + 9)
+      ctx.fillStyle = GREEN
+      ctx.font = '800 32px Lexend, sans-serif'
+      ctx.fillText(String(r.league_points ?? 0), x0 + tw - 24, y + rowH / 2 + 10)
+      ctx.textAlign = 'left'
+      y += rowH
+    })
+    desde += paginas[p].length
+
+    await drawSponsors(ctx, sponsors)
+    out.push(await canvasBlob(canvas))
+  }
+  return out
 }
 
 // ---- Calendario (por fecha y/o cancha) ----
@@ -424,21 +493,7 @@ export async function makeCalendarImage(
   opts: { dateLabel?: string | null; courtLabel?: string | null },
   sponsors: any[],
   logos?: TeamLogos,
-): Promise<Blob> {
-  const { canvas, ctx } = await newCanvas()
-  await drawBase(ctx, t, 'Calendario')
-
-  ctx.fillStyle = TEXT
-  ctx.font = '800 40px Lexend, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText(ellipsize(ctx, opts.dateLabel || 'Todas las fechas', W - 128), W / 2, 300)
-  if (opts.courtLabel) {
-    ctx.fillStyle = ORANGE
-    ctx.font = '700 26px Inter, sans-serif'
-    ctx.fillText(ellipsize(ctx, `📍 ${opts.courtLabel}`, W - 128), W / 2, 344)
-  }
-  ctx.textAlign = 'left'
-
+): Promise<Blob[]> {
   // Los partidos sin programar van al final, no encabezando la imagen.
   const list = (matches || [])
     .slice()
@@ -450,29 +505,44 @@ export async function makeCalendarImage(
 
   const x0 = 64
   const tw = W - 128
-  let y = opts.courtLabel ? 376 : 340
-  const areaH = H - 170 - y
+  const yTabla = opts.courtLabel ? 376 : 340
+  const areaH = H - 170 - yTabla
+
+  const titulo = (ctx: Ctx) => {
+    ctx.fillStyle = TEXT
+    ctx.font = '800 40px Lexend, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(ellipsize(ctx, opts.dateLabel || 'Todas las fechas', W - 128), W / 2, 300)
+    if (opts.courtLabel) {
+      ctx.fillStyle = ORANGE
+      ctx.font = '700 26px Inter, sans-serif'
+      ctx.fillText(ellipsize(ctx, `📍 ${opts.courtLabel}`, W - 128), W / 2, 344)
+    }
+    ctx.textAlign = 'left'
+  }
 
   if (!list.length) {
+    const { canvas, ctx } = await newCanvas()
+    await drawBase(ctx, t, 'Calendario')
+    titulo(ctx)
     ctx.fillStyle = MUTED
     ctx.font = '600 30px Lexend, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Sin partidos programados', W / 2, y + 80)
+    ctx.fillText('Sin partidos programados', W / 2, yTabla + 80)
     ctx.textAlign = 'left'
     await drawSponsors(ctx, sponsors)
-    return canvasBlob(canvas)
+    return [await canvasBlob(canvas)]
   }
 
-  const maxRows = Math.max(4, Math.floor(areaH / 60))
-  const shown = list.length > maxRows ? list.slice(0, maxRows - 1) : list
-  const footer = list.length - shown.length
-  const rowH = Math.min(92, areaH / (shown.length + (footer ? 1 : 0)))
+  const paginas = paginar(list, filasQueCaben(areaH, 60, 3))
+  const mayor = Math.max(1, ...paginas.map((p) => p.length))
+  const rowH = Math.min(92, areaH / mayor)
 
   // Logos junto al nombre: el local queda a la izquierda del centro, así que
   // su logo se antepone al nombre; el visitante queda a la derecha y su logo
-  // va después del nombre.
+  // va después del nombre. Se cargan una sola vez para todas las páginas.
   const logoImgs = await Promise.all(
-    shown.map((m) =>
+    list.map((m) =>
       Promise.all([loadImg(logos?.[m.home_team_id]), loadImg(logos?.[m.away_team_id])]),
     ),
   )
@@ -485,82 +555,87 @@ export async function makeCalendarImage(
   const cxm = x0 + timeW + nameArea / 2
   const nameMax = nameArea / 2 - 70 - (conLogos ? logoSize + 10 : 0)
 
-  shown.forEach((m, i) => {
-    if (i % 2 === 0) {
-      ctx.fillStyle = 'rgba(216,227,251,0.05)'
-      rr(ctx, x0, y + 2, tw, rowH - 6, 12)
-      ctx.fill()
-    }
-    const cy = y + rowH / 2
-    ctx.textBaseline = 'middle'
+  const out: Blob[] = []
+  let desde = 0
+  for (let p = 0; p < paginas.length; p++) {
+    const { canvas, ctx } = await newCanvas()
+    await drawBase(ctx, t, 'Calendario')
+    marcaDePagina(ctx, p, paginas.length)
+    titulo(ctx)
 
-    // hora (y fecha si abarca varias)
-    const s = m.scheduled_start ? String(m.scheduled_start) : ''
-    const hora = s ? s.slice(11, 16) : '--:--'
-    const cuando = multiDate && s ? `${s.slice(8, 10)}/${s.slice(5, 7)} ${hora}` : hora
-    ctx.fillStyle = GREEN
-    ctx.font = '800 26px Lexend, sans-serif'
-    ctx.textAlign = 'left'
-    ctx.fillText(cuando, x0 + 12, cy)
-
-    // marcador o "vs"
-    const finished = m.status === 'finished'
-    const live = m.status === 'live'
-    ctx.textAlign = 'center'
-    ctx.fillStyle = finished ? GREEN : live ? ORANGE : MUTED
-    ctx.font = `800 ${finished || live ? 30 : 24}px Lexend, sans-serif`
-    ctx.fillText(finished || live ? `${m.home_score ?? 0} - ${m.away_score ?? 0}` : 'vs', cxm, cy)
-
-    // equipos (con su logo si lo tienen)
-    ctx.fillStyle = TEXT
-    ctx.font = '700 28px Lexend, sans-serif'
-    const homeName = ellipsize(ctx, m.home_team_name || 'Por definir', nameMax)
-    const awayName = ellipsize(ctx, m.away_team_name || 'Por definir', nameMax)
-    ctx.textAlign = 'right'
-    ctx.fillText(homeName, cxm - 58, cy)
-    ctx.textAlign = 'left'
-    ctx.fillText(awayName, cxm + 58, cy)
-    const [homeLogo, awayLogo] = logoImgs[i]
-    if (homeLogo) {
-      ctx.font = '700 28px Lexend, sans-serif'
-      const wName = ctx.measureText(homeName).width
-      drawTeamLogo(ctx, homeLogo, m.home_team_name || '', cxm - 58 - wName - 10 - logoSize, cy, logoSize)
-    }
-    if (awayLogo) {
-      ctx.font = '700 28px Lexend, sans-serif'
-      const wName = ctx.measureText(awayName).width
-      drawTeamLogo(ctx, awayLogo, m.away_team_name || '', cxm + 58 + wName + 10, cy, logoSize)
-    }
-    // drawTeamLogo restablece la baseline; la fila sigue dibujando centrada.
-    ctx.textBaseline = 'middle'
-    ctx.textAlign = 'left'
-    ctx.fillStyle = TEXT
-
-    // cancha (si no se filtró por una sola)
-    if (showCourt) {
-      const cancha = [m.court_name, m.venue_name].filter(Boolean).join(' · ')
-      if (cancha) {
-        ctx.fillStyle = MUTED
-        ctx.font = '600 20px Inter, sans-serif'
-        ctx.textAlign = 'right'
-        ctx.fillText(ellipsize(ctx, cancha, courtW - 16), x0 + tw - 12, cy)
+    let y = yTabla
+    paginas[p].forEach((m: any, i: number) => {
+      const g = desde + i
+      if (i % 2 === 0) {
+        ctx.fillStyle = 'rgba(216,227,251,0.05)'
+        rr(ctx, x0, y + 2, tw, rowH - 6, 12)
+        ctx.fill()
       }
-    }
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'alphabetic'
-    y += rowH
-  })
+      const cy = y + rowH / 2
+      ctx.textBaseline = 'middle'
 
-  if (footer > 0) {
-    ctx.fillStyle = MUTED
-    ctx.font = '600 24px Inter, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText(`+ ${footer} partido${footer > 1 ? 's' : ''} más`, W / 2, y + rowH / 2 + 8)
-    ctx.textAlign = 'left'
+      // hora (y fecha si abarca varias)
+      const s = m.scheduled_start ? String(m.scheduled_start) : ''
+      const hora = s ? s.slice(11, 16) : '--:--'
+      const cuando = multiDate && s ? `${s.slice(8, 10)}/${s.slice(5, 7)} ${hora}` : hora
+      ctx.fillStyle = GREEN
+      ctx.font = '800 26px Lexend, sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText(cuando, x0 + 12, cy)
+
+      // marcador o "vs"
+      const finished = m.status === 'finished'
+      const live = m.status === 'live'
+      ctx.textAlign = 'center'
+      ctx.fillStyle = finished ? GREEN : live ? ORANGE : MUTED
+      ctx.font = `800 ${finished || live ? 30 : 24}px Lexend, sans-serif`
+      ctx.fillText(finished || live ? `${m.home_score ?? 0} - ${m.away_score ?? 0}` : 'vs', cxm, cy)
+
+      // equipos (con su logo si lo tienen)
+      ctx.fillStyle = TEXT
+      ctx.font = '700 28px Lexend, sans-serif'
+      const homeName = ellipsize(ctx, m.home_team_name || 'Por definir', nameMax)
+      const awayName = ellipsize(ctx, m.away_team_name || 'Por definir', nameMax)
+      ctx.textAlign = 'right'
+      ctx.fillText(homeName, cxm - 58, cy)
+      ctx.textAlign = 'left'
+      ctx.fillText(awayName, cxm + 58, cy)
+      const [homeLogo, awayLogo] = logoImgs[g]
+      if (homeLogo) {
+        ctx.font = '700 28px Lexend, sans-serif'
+        const wName = ctx.measureText(homeName).width
+        drawTeamLogo(ctx, homeLogo, m.home_team_name || '', cxm - 58 - wName - 10 - logoSize, cy, logoSize)
+      }
+      if (awayLogo) {
+        ctx.font = '700 28px Lexend, sans-serif'
+        const wName = ctx.measureText(awayName).width
+        drawTeamLogo(ctx, awayLogo, m.away_team_name || '', cxm + 58 + wName + 10, cy, logoSize)
+      }
+      // drawTeamLogo restablece la baseline; la fila sigue dibujando centrada.
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      ctx.fillStyle = TEXT
+
+      // cancha (si no se filtró por una sola)
+      if (showCourt) {
+        const cancha = [m.court_name, m.venue_name].filter(Boolean).join(' · ')
+        if (cancha) {
+          ctx.fillStyle = MUTED
+          ctx.font = '600 20px Inter, sans-serif'
+          ctx.textAlign = 'right'
+          ctx.fillText(ellipsize(ctx, cancha, courtW - 16), x0 + tw - 12, cy)
+        }
+      }
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'alphabetic'
+      y += rowH
+    })
+    desde += paginas[p].length
+
+    await drawSponsors(ctx, sponsors)
+    out.push(await canvasBlob(canvas))
   }
-
-  await drawSponsors(ctx, sponsors)
-  return canvasBlob(canvas)
+  return out
 }
 
 // ---- Cuadros de estadísticas (tabla genérica) ----
@@ -585,21 +660,8 @@ export async function makeStatsImage(
   cols: TableCol[],
   rows: any[],
   sponsors: any[],
-): Promise<Blob> {
-  const { canvas, ctx } = await newCanvas()
-  await drawBase(ctx, t, 'Estadísticas')
-
-  ctx.textAlign = 'center'
-  ctx.fillStyle = TEXT
-  ctx.font = '800 40px Lexend, sans-serif'
-  ctx.fillText(ellipsize(ctx, title, W - 128), W / 2, 300)
-  if (subtitle) {
-    ctx.fillStyle = MUTED
-    ctx.font = '600 24px Inter, sans-serif'
-    ctx.fillText(ellipsize(ctx, subtitle, W - 128), W / 2, 340)
-  }
-  ctx.textAlign = 'left'
-
+): Promise<Blob[]> {
+  const filas = rows || []
   const x0 = 64
   const tw = W - 128
   const gap = 18
@@ -612,65 +674,83 @@ export async function makeStatsImage(
     acc += (c.width || flexW) + gap
   }
 
-  const top = (rows || []).slice(0, 12)
-  let y = subtitle ? 372 : 348
-  const rowH = Math.min(56, (H - 170 - y - 44) / Math.max(top.length, 1))
+  const yTabla = subtitle ? 372 : 348
+  const areaH = H - 170 - yTabla - 44
+  const paginas = paginar(filas, filasQueCaben(areaH, 41))
+  const mayor = Math.max(1, ...paginas.map((p) => p.length))
+  const rowH = Math.min(56, areaH / mayor)
 
-  // encabezados
-  ctx.fillStyle = MUTED
-  ctx.font = '700 22px Inter, sans-serif'
-  cols.forEach((c, ci) => {
-    const cwCol = c.width || flexW
-    ctx.textAlign = c.align === 'right' ? 'right' : 'left'
-    ctx.fillText(
-      ellipsize(ctx, c.header.toUpperCase(), cwCol),
-      c.align === 'right' ? xs[ci] + cwCol : xs[ci],
-      y + 26,
-    )
-  })
-  ctx.textAlign = 'left'
-  y += 44
+  const out: Blob[] = []
+  let desde = 0
+  for (let p = 0; p < paginas.length; p++) {
+    const { canvas, ctx } = await newCanvas()
+    await drawBase(ctx, t, 'Estadísticas')
+    marcaDePagina(ctx, p, paginas.length)
 
-  top.forEach((r, i) => {
-    if (i % 2 === 0) {
-      ctx.fillStyle = 'rgba(216,227,251,0.05)'
-      rr(ctx, x0 - 12, y, tw + 24, rowH - 5, 10)
-      ctx.fill()
+    ctx.textAlign = 'center'
+    ctx.fillStyle = TEXT
+    ctx.font = '800 40px Lexend, sans-serif'
+    ctx.fillText(ellipsize(ctx, title, W - 128), W / 2, 300)
+    if (subtitle) {
+      ctx.fillStyle = MUTED
+      ctx.font = '600 24px Inter, sans-serif'
+      ctx.fillText(ellipsize(ctx, subtitle, W - 128), W / 2, 340)
     }
-    ctx.textBaseline = 'middle'
-    const cy = y + (rowH - 5) / 2
+    ctx.textAlign = 'left'
+
+    let y = yTabla
+    ctx.fillStyle = MUTED
+    ctx.font = '700 22px Inter, sans-serif'
     cols.forEach((c, ci) => {
       const cwCol = c.width || flexW
-      if (c.accent) {
-        ctx.fillStyle = GREEN
-        ctx.font = '800 30px Lexend, sans-serif'
-      } else if (!c.width) {
-        // la columna flexible es el nombre principal del cuadro
-        ctx.fillStyle = TEXT
-        ctx.font = '700 28px Lexend, sans-serif'
-      } else {
-        ctx.fillStyle = MUTED
-        ctx.font = '600 26px Inter, sans-serif'
-      }
-      const val = String(c.cell(r, i) ?? '')
       ctx.textAlign = c.align === 'right' ? 'right' : 'left'
-      ctx.fillText(ellipsize(ctx, val, cwCol), c.align === 'right' ? xs[ci] + cwCol : xs[ci], cy)
+      ctx.fillText(
+        ellipsize(ctx, c.header.toUpperCase(), cwCol),
+        c.align === 'right' ? xs[ci] + cwCol : xs[ci],
+        y + 26,
+      )
     })
-    ctx.textBaseline = 'alphabetic'
     ctx.textAlign = 'left'
-    y += rowH
-  })
+    y += 44
 
-  if ((rows || []).length > top.length) {
-    ctx.fillStyle = MUTED
-    ctx.font = '600 22px Inter, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText(`+ ${rows.length - top.length} más`, W / 2, y + 28)
-    ctx.textAlign = 'left'
+    paginas[p].forEach((r: any, i: number) => {
+      // Al pintar la celda se pasa la posición real (g), no la de la página:
+      // la columna "#" de goleadores sigue numerando 11, 12, 13…
+      const g = desde + i
+      if (i % 2 === 0) {
+        ctx.fillStyle = 'rgba(216,227,251,0.05)'
+        rr(ctx, x0 - 12, y, tw + 24, rowH - 5, 10)
+        ctx.fill()
+      }
+      ctx.textBaseline = 'middle'
+      const cy = y + (rowH - 5) / 2
+      cols.forEach((c, ci) => {
+        const cwCol = c.width || flexW
+        if (c.accent) {
+          ctx.fillStyle = GREEN
+          ctx.font = '800 30px Lexend, sans-serif'
+        } else if (!c.width) {
+          // la columna flexible es el nombre principal del cuadro
+          ctx.fillStyle = TEXT
+          ctx.font = '700 28px Lexend, sans-serif'
+        } else {
+          ctx.fillStyle = MUTED
+          ctx.font = '600 26px Inter, sans-serif'
+        }
+        const val = String(c.cell(r, g) ?? '')
+        ctx.textAlign = c.align === 'right' ? 'right' : 'left'
+        ctx.fillText(ellipsize(ctx, val, cwCol), c.align === 'right' ? xs[ci] + cwCol : xs[ci], cy)
+      })
+      ctx.textBaseline = 'alphabetic'
+      ctx.textAlign = 'left'
+      y += rowH
+    })
+    desde += paginas[p].length
+
+    await drawSponsors(ctx, sponsors)
+    out.push(await canvasBlob(canvas))
   }
-
-  await drawSponsors(ctx, sponsors)
-  return canvasBlob(canvas)
+  return out
 }
 
 // ---- Bracket ----
@@ -877,4 +957,39 @@ export function downloadImage(blob: Blob, filename: string) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
+// ---- Varias imágenes de una lista paginada ----
+
+/** Nombre de archivo por página: sin sufijo si es una sola. */
+function nombrePagina(base: string, i: number, total: number): string {
+  return total > 1 ? `${base}-${i + 1}de${total}.png` : `${base}.png`
+}
+
+/** Comparte el carrusel completo: si el navegador acepta varios archivos van
+ *  todos en una publicación; si no, se descargan uno por uno. */
+export async function shareImages(blobs: Blob[], base: string, text: string) {
+  const lista = blobs || []
+  if (!lista.length) return
+  if (lista.length === 1) return shareImage(lista[0], nombrePagina(base, 0, 1), text)
+  const files = lista.map((b, i) => new File([b], nombrePagina(base, i, lista.length), { type: 'image/png' }))
+  const nav = navigator as any
+  if (nav.canShare && nav.canShare({ files })) {
+    try {
+      await nav.share({ files, text })
+      return
+    } catch {
+      /* el usuario canceló: caemos a descarga */
+    }
+  }
+  downloadImages(lista, base)
+}
+
+/** Descarga todas las páginas. Se escalonan porque el navegador bloquea la
+ *  ráfaga de descargas si salen todas en el mismo instante. */
+export function downloadImages(blobs: Blob[], base: string) {
+  const lista = blobs || []
+  lista.forEach((b, i) =>
+    setTimeout(() => downloadImage(b, nombrePagina(base, i, lista.length)), i * 350),
+  )
 }

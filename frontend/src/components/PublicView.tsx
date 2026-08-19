@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { exportImagePDF, exportStandingsPDF } from '../utils/pdf'
 import {
-  downloadImage,
+  downloadImages,
   makeBracketImage,
   makeCalendarImage,
   makeMatchImage,
   makeStandingsImage,
   makeStatsImage,
-  shareImage,
+  shareImages,
 } from '../utils/socialImage'
 import type { TableCol } from '../utils/socialImage'
 import QRCode from 'qrcode'
@@ -175,7 +175,12 @@ export default function PublicView({
   const [fairPlay, setFairPlay] = useState<any[]>([])
   const [valla, setValla] = useState<any[]>([])
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
-  const [shareImg, setShareImg] = useState<{ url: string; blob: Blob; label: string } | null>(null)
+  const [shareImg, setShareImg] = useState<{
+    urls: string[]
+    blobs: Blob[]
+    label: string
+    i: number
+  } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   // team_id → logo_url del torneo abierto: alimenta las tablas en pantalla y
   // las imágenes de posiciones y calendario.
@@ -190,11 +195,15 @@ export default function PublicView({
   const [calCourt, setCalCourt] = useState<string>('todas')
   const [qr, setQr] = useState<{ data: string; link: string } | null>(null)
 
-  async function genShare(label: string, make: () => Promise<Blob>) {
+  // Los cuadros largos (calendario, posiciones, goleadores) vuelven repartidos
+  // en varias imágenes; el resto devuelve una sola y se trata igual.
+  async function genShare(label: string, make: () => Promise<Blob | Blob[]>) {
     setShareBusy(true)
     try {
-      const blob = await make()
-      setShareImg({ url: URL.createObjectURL(blob), blob, label })
+      const hecho = await make()
+      const blobs = Array.isArray(hecho) ? hecho : [hecho]
+      if (!blobs.length) return
+      setShareImg({ blobs, urls: blobs.map((b) => URL.createObjectURL(b)), label, i: 0 })
     } catch {
       /* no se pudo generar la imagen */
     } finally {
@@ -202,8 +211,13 @@ export default function PublicView({
     }
   }
   function closeShare() {
-    if (shareImg) URL.revokeObjectURL(shareImg.url)
+    shareImg?.urls.forEach((u) => URL.revokeObjectURL(u))
     setShareImg(null)
+  }
+  function pasarImagen(paso: number) {
+    setShareImg((s) =>
+      s ? { ...s, i: (s.i + paso + s.urls.length) % s.urls.length } : s,
+    )
   }
   async function showQR() {
     if (!selected) return
@@ -586,9 +600,9 @@ export default function PublicView({
                               <button
                                 onClick={async () => {
                                   try {
-                                    downloadImage(
+                                    downloadImages(
                                       await makeStandingsImage(selected, group, rows, sponsors, teamLogos),
-                                      `posiciones-${selected.name}${group !== 'Sin Grupo' ? `-grupo-${group}` : ''}.png`,
+                                      `posiciones-${selected.name}${group !== 'Sin Grupo' ? `-grupo-${group}` : ''}`,
                                     )
                                   } catch {
                                     /* no se pudo generar la imagen */
@@ -1465,17 +1479,50 @@ export default function PublicView({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-display font-semibold">Imagen para redes</h3>
+              <h3 className="font-display font-semibold">
+                {shareImg.urls.length > 1 ? `Imágenes para redes (${shareImg.urls.length})` : 'Imagen para redes'}
+              </h3>
               <button onClick={closeShare} className="text-on-surface-variant hover:text-on-surface">
                 <Icon name="close" />
               </button>
             </div>
-            <img src={shareImg.url} alt="" className="w-full rounded-xl border border-outline-variant/40" />
+            <div className="relative">
+              <img
+                src={shareImg.urls[shareImg.i]}
+                alt=""
+                className="w-full rounded-xl border border-outline-variant/40"
+              />
+              {shareImg.urls.length > 1 && (
+                <>
+                  <button
+                    onClick={() => pasarImagen(-1)}
+                    aria-label="Imagen anterior"
+                    className="absolute left-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+                  >
+                    <Icon name="chevron_left" />
+                  </button>
+                  <button
+                    onClick={() => pasarImagen(1)}
+                    aria-label="Imagen siguiente"
+                    className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+                  >
+                    <Icon name="chevron_right" />
+                  </button>
+                  <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-2.5 py-1 text-xs font-semibold text-white">
+                    {shareImg.i + 1} / {shareImg.urls.length}
+                  </span>
+                </>
+              )}
+            </div>
             <div className="mt-4 flex gap-2">
               <Button
                 className="flex-1"
                 onClick={() =>
-                  shareImage(shareImg.blob, `championhive-${shareImg.label}.png`, selected?.name || 'Champion Hive')
+                  shareImages(
+                    shareImg.blobs,
+                    `championhive-${shareImg.label}`,
+                    selected?.name || 'Champion Hive',
+                  )
                 }
               >
                 <Icon name="share" /> Compartir
@@ -1483,13 +1530,15 @@ export default function PublicView({
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => downloadImage(shareImg.blob, `championhive-${shareImg.label}.png`)}
+                onClick={() => downloadImages(shareImg.blobs, `championhive-${shareImg.label}`)}
               >
-                <Icon name="download" /> Descargar
+                <Icon name="download" /> {shareImg.urls.length > 1 ? 'Descargar todas' : 'Descargar'}
               </Button>
             </div>
             <p className="mt-2 text-center text-xs text-on-surface-variant">
-              «Compartir» abre WhatsApp/Instagram en el celular.
+              {shareImg.urls.length > 1
+                ? 'La lista no cabía en una sola imagen: se reparte en varias, para subirlas como carrusel.'
+                : '«Compartir» abre WhatsApp/Instagram en el celular.'}
             </p>
           </div>
         </div>
