@@ -74,13 +74,19 @@ export default function RefereeView() {
   const [minute, setMinute] = useState('')
   const [running, setRunning] = useState(false)
   const [elapsed, setElapsed] = useState(0)
-  const [teamColors, setTeamColors] = useState<Record<string, string[]>>({})
+  const [equipos, setEquipos] = useState<Record<string, any>>({})
   const [msg, setMsg] = useState<string | null>(null)
+  const [msgError, setMsgError] = useState(false)
+  const [acta, setActa] = useState(false)
+  // Corrección de eventos: cuál se está editando y cuál espera confirmación de
+  // borrado (dos toques, que en cancha el dedo se va).
+  const [editing, setEditing] = useState<any>(null)
+  const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   // Por defecto el árbitro ve solo los partidos que va a pitar; puede destildar
   // para consultar el resto del campeonato (que ve, pero no puede cargar).
   const [mineOnly, setMineOnly] = useState(true)
-  const { userId } = useAppSelector((s) => s.auth)
+  const { userId, role } = useAppSelector((s) => s.auth)
 
   useEffect(() => {
     api.getTournaments().then(setTournaments).finally(() => setLoading(false))
@@ -106,17 +112,22 @@ export default function RefereeView() {
     return () => clearInterval(id)
   }, [match, stage])
 
+  function aviso(texto: string | null, error = false) {
+    setMsg(texto)
+    setMsgError(error)
+  }
+
   async function pickTournament(t: any) {
     setTournament(t)
     setStage(null)
     setMatch(null)
     setStages(await api.getStages(t.id))
     const teams = await api.getTeams(t.id).catch(() => [])
-    setTeamColors(
+    setEquipos(
       Object.fromEntries(
         teams.map((x: any) => [
           String(x.id),
-          x.colors && x.colors.length ? x.colors : x.color ? [x.color] : [],
+          { ...x, colors: x.colors?.length ? x.colors : x.color ? [x.color] : [] },
         ]),
       ),
     )
@@ -130,7 +141,9 @@ export default function RefereeView() {
     setMatch(m)
     setHome(m.home_score || 0)
     setAway(m.away_score || 0)
-    setMsg(null)
+    aviso(null)
+    setEditing(null)
+    setConfirmDel(null)
     setMinute('')
     setRunning(false)
     setElapsed(0)
@@ -145,7 +158,7 @@ export default function RefereeView() {
   }
   async function persist(status: string) {
     await api.updateMatchStatus(match.id, { status, home_score: home, away_score: away })
-    setMsg(`Marcador guardado (${STATUS_LABEL[status]})`)
+    aviso(`Marcador guardado (${STATUS_LABEL[status]})`)
     if (stage) setMatches(await api.stageMatches(stage.id))
   }
   async function goal(side: 'home' | 'away') {
@@ -185,6 +198,75 @@ export default function RefereeView() {
     await refreshEvents()
   }
 
+  // El marcador no se deriva de los eventos (el árbitro también lo mueve a
+  // mano), así que corregir o borrar un gol tiene que mover el número igual que
+  // lo movió el botón "Gol" al cargarlo. Devuelve si lo tocó.
+  function ajustarMarcador(antes: any, despues: any | null): boolean {
+    const lado = (ev: any) => (ev?.event_type === 'GOL' ? ev.event_data?.team || null : null)
+    const sale = lado(antes)
+    const entra = lado(despues)
+    if (sale === entra) return false
+    if (sale === 'home') setHome((h) => Math.max(0, h - 1))
+    if (sale === 'away') setAway((a) => Math.max(0, a - 1))
+    if (entra === 'home') setHome((h) => h + 1)
+    if (entra === 'away') setAway((a) => a + 1)
+    return true
+  }
+
+  async function saveEvent(ev: any, cambios: any) {
+    try {
+      await api.updateEvent(ev.id, cambios)
+      const movio = ajustarMarcador(ev, { ...ev, ...cambios })
+      setEditing(null)
+      await refreshEvents()
+      aviso(movio ? 'Evento corregido — el marcador cambió, recuerda guardar' : 'Evento corregido')
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo corregir el evento', true)
+      // Volver a leer deja el registro con lo que el servidor tiene de verdad.
+      await refreshEvents().catch(() => {})
+    }
+  }
+
+  async function removeEvent(ev: any) {
+    try {
+      await api.deleteEvent(ev.id)
+      const movio = ajustarMarcador(ev, null)
+      setConfirmDel(null)
+      await refreshEvents()
+      aviso(movio ? 'Evento eliminado — el marcador cambió, recuerda guardar' : 'Evento eliminado')
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo eliminar el evento', true)
+      // Volver a leer deja el registro con lo que el servidor tiene de verdad.
+      await refreshEvents().catch(() => {})
+    }
+  }
+
+  // El acta trae escudos y QR (red), así que puede tardar un segundo: se
+  // bloquea el botón mientras se arma y se avisa si algo falla.
+  async function descargarActa() {
+    setActa(true)
+    try {
+      await exportMatchReportPDF(
+        { ...match, home_score: home, away_score: away },
+        events,
+        playerName,
+        {
+          tournament,
+          tournamentName: tournament?.name,
+          homePlayers,
+          awayPlayers,
+          homeTeam: equipos[String(match.home_team_id)],
+          awayTeam: equipos[String(match.away_team_id)],
+          refereeName: match.referee_name,
+        },
+      )
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo generar el acta', true)
+    } finally {
+      setActa(false)
+    }
+  }
+
   function playerName(id: string | null) {
     if (!id) return ''
     const p = [...homePlayers, ...awayPlayers].find((x) => x.id === id)
@@ -192,6 +274,15 @@ export default function RefereeView() {
   }
 
   const cards = sportOf(tournament?.sport_type).events
+  // Tipos que se pueden elegir al corregir. Si el evento cargado es de un tipo
+  // que la disciplina ya no ofrece, se suma para no cambiárselo sin querer.
+  const eventTypes = [
+    { type: 'GOL', label: 'Gol' },
+    ...cards.map((c) => ({ type: c.type, label: c.label })),
+    { type: 'CAMBIO', label: 'Cambio' },
+  ]
+  if (editing && !eventTypes.some((t) => t.type === editing.event_type))
+    eventTypes.push({ type: editing.event_type, label: editing.event_type })
   const shownMatches =
     mineOnly && userId ? matches.filter((m: any) => m.referee_id === userId) : matches
 
@@ -204,6 +295,9 @@ export default function RefereeView() {
 
   if (match) {
     const isLive = match.status === 'live'
+    // Corregir un evento tiene el mismo alcance que cargarlo: el árbitro
+    // asignado y el dueño del torneo. No ofrecer lo que va a devolver 403.
+    const puedeCorregir = role !== 'referee' || match.referee_id === userId
     const meta = [match.stage_name, match.group_name ? `Grupo ${match.group_name}` : null]
       .filter(Boolean)
       .join(' · ')
@@ -289,7 +383,7 @@ export default function RefereeView() {
               <SideColumn
                 name={match.home_team_name}
                 score={home}
-                colors={teamColors[String(match.home_team_id)]}
+                colors={equipos[String(match.home_team_id)]?.colors}
                 cards={cards}
                 players={homePlayers}
                 selected={selHome}
@@ -303,7 +397,7 @@ export default function RefereeView() {
               <SideColumn
                 name={match.away_team_name}
                 score={away}
-                colors={teamColors[String(match.away_team_id)]}
+                colors={equipos[String(match.away_team_id)]?.colors}
                 cards={cards}
                 players={awayPlayers}
                 selected={selAway}
@@ -327,7 +421,13 @@ export default function RefereeView() {
               </div>
             </div>
 
-            {msg && <p className="mt-4 text-center text-sm text-secondary">{msg}</p>}
+            {msg && (
+              <p
+                className={`mt-4 text-center text-sm ${msgError ? 'text-red-400' : 'text-secondary'}`}
+              >
+                {msg}
+              </p>
+            )}
 
             <div className="mt-6 flex flex-wrap justify-center gap-2 border-t border-outline-variant/30 pt-5">
               <Button variant="outline" onClick={() => persist('live')}>
@@ -339,18 +439,8 @@ export default function RefereeView() {
               <Button onClick={() => persist('finished')}>
                 <Icon name="flag" /> Finalizar
               </Button>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  exportMatchReportPDF(
-                    { ...match, home_score: home, away_score: away },
-                    events,
-                    playerName,
-                    { tournamentName: tournament?.name, homePlayers, awayPlayers },
-                  )
-                }
-              >
-                <Icon name="picture_as_pdf" /> Acta
+              <Button variant="ghost" onClick={descargarActa} disabled={acta}>
+                <Icon name="picture_as_pdf" /> {acta ? 'Generando…' : 'Acta'}
               </Button>
             </div>
           </Card>
@@ -374,6 +464,24 @@ export default function RefereeView() {
                         ? match.away_team_name
                         : ''
                   const min = ev.event_data?.minute
+                  if (editing?.id === ev.id)
+                    return (
+                      <li
+                        key={ev.id}
+                        className={`rounded-lg border-l-2 bg-surface-container-high px-3 py-2 ${st.border}`}
+                      >
+                        <EventEditor
+                          event={ev}
+                          types={eventTypes}
+                          homeName={match.home_team_name}
+                          awayName={match.away_team_name}
+                          homePlayers={homePlayers}
+                          awayPlayers={awayPlayers}
+                          onCancel={() => setEditing(null)}
+                          onSave={(cambios) => saveEvent(ev, cambios)}
+                        />
+                      </li>
+                    )
                   return (
                     <li
                       key={ev.id}
@@ -383,7 +491,7 @@ export default function RefereeView() {
                         {min != null ? `${min}'` : '—'}
                       </span>
                       <Icon name={st.icon} className={`mt-0.5 text-base ${st.tone}`} />
-                      <span className="min-w-0">
+                      <span className="min-w-0 flex-1">
                         <span className={`font-semibold ${st.tone}`}>{ev.event_type}</span>
                         <span className="block truncate text-xs text-on-surface-variant">
                           {teamName}
@@ -394,6 +502,46 @@ export default function RefereeView() {
                               : ''}
                         </span>
                       </span>
+                      {puedeCorregir && (
+                        <span className="flex shrink-0 items-center gap-0.5">
+                          {confirmDel === ev.id ? (
+                            <>
+                              <button
+                                onClick={() => removeEvent(ev)}
+                                className="rounded px-1.5 py-0.5 text-[11px] font-bold text-red-400 hover:bg-red-500/15"
+                              >
+                                Borrar
+                              </button>
+                              <button
+                                onClick={() => setConfirmDel(null)}
+                                className="rounded px-1.5 py-0.5 text-[11px] text-on-surface-variant hover:bg-surface-bright"
+                              >
+                                No
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setConfirmDel(null)
+                                  setEditing(ev)
+                                }}
+                                title="Corregir"
+                                className="grid h-6 w-6 place-items-center rounded-full text-on-surface-variant hover:bg-surface-bright hover:text-on-surface"
+                              >
+                                <Icon name="edit" className="text-sm" />
+                              </button>
+                              <button
+                                onClick={() => setConfirmDel(ev.id)}
+                                title="Eliminar"
+                                className="grid h-6 w-6 place-items-center rounded-full text-on-surface-variant hover:bg-red-500/15 hover:text-red-400"
+                              >
+                                <Icon name="delete" className="text-sm" />
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      )}
                     </li>
                   )
                 })}
@@ -457,7 +605,7 @@ export default function RefereeView() {
                         <span className="flex flex-1 items-center gap-1.5 truncate font-medium">
                           <span
                             className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: (teamColors[String(m.home_team_id)] || [])[0] || '#64748b' }}
+                            style={{ background: (equipos[String(m.home_team_id)]?.colors || [])[0] || '#64748b' }}
                           />
                           {m.home_team_name || 'Por definir'}
                         </span>
@@ -468,7 +616,7 @@ export default function RefereeView() {
                           {m.away_team_name || 'Por definir'}
                           <span
                             className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: (teamColors[String(m.away_team_id)] || [])[0] || '#64748b' }}
+                            style={{ background: (equipos[String(m.away_team_id)]?.colors || [])[0] || '#64748b' }}
                           />
                         </span>
                       </div>
@@ -583,6 +731,132 @@ function SideColumn({
             {c.short}
           </button>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/** Corrección de un evento ya cargado: equipo, tipo, jugador y minuto.
+ *  Manda `event_data` completo para que la mezcla del backend deje el evento
+ *  exactamente como se ve aquí (incluido limpiar el "sale" de un cambio que
+ *  dejó de serlo). */
+function EventEditor({
+  event,
+  types,
+  homeName,
+  awayName,
+  homePlayers,
+  awayPlayers,
+  onSave,
+  onCancel,
+}: {
+  event: any
+  types: { type: string; label: string }[]
+  homeName: string | null
+  awayName: string | null
+  homePlayers: any[]
+  awayPlayers: any[]
+  onSave: (cambios: any) => void
+  onCancel: () => void
+}) {
+  const [team, setTeam] = useState<string>(event.event_data?.team || 'home')
+  const [tipo, setTipo] = useState<string>(event.event_type)
+  const [playerId, setPlayerId] = useState<string>(event.player_id || '')
+  const [playerOut, setPlayerOut] = useState<string>(event.event_data?.player_out || '')
+  const [minuto, setMinuto] = useState<string>(
+    event.event_data?.minute != null ? String(event.event_data.minute) : '',
+  )
+  const isSub = tipo === 'CAMBIO'
+  const players = team === 'away' ? awayPlayers : homePlayers
+  const sel =
+    'min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-low px-1.5 py-1 text-xs text-on-surface'
+
+  const opciones = players.map((p) => (
+    <option key={p.id} value={p.id}>
+      {p.number != null ? `#${p.number} ` : ''}
+      {p.name}
+    </option>
+  ))
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-1.5">
+        <select
+          value={team}
+          onChange={(e) => {
+            // Al cambiar de equipo, el jugador elegido ya no juega ahí.
+            setTeam(e.target.value)
+            setPlayerId('')
+            setPlayerOut('')
+          }}
+          className={sel}
+        >
+          <option value="home">{homeName || 'Local'}</option>
+          <option value="away">{awayName || 'Visitante'}</option>
+        </select>
+        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={sel}>
+          {types.map((t) => (
+            <option key={t.type} value={t.type}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <label className="flex shrink-0 items-center gap-0.5 rounded border border-outline-variant bg-surface-container-low px-1.5 text-xs">
+          <input
+            type="number"
+            min={0}
+            value={minuto}
+            onChange={(e) => setMinuto(e.target.value)}
+            placeholder="min"
+            className="w-9 bg-transparent text-center text-on-surface focus:outline-none"
+          />
+          <span className="text-on-surface-variant">'</span>
+        </label>
+      </div>
+      <div className="flex gap-1.5">
+        <select
+          value={playerId}
+          onChange={(e) => setPlayerId(e.target.value)}
+          className={sel}
+        >
+          <option value="">{isSub ? 'Entra…' : 'Sin jugador'}</option>
+          {opciones}
+        </select>
+        {isSub && (
+          <select
+            value={playerOut}
+            onChange={(e) => setPlayerOut(e.target.value)}
+            className={sel}
+          >
+            <option value="">Sale…</option>
+            {opciones}
+          </select>
+        )}
+      </div>
+      <div className="flex justify-end gap-1.5">
+        <button
+          onClick={onCancel}
+          className="rounded px-2 py-1 text-xs text-on-surface-variant hover:bg-surface-bright"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={() =>
+            onSave({
+              player_id: playerId || null,
+              event_type: tipo,
+              event_data: {
+                team,
+                kind: tipo === 'GOL' ? 'goal' : isSub ? 'sub' : 'card',
+                minute: minuto === '' ? null : Number(minuto),
+                player_out: isSub ? playerOut || null : null,
+              },
+            })
+          }
+          className="rounded bg-secondary px-2 py-1 text-xs font-semibold text-on-secondary"
+        >
+          Guardar
+        </button>
       </div>
     </div>
   )

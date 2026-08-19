@@ -72,17 +72,42 @@ export function shiftOutbox() {
   setOutbox(o)
   notifyOffline()
 }
-export function enqueue(path: string, method: string, body: any) {
+/** Encola una mutación y devuelve su id, que es también el id provisional del
+ *  objeto optimista: así, corregir o borrar algo que todavía no salió de la
+ *  cola es encontrar su envío pendiente. */
+export function enqueue(path: string, method: string, body: any): string {
   const o = getOutbox()
-  o.push({
-    id: 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-    path,
-    method,
-    body,
-    ts: Date.now(),
-  })
+  const id = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+  o.push({ id, path, method, body, ts: Date.now() })
   setOutbox(o)
   notifyOffline()
+  return id
+}
+
+/** Corrige un evento que sigue en la cola: se toca el envío pendiente, no el
+ *  servidor, que todavía no sabe que existe. `event_data` se mezcla, igual que
+ *  hace el backend. */
+export function patchQueuedEvent(tempId: string, cambios: any): boolean {
+  const o = getOutbox()
+  const item = o.find((x) => x.id === tempId && x.path === '/matches/events')
+  if (!item) return false
+  const detalle = { ...(item.body?.event_data || {}), ...(cambios?.event_data || {}) }
+  item.body = { ...item.body, ...cambios, event_data: detalle }
+  setOutbox(o)
+  notifyOffline()
+  return true
+}
+
+/** Borra un evento que sigue en la cola: cancelar el envío es todo lo que hay
+ *  que hacer. */
+export function dropQueuedEvent(tempId: string): boolean {
+  const o = getOutbox()
+  const idx = o.findIndex((x) => x.id === tempId && x.path === '/matches/events')
+  if (idx === -1) return false
+  o.splice(idx, 1)
+  setOutbox(o)
+  notifyOffline()
+  return true
 }
 
 // ¿La mutación es de las que el árbitro hace en cancha y debe poder encolarse?
@@ -90,14 +115,20 @@ export function isQueueable(path: string, method: string): boolean {
   const m = method.toUpperCase()
   return (
     (m === 'POST' && path === '/matches/events') ||
+    ((m === 'PUT' || m === 'DELETE') && /^\/matches\/events\/[^/]+$/.test(path)) ||
     (m === 'PUT' && /^\/matches\/[^/]+\/status$/.test(path))
   )
 }
 
 // Aplica el efecto de la mutación al caché local para que la UI lo refleje al
 // instante (optimista) aunque no haya red. Devuelve un resultado sintético.
-export function applyOptimistic(path: string, _method: string, body: any): any {
-  const id = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+export function applyOptimistic(
+  path: string,
+  method: string,
+  body: any,
+  tempId?: string,
+): any {
+  const id = tempId || 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
 
   if (path === '/matches/events' && body) {
     const evPath = `/matches/${body.match_id}/events`
@@ -107,9 +138,28 @@ export function applyOptimistic(path: string, _method: string, body: any): any {
     return ev
   }
 
+  // Corregir o borrar un evento: el registro en vivo tiene que reflejarlo aunque
+  // el árbitro esté sin señal en media cancha.
+  const corr = path.match(/^\/matches\/events\/([^/]+)$/)
+  if (corr) {
+    const eventId = corr[1]
+    if (method.toUpperCase() === 'DELETE') {
+      patchInCaches(eventId, null)
+      return null
+    }
+    patchInCaches(eventId, (prev: any) => ({
+      ...prev,
+      ...body,
+      // Mezcla, como el backend: corregir el minuto no borra el equipo.
+      event_data: { ...(prev.event_data || {}), ...(body?.event_data || {}) },
+      _pending: true,
+    }))
+    return { id: eventId, ...body, _pending: true }
+  }
+
   const st = path.match(/^\/matches\/([^/]+)\/status$/)
   if (st && body) {
-    patchMatchInCaches(st[1], {
+    patchInCaches(st[1], {
       status: body.status,
       home_score: body.home_score,
       away_score: body.away_score,
@@ -119,19 +169,31 @@ export function applyOptimistic(path: string, _method: string, body: any): any {
   return { _pending: true }
 }
 
-// Actualiza el partido (por id) en cualquier lista cacheada que lo contenga
-// (p. ej. los partidos de la fase que ve el árbitro).
-function patchMatchInCaches(matchId: string, patch: Record<string, any>) {
+// Actualiza un objeto (por id) en cualquier lista cacheada que lo contenga: los
+// partidos de la fase que ve el árbitro, los eventos del partido abierto.
+// `patch` puede ser los campos a mezclar, una función (prev) => siguiente, o
+// `null` para sacarlo de la lista.
+function patchInCaches(
+  id: string,
+  patch: Record<string, any> | ((prev: any) => any) | null,
+) {
   for (const key of Object.keys(localStorage)) {
     if (!key.startsWith(CACHE_PREFIX)) continue
     try {
       const val = JSON.parse(localStorage.getItem(key) || 'null')
-      if (Array.isArray(val) && val.some((m: any) => m && m.id === matchId)) {
-        cacheSetRaw(
-          key,
-          val.map((m: any) => (m && m.id === matchId ? { ...m, ...patch } : m)),
-        )
-      }
+      if (!Array.isArray(val) || !val.some((x: any) => x && x.id === id)) continue
+      cacheSetRaw(
+        key,
+        patch === null
+          ? val.filter((x: any) => !x || x.id !== id)
+          : val.map((x: any) =>
+              x && x.id === id
+                ? typeof patch === 'function'
+                  ? patch(x)
+                  : { ...x, ...patch }
+                : x,
+            ),
+      )
     } catch {
       /* ignorar entradas no-JSON */
     }

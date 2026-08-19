@@ -413,6 +413,20 @@ class EventCreate(BaseModel):
     event_data: Optional[Dict[str, Any]] = None
 
 
+class EventUpdate(BaseModel):
+    """Corrección de un evento ya cargado.
+
+    Todo es opcional: se aplica solo lo que venga (`exclude_unset`), así que
+    mandar `player_id: null` sí borra el jugador y omitirlo lo deja como está.
+    `event_data` se mezcla con lo que ya había, para no perder `team` o `kind`
+    cuando el árbitro solo corrige el minuto.
+    """
+
+    player_id: Optional[UUID] = None
+    event_type: Optional[str] = None
+    event_data: Optional[Dict[str, Any]] = None
+
+
 class EventResponse(BaseModel):
     id: UUID
     match_id: UUID

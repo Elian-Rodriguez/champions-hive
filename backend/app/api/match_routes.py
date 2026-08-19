@@ -26,6 +26,7 @@ from app.db.models import (
 from app.schemas import (
     EventCreate,
     EventResponse,
+    EventUpdate,
     MatchCreate,
     MatchResponse,
     MatchScheduleUpdate,
@@ -247,6 +248,58 @@ def record_event(
     db.commit()
     db.refresh(event)
     return event
+
+
+def _evento_dirigible(db: Session, event_id: UUID, user: User) -> MatchStat:
+    """El evento existe y quien lo toca puede dirigir ese partido.
+
+    Corregir un gol mal cargado es la misma potestad que cargarlo: el árbitro
+    asignado y el dueño del torneo, nadie más.
+    """
+    event = db.query(MatchStat).filter(MatchStat.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    match = db.query(Match).filter(Match.id == event.match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Partido no encontrado")
+    _asegurar_puede_dirigir(db, user, match)
+    return event
+
+
+@router.put("/events/{event_id}", response_model=EventResponse)
+def update_event(
+    event_id: UUID,
+    payload_in: EventUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """Corrige un evento ya cargado (jugador, tipo, equipo o minuto)."""
+    event = _evento_dirigible(db, event_id, current)
+    cambios = payload_in.model_dump(exclude_unset=True)
+    if "event_data" in cambios:
+        # Mezcla, no reemplazo: corregir el minuto no puede borrar el equipo.
+        # Reasignar el dict completo es lo que hace que SQLAlchemy vea el
+        # cambio en la columna JSON (mutarlo en sitio pasa desapercibido).
+        detalle = dict(event.event_data or {})
+        detalle.update(cambios.pop("event_data") or {})
+        event.event_data = detalle
+    for campo, valor in cambios.items():
+        setattr(event, campo, valor)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+@router.delete("/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_event(
+    event_id: UUID,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """Borra un evento cargado por error."""
+    event = _evento_dirigible(db, event_id, current)
+    db.delete(event)
+    db.commit()
 
 
 @router.post("/standings")

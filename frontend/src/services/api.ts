@@ -3,11 +3,13 @@ import {
   cacheDelete,
   cacheGet,
   cacheSet,
+  dropQueuedEvent,
   enqueue,
   getOutbox,
   isOnline,
   isQueueable,
   notifyOffline,
+  patchQueuedEvent,
   shiftOutbox,
 } from './offline'
 
@@ -90,17 +92,33 @@ async function req(path: string, options: RequestInit = {}): Promise<any> {
 
   if (isQueueable(path, method)) {
     const body = options.body ? JSON.parse(options.body as string) : null
-    if (!isOnline()) {
-      enqueue(path, method, body)
+
+    // Un evento cargado sin red todavía no existe en el servidor: corregirlo o
+    // borrarlo es tocar su envío pendiente, no mandar un id que allá no está.
+    const pendiente = path.match(/^\/matches\/events\/(tmp_[^/]+)$/)
+    if (pendiente) {
+      const tempId = pendiente[1]
+      const enCola =
+        method === 'DELETE' ? dropQueuedEvent(tempId) : patchQueuedEvent(tempId, body)
+      // Si ya no está en la cola es que se envió: ahora tiene id del servidor y
+      // este tmp_ no existe en ningún lado. Avisar es mejor que fingir que se
+      // guardó y que el próximo refresco lo revierta.
+      if (!enCola)
+        throw new Error('El evento ya se sincronizó; actualiza el registro e inténtalo de nuevo.')
       return applyOptimistic(path, method, body)
+    }
+
+    if (!isOnline()) {
+      const tempId = enqueue(path, method, body)
+      return applyOptimistic(path, method, body, tempId)
     }
     try {
       return await rawReq(path, options)
     } catch (e) {
       if (e instanceof TypeError) {
         // Error de red: encolar para no perder la acción del árbitro.
-        enqueue(path, method, body)
-        return applyOptimistic(path, method, body)
+        const tempId = enqueue(path, method, body)
+        return applyOptimistic(path, method, body, tempId)
       }
       throw e
     }
@@ -118,7 +136,10 @@ export async function syncOutbox(): Promise<void> {
     while (getOutbox().length) {
       const item = getOutbox()[0]
       try {
-        await rawReq(item.path, { method: item.method, body: JSON.stringify(item.body) })
+        await rawReq(item.path, {
+          method: item.method,
+          ...(item.body == null ? {} : { body: JSON.stringify(item.body) }),
+        })
       } catch (e) {
         if (e instanceof TypeError) break // se cayó la red otra vez: reintentar luego
         // rechazo del servidor (4xx): descartar el item para no bloquear la cola
@@ -412,6 +433,10 @@ export const api = {
   matchEvents: (matchId: string) => req(`/matches/${matchId}/events`),
   recordEvent: (data: any) =>
     req('/matches/events', { method: 'POST', body: JSON.stringify(data) }),
+  updateEvent: (eventId: string, data: any) =>
+    req(`/matches/events/${eventId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteEvent: (eventId: string) =>
+    req(`/matches/events/${eventId}`, { method: 'DELETE' }),
   standings: (data: any) =>
     req('/matches/standings', { method: 'POST', body: JSON.stringify(data) }),
 }
