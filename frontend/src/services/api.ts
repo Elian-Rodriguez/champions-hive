@@ -257,6 +257,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
+  /** Cruces del calendario: cancha ocupada, equipo o árbitro duplicado, llave
+   *  antes de su clasificatorio, poco descanso y partidos sin fecha o cancha. */
+  scheduleConflicts: (id: string, minRestMinutes?: number) =>
+    req(
+      `/tournaments/${id}/schedule_conflicts${
+        minRestMinutes != null ? `?min_rest_minutes=${minRestMinutes}` : ''
+      }`,
+    ),
 
   // ---- Sponsors ----
   getSponsors: (tid: string) => req(`/tournaments/${tid}/sponsors`),

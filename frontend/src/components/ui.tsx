@@ -8,11 +8,18 @@ import type {
 export function Icon({
   name,
   className = '',
+  title,
 }: {
   name: string
   className?: string
+  /** Tooltip nativo; util cuando el icono es la unica pista de lo que pasa. */
+  title?: string
 }) {
-  return <span className={`material-symbols-outlined ${className}`}>{name}</span>
+  return (
+    <span className={`material-symbols-outlined ${className}`} title={title}>
+      {name}
+    </span>
+  )
 }
 
 export function Card({

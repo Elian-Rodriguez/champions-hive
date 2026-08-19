@@ -1973,6 +1973,82 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
   )
 }
 
+/** Icono por tipo de cruce; las claves las fija services/validacion_calendario.py. */
+const CONFLICTO_ICONO: Record<string, string> = {
+  cancha_ocupada: 'stadium',
+  equipo_solapado: 'groups',
+  equipo_sin_descanso: 'hourglass_bottom',
+  arbitro_ocupado: 'sports',
+  orden_de_llave: 'account_tree',
+  sin_fecha: 'event_busy',
+  sin_cancha: 'location_off',
+}
+
+/**
+ * Validación del calendario.
+ *
+ * La programación automática no se pisa sola, pero en cuanto el organizador
+ * mueve una hora a mano puede dejar dos partidos en la misma cancha, un equipo
+ * jugando dos veces a la vez o una llave antes de su clasificatorio. Esto lo
+ * avisa; no bloquea nada, porque a veces el organizador sabe algo que el
+ * sistema no.
+ */
+function ValidacionCalendario({ data }: { data: any }) {
+  const [abierto, setAbierto] = useState(true)
+  if (!data) return null
+  if (data.ok)
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2 text-sm text-secondary">
+        <Icon name="event_available" className="text-base" />
+        Calendario sin cruces: ninguna cancha repetida, ningún equipo ni árbitro
+        con dos partidos a la vez.
+      </div>
+    )
+  const errores = data.errors || 0
+  const avisos = data.warnings || 0
+  return (
+    <div
+      className={`rounded-lg border ${
+        errores ? 'border-error/40 bg-error-container/15' : 'border-tertiary/40 bg-tertiary/10'
+      }`}
+    >
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold"
+      >
+        <Icon
+          name={errores ? 'error' : 'warning'}
+          className={`text-base ${errores ? 'text-error' : 'text-tertiary'}`}
+        />
+        <span className={errores ? 'text-error' : 'text-tertiary'}>
+          {errores > 0 && `${errores} cruce(s) que impiden jugar`}
+          {errores > 0 && avisos > 0 && ' · '}
+          {avisos > 0 && `${avisos} aviso(s)`}
+        </span>
+        <Icon name={abierto ? 'expand_less' : 'expand_more'} className="ml-auto text-base" />
+      </button>
+      {abierto && (
+        <ul className="space-y-1.5 px-3 pb-3">
+          {data.conflicts.map((c: any, i: number) => (
+            <li key={i} className="flex gap-2 rounded-lg bg-surface-container-low px-3 py-2">
+              <Icon
+                name={CONFLICTO_ICONO[c.type] || 'help'}
+                className={`mt-0.5 text-base ${
+                  c.severity === 'error' ? 'text-error' : 'text-tertiary'
+                }`}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">{c.title}</p>
+                <p className="text-xs text-on-surface-variant">{c.detail}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function CalendarioTab({ tournament }: { tournament: any }) {
   const [stages, setStages] = useState<any[]>([])
   const [active, setActive] = useState<any>(null)
@@ -1985,8 +2061,15 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   const [parallel, setParallel] = useState(false)
   const [refs, setRefs] = useState<any[]>([])
   const [msg, setMsg] = useState<string | null>(null)
+  // Cruces del calendario; se revisa al entrar y despues de cada cambio.
+  const [validacion, setValidacion] = useState<any>(null)
+
+  async function revisar() {
+    setValidacion(await api.scheduleConflicts(tournament.id).catch(() => null))
+  }
 
   useEffect(() => {
+    revisar()
     api.getStages(tournament.id).then(setStages)
     api.getVenues().then((vs: any[]) =>
       setCourts(vs.flatMap((v) => (v.courts || []).map((c: any) => ({ ...c, venue: v.name })))),
@@ -2000,6 +2083,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   async function pick(s: any) {
     setActive(s)
     setMatches(await api.stageMatches(s.id))
+    revisar()
   }
   async function autoSchedule() {
     try {
@@ -2014,6 +2098,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       })
       setMsg(r.message)
       if (active) pick(active)
+      else revisar()
     } catch (e: any) {
       setMsg(e.message)
     }
@@ -2051,6 +2136,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       setStages(st)
       setMsg(`🎲 Sorteo listo · ${numGroups} grupos · ${fix} · ${cal.message}`)
       if (active) pick(active)
+      else revisar()
     } catch (e: any) {
       setMsg(e.message)
     }
@@ -2058,6 +2144,22 @@ function CalendarioTab({ tournament }: { tournament: any }) {
   async function patch(m: any, field: string, value: any) {
     await api.updateMatchSchedule(m.id, { [field]: value || null })
     if (active) pick(active)
+    else revisar()
+  }
+
+  // Partidos señalados por el validador, para marcar la fila y explicar por qué.
+  const marcados: Record<string, { severity: string; titles: string[] }> = {}
+  for (const c of validacion?.conflicts || []) {
+    // "Sin fecha" abarca todos los partidos por programar: marcar cada fila
+    // seria ruido, y el campo de fecha vacio ya lo dice.
+    if (c.type === 'sin_fecha') continue
+    for (const id of c.match_ids || []) {
+      const previo = marcados[id]
+      marcados[id] = {
+        severity: previo?.severity === 'error' ? 'error' : c.severity,
+        titles: [...(previo?.titles || []), c.title],
+      }
+    }
   }
 
   return (
@@ -2131,6 +2233,8 @@ function CalendarioTab({ tournament }: { tournament: any }) {
         {msg && <span className="text-sm text-secondary">{msg}</span>}
       </div>
 
+      <ValidacionCalendario data={validacion} />
+
       <div className="flex flex-wrap gap-2">
         {stages.map((s) => (
           <Button key={s.id} variant={active?.id === s.id ? 'primary' : 'ghost'} onClick={() => pick(s)}>
@@ -2146,8 +2250,26 @@ function CalendarioTab({ tournament }: { tournament: any }) {
       ) : (
         <ul className="space-y-2">
           {matches.map((m) => (
-            <li key={m.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm">
+            <li
+              key={m.id}
+              className={`flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm ${
+                marcados[m.id]
+                  ? marcados[m.id].severity === 'error'
+                    ? 'border-l-4 border-error'
+                    : 'border-l-4 border-tertiary'
+                  : ''
+              }`}
+            >
               <span className="min-w-[160px] flex-1 truncate">
+                {marcados[m.id] && (
+                  <Icon
+                    name={marcados[m.id].severity === 'error' ? 'error' : 'warning'}
+                    className={`mr-1 align-middle text-base ${
+                      marcados[m.id].severity === 'error' ? 'text-error' : 'text-tertiary'
+                    }`}
+                    title={marcados[m.id].titles.join(' · ')}
+                  />
+                )}
                 {m.home_team_name || 'Por definir'} <span className="text-on-surface-variant">vs</span> {m.away_team_name || 'Por definir'}
               </span>
               {m.group_name && (

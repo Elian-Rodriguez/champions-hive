@@ -57,6 +57,7 @@ from app.services.notifications import (
     notificar_cambio_de_partido,
     snapshot_partido,
 )
+from app.services.validacion_calendario import SEVERIDAD_ERROR, detectar_conflictos
 from app.services.strategy import (
     DEFAULT_CROSS_TIEBREAKERS,
     SPORT_DEFAULTS,
@@ -1773,6 +1774,37 @@ def schedule_tournament_calendar(
         "parallel": parallel,
         "courts": num_courts if parallel else 1,
         "notifications": avisos,
+    }
+
+
+@router.get("/{tournament_id}/schedule_conflicts")
+def get_schedule_conflicts(
+    tournament_id: UUID,
+    min_rest_minutes: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
+):
+    """Revisa el calendario y devuelve lo que está cruzado.
+
+    Es informativo a propósito: no bloquea ni corrige nada, porque a veces el
+    organizador sabe algo que el sistema no. Separa lo imposible (dos partidos
+    en la misma cancha, un equipo jugando dos veces a la vez, un árbitro
+    duplicado, una llave antes de su clasificatorio) de lo que solo conviene
+    mirar (poco descanso, partidos sin fecha o sin cancha).
+    """
+    tournament = _torneo_administrable(db, tournament_id, current)
+    conflictos = detectar_conflictos(
+        db,
+        tournament,
+        descanso_minimo=min_rest_minutes,
+        puede_ver_otros_torneos=es_superadmin(current),
+    )
+    errores = sum(1 for c in conflictos if c["severity"] == SEVERIDAD_ERROR)
+    return {
+        "conflicts": conflictos,
+        "errors": errores,
+        "warnings": len(conflictos) - errores,
+        "ok": not conflictos,
     }
 
 

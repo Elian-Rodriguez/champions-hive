@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import List, Optional
 from uuid import UUID
 
@@ -155,6 +156,16 @@ def update_match_schedule(
     antes = snapshot_partido(match)
     for key, value in cambios.items():
         setattr(match, key, value)
+    # Mover la hora a mano dejaba `scheduled_end` con el valor viejo: se
+    # recalcula con la duración del torneo para que el fin siga siendo cierto
+    # (lo usan el panel del capitán y el validador de calendario).
+    if "scheduled_start" in cambios and "scheduled_end" not in cambios:
+        if match.scheduled_start:
+            torneo = _torneo_del_partido(db, match)
+            duracion = (torneo.match_duration if torneo else None) or 60
+            match.scheduled_end = match.scheduled_start + timedelta(minutes=duracion)
+        else:
+            match.scheduled_end = None
     db.flush()
     notificar_cambio_de_partido(db, match, antes)
     db.commit()
