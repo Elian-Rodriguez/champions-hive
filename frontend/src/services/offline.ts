@@ -116,7 +116,8 @@ export function isQueueable(path: string, method: string): boolean {
   return (
     (m === 'POST' && path === '/matches/events') ||
     ((m === 'PUT' || m === 'DELETE') && /^\/matches\/events\/[^/]+$/.test(path)) ||
-    (m === 'PUT' && /^\/matches\/[^/]+\/status$/.test(path))
+    (m === 'PUT' && /^\/matches\/[^/]+\/status$/.test(path)) ||
+    (m === 'PUT' && /^\/matches\/[^/]+\/lineup$/.test(path))
   )
 }
 
@@ -159,12 +160,40 @@ export function applyOptimistic(
 
   const st = path.match(/^\/matches\/([^/]+)\/status$/)
   if (st && body) {
-    patchInCaches(st[1], {
+    // `walkover` solo se toca si vino en el cuerpo, igual que hace el backend
+    // con exclude_unset: guardar el marcador de un partido no puede borrarle
+    // la marca de W.O. a la copia local.
+    const parche: Record<string, any> = {
       status: body.status,
       home_score: body.home_score,
       away_score: body.away_score,
-    })
+    }
+    if ('walkover' in body) parche.walkover = body.walkover
+    patchInCaches(st[1], parche)
     return { id: st[1], ...body, _pending: true }
+  }
+
+  // Planilla: reemplaza la del equipo en la copia local y deja la del rival
+  // como estaba, igual que hace el servidor.
+  const lu = path.match(/^\/matches\/([^/]+)\/lineup$/)
+  if (lu && body) {
+    const luPath = `/matches/${lu[1]}/lineup`
+    const previa = cacheGet(luPath)
+    const otros = Array.isArray(previa)
+      ? previa.filter((f: any) => String(f.team_id) !== String(body.team_id))
+      : []
+    const filas = (body.players || []).map((p: any, i: number) => ({
+      id: `${id}_${i}`,
+      match_id: lu[1],
+      team_id: body.team_id,
+      is_starter: true,
+      is_captain: false,
+      number: null,
+      ...p,
+      _pending: true,
+    }))
+    cacheSet(luPath, [...otros, ...filas])
+    return filas
   }
   return { _pending: true }
 }

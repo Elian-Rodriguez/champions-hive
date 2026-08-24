@@ -29,6 +29,7 @@ TIPO_CANCHA = "partido_cancha"
 TIPO_PROGRAMADO = "partido_programado"
 TIPO_RESULTADO = "partido_resultado"
 TIPO_EN_VIVO = "partido_en_vivo"
+TIPO_APLAZADO = "partido_aplazado"
 TIPO_ARBITRO = "partido_arbitro"
 TIPO_GENERAL = "general"
 
@@ -255,14 +256,40 @@ def notificar_estado_de_partido(db: Session, match: Match, antes: Dict[str, Any]
             body=f"{nombre_torneo} · {_cancha(db, match.court_id)}.",
             data={"enfrentamiento": ctx["enfrentamiento"]},
         )
+    if estado_ahora == "postponed":
+        # Aplazado no es lo mismo que reprogramado: todavía no hay fecha nueva,
+        # y para el capitán la diferencia es si el domingo juega o no.
+        return _avisar_a_los_dos_equipos(
+            db, match, ctx,
+            tipo=TIPO_APLAZADO,
+            title=f"Partido aplazado: {ctx['enfrentamiento']}",
+            body=(
+                f"{nombre_torneo} · el partido del {formato_fecha(match.scheduled_start)} "
+                "no se juega. Te avisamos cuando tenga fecha nueva."
+            ),
+            data={"enfrentamiento": ctx["enfrentamiento"]},
+        )
     if estado_ahora == "finished":
         marcador = f"{match.home_score or 0} - {match.away_score or 0}"
+        # W.O.: el resultado existe pero el partido no se jugó, y el capitán
+        # tiene que enterarse de eso y no solo del marcador.
+        if match.walkover == "both":
+            detalle = "no se presentó ninguno de los dos equipos (doble W.O.)."
+        elif match.walkover:
+            ausente = ctx["local"] if match.walkover == "home" else ctx["visitante"]
+            detalle = f"{ausente} no se presentó (W.O.)."
+        else:
+            detalle = "partido finalizado."
         return _avisar_a_los_dos_equipos(
             db, match, ctx,
             tipo=TIPO_RESULTADO,
             title=f"Resultado: {ctx['local']} {marcador} {ctx['visitante']}",
-            body=f"{nombre_torneo} · partido finalizado.",
-            data={"marcador": marcador, "enfrentamiento": ctx["enfrentamiento"]},
+            body=f"{nombre_torneo} · {detalle}",
+            data={
+                "marcador": marcador,
+                "enfrentamiento": ctx["enfrentamiento"],
+                "walkover": match.walkover,
+            },
         )
     return 0
 

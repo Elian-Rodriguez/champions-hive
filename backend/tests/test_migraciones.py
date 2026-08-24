@@ -21,7 +21,7 @@ def test_las_etiquetas_son_los_nombres_de_los_miembros():
     tipos = enums_del_modelo()
     assert tipos["sporttype"] == ["FOOTBALL", "MICRO", "BASKETBALL", "BANQUITAS"]
     assert tipos["stagetype"] == ["GROUP", "KNOCKOUT", "LEAGUE", "SWISS"]
-    assert tipos["matchstatus"] == ["SCHEDULED", "LIVE", "FINISHED"]
+    assert tipos["matchstatus"] == ["SCHEDULED", "LIVE", "FINISHED", "POSTPONED"]
 
 
 def test_los_valores_nuevos_van_al_final():
@@ -29,3 +29,6 @@ def test_los_valores_nuevos_van_al_final():
     declaren al final del enum, las bases viejas y las nuevas quedan con el
     mismo orden de etiquetas."""
     assert enums_del_modelo()["sporttype"][-1] == "BANQUITAS"
+    # POSTPONED (aplazado) se declaró después de FINISHED por lo mismo: la base
+    # que ya existe recibe la etiqueta al final y no cambia el orden.
+    assert enums_del_modelo()["matchstatus"][-1] == "POSTPONED"

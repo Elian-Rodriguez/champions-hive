@@ -20,6 +20,7 @@ from app.db.database import get_db
 from app.db.models import (
     Court,
     Match,
+    MatchLineup,
     MatchStat,
     MatchStatus,
     Notification,
@@ -53,11 +54,11 @@ from app.schemas import (
     TournamentResponse,
     TournamentUpdate,
 )
+from app.services.bracket import equipo_del_slot
 from app.services.notifications import (
     notificar_cambio_de_partido,
     snapshot_partido,
 )
-from app.services.validacion_calendario import SEVERIDAD_ERROR, detectar_conflictos
 from app.services.strategy import (
     DEFAULT_CROSS_TIEBREAKERS,
     SPORT_DEFAULTS,
@@ -66,6 +67,7 @@ from app.services.strategy import (
     calculate_standings,
     cross_group_sort_key,
 )
+from app.services.validacion_calendario import SEVERIDAD_ERROR, detectar_conflictos
 
 router = APIRouter()
 
@@ -90,6 +92,22 @@ def _team_groups(db: Session, tournament_id) -> Dict[str, str]:
         .all()
     )
     return {str(l.team_id): (l.group_name or "Sin Grupo") for l in links}
+
+
+def _ajustes_de_puntos(db: Session, tournament_id) -> Dict[str, int]:
+    """{team_id: puntos} con las sanciones de reglamento cargadas al torneo.
+
+    Solo devuelve las distintas de cero: es lo que se le suma a la tabla sin
+    tocar los partidos.
+    """
+    links = (
+        db.query(TournamentTeam)
+        .filter(TournamentTeam.tournament_id == tournament_id)
+        .all()
+    )
+    return {
+        str(l.team_id): l.points_adjustment for l in links if l.points_adjustment
+    }
 
 
 def _name_map(db: Session, team_ids) -> Dict[str, str]:
@@ -123,6 +141,9 @@ def _matches_to_dicts(db: Session, matches: List[Match]) -> List[Dict[str, Any]]
                 # calculate_standings solo suma los partidos terminados; sin el
                 # estado, los programados (que nacen 0-0) contarían como empates.
                 "status": _status_str(m),
+                # W.O.: con "both" no se presentó nadie y la tabla lo cuenta
+                # como derrota de los dos, no como el empate que sugiere el 0-0.
+                "walkover": m.walkover,
                 "events": events,
             }
         )
@@ -358,9 +379,12 @@ def _build_group_standings(db: Session, stage: Stage) -> Dict[str, List[Dict]]:
         g = groups.get(str(m.home_team_id), "Sin Grupo")
         by_group[g].append(m)
 
+    ajustes = _ajustes_de_puntos(db, stage.tournament_id)
     result = {}
     for g, ms in by_group.items():
-        standings = calculate_standings(_matches_to_dicts(db, ms), sport, rules)
+        standings = calculate_standings(
+            _matches_to_dicts(db, ms), sport, rules, points_adjustments=ajustes
+        )
         result[g] = standings
     return result
 
@@ -549,36 +573,38 @@ def _preview_cruces(qualifiers: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
+    """Sincroniza los cruces "ganador/perdedor de…" de la fase con los
+    resultados que hay ahora.
+
+    Repasa también los cruces ya resueltos, a propósito: si el árbitro corrigió
+    el marcador del partido que alimenta una llave, el equipo que subió tiene
+    que cambiar. Un cruce cuyo origen dejó de estar terminado vuelve a quedar
+    vacío y pendiente.
+    """
     slots = (
         db.query(StageSlot)
         .filter(
             StageSlot.stage_id == stage_id,
             StageSlot.slot_type.in_([SlotType.WINNER_OF, SlotType.LOSER_OF]),
-            StageSlot.resolved == False,  # noqa: E712
         )
         .all()
     )
     changed = 0
     for slot in slots:
         src = db.query(Match).filter(Match.id == slot.source_match_id).first()
-        if (
-            src
-            and _status_str(src) == "finished"
-            and src.home_score is not None
-            and src.away_score is not None
-        ):
-            home_wins = src.home_score >= src.away_score
-            winner = src.home_team_id if home_wins else src.away_team_id
-            loser = src.away_team_id if home_wins else src.home_team_id
-            team = winner if slot.slot_type == SlotType.WINNER_OF else loser
-            match = db.query(Match).filter(Match.id == slot.match_id).first()
-            if match:
-                if slot.is_home:
-                    match.home_team_id = team
-                else:
-                    match.away_team_id = team
-                slot.resolved = True
-                changed += 1
+        match = db.query(Match).filter(Match.id == slot.match_id).first()
+        if not src or not match:
+            continue
+        team = equipo_del_slot(src, slot.slot_type)
+        actual = match.home_team_id if slot.is_home else match.away_team_id
+        slot.resolved = team is not None
+        if str(actual) == str(team):
+            continue
+        if slot.is_home:
+            match.home_team_id = team
+        else:
+            match.away_team_id = team
+        changed += 1
     return changed
 
 
@@ -602,6 +628,7 @@ def reset_all(db: Session = Depends(get_db), current: User = Depends(require_sup
     db.query(TeamManager).delete(synchronize_session=False)
     db.query(StageSlot).delete(synchronize_session=False)
     db.query(MatchStat).delete(synchronize_session=False)
+    db.query(MatchLineup).delete(synchronize_session=False)
     db.query(Match).delete(synchronize_session=False)
     db.query(Stage).delete(synchronize_session=False)
     db.query(TeamPlayer).delete(synchronize_session=False)
@@ -948,6 +975,10 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
             "home_score": m.home_score,
             "away_score": m.away_score,
             "status": _status_str(m),
+            # W.O.: el partido está terminado y con marcador, pero no se jugó.
+            # Lo pintan el calendario del organizador, la pantalla arbitral y
+            # el marcador público.
+            "walkover": m.walkover,
             "court_id": str(m.court_id) if m.court_id else None,
             "court_name": court_info.get(str(m.court_id), {}).get("name"),
             "venue_name": court_info.get(str(m.court_id), {}).get("venue"),
@@ -1095,6 +1126,7 @@ def generate_swiss_round(
             _matches_to_dicts(db, existing),
             _sport_type_str(tournament),
             tournament.tiebreaker_rules or None,
+            points_adjustments=_ajustes_de_puntos(db, tournament.id),
         )
         order = [r["team_id"] for r in standings]
         for t in team_ids:
@@ -1468,6 +1500,7 @@ def get_bracket_tree(stage_id: UUID, db: Session = Depends(get_db)):
                 "home_score": m.home_score,
                 "away_score": m.away_score,
                 "status": _status_str(m),
+                "walkover": m.walkover,
                 "is_third_place": bool(m.is_third_place),
                 "slots": [
                     {
@@ -1940,7 +1973,10 @@ def get_team_stats(
         return []
     dicts = _matches_to_dicts(db, matches)
     return calculate_standings(
-        dicts, _sport_type_str(tournament), tournament.tiebreaker_rules or None,
+        dicts,
+        _sport_type_str(tournament),
+        tournament.tiebreaker_rules or None,
+        points_adjustments=_ajustes_de_puntos(db, tournament.id),
     )
 
 
@@ -2311,6 +2347,9 @@ def delete_tournament(
         )
     if match_ids:
         db.query(MatchStat).filter(MatchStat.match_id.in_(match_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(MatchLineup).filter(MatchLineup.match_id.in_(match_ids)).delete(
             synchronize_session=False
         )
         db.query(Match).filter(Match.id.in_(match_ids)).delete(

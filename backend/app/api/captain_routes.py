@@ -182,6 +182,9 @@ def _partidos_de_equipos(
                 "my_score": m.home_score if es_local else m.away_score,
                 "rival_score": m.away_score if es_local else m.home_score,
                 "status": m.status.value if hasattr(m.status, "value") else m.status,
+                # W.O.: al capitán le importa por qué figura un 3-0 que su
+                # equipo no jugó, o por qué el rival no llegó.
+                "walkover": m.walkover,
                 "scheduled_start": m.scheduled_start,
                 "scheduled_end": m.scheduled_end,
                 "stage_id": str(fase.id) if fase else None,

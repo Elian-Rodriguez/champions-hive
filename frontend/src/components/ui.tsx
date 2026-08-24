@@ -1,5 +1,6 @@
 import type {
   ButtonHTMLAttributes,
+  HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
@@ -97,13 +98,12 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 export function Badge({
   children,
   className = '',
-}: {
-  children: ReactNode
-  className?: string
-}) {
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & { children: ReactNode }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${className}`}
+      {...props}
     >
       {children}
     </span>

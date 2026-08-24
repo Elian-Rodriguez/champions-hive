@@ -9,6 +9,7 @@ import UsersPanel from './UsersPanel'
 import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { escudoDesdeArchivo } from '../utils/imagen'
+import { ESTADO_LABEL, woDetalle, woLabel } from '../utils/partido'
 import { SPORT_LIST } from '../sports'
 import { useAppSelector } from '../hooks'
 
@@ -1043,6 +1044,21 @@ function EquiposTab({ tournament }: { tournament: any }) {
                     />
                   )}
                   {t.name}
+                  {!!t.points_adjustment && (
+                    <span
+                      title={`Sanción de puntos: ${t.points_adjustment > 0 ? '+' : ''}${
+                        t.points_adjustment
+                      }${t.points_adjustment_reason ? ` · ${t.points_adjustment_reason}` : ''}`}
+                      className={`rounded px-1 py-0.5 text-[10px] font-bold tabular-nums ${
+                        t.points_adjustment < 0
+                          ? 'bg-error-container text-on-error-container'
+                          : 'bg-secondary/20 text-secondary'
+                      }`}
+                    >
+                      {t.points_adjustment > 0 ? '+' : ''}
+                      {t.points_adjustment}
+                    </span>
+                  )}
                 </button>
                 <span className="flex items-center gap-2">
                   <Select
@@ -1072,6 +1088,56 @@ function EquiposTab({ tournament }: { tournament: any }) {
                       load()
                     }}
                   />
+                  {/* Sanción de puntos: la otra mitad del reglamento. Descontar
+                      no se hace tocando resultados —eso es mentirle a la tabla—
+                      sino sumándole al equipo puntos negativos, con su motivo. */}
+                  <button
+                    onClick={async () => {
+                      const txt = prompt(
+                        `Sanción de puntos para ${t.name}\n` +
+                          'Negativa descuenta (por ejemplo -3), positiva bonifica, 0 la quita.',
+                        String(t.points_adjustment || 0),
+                      )
+                      if (txt === null) return
+                      const puntos = Number(txt.trim())
+                      if (!Number.isFinite(puntos)) {
+                        setMsg('Escribe un número, por ejemplo -3')
+                        return
+                      }
+                      const motivo = puntos
+                        ? prompt(
+                            'Motivo (se ve al lado del descuento en la tabla)',
+                            t.points_adjustment_reason || '',
+                          )
+                        : null
+                      if (puntos && motivo === null) return
+                      try {
+                        await api.updateTeamPointsAdjustment(
+                          tournament.id,
+                          t.id,
+                          puntos,
+                          motivo,
+                        )
+                        load()
+                      } catch (e: any) {
+                        setMsg(e.message)
+                      }
+                    }}
+                    title={
+                      t.points_adjustment
+                        ? `Sanción: ${t.points_adjustment} pts${
+                            t.points_adjustment_reason ? ` · ${t.points_adjustment_reason}` : ''
+                          }`
+                        : 'Sanción de puntos del reglamento'
+                    }
+                    className={
+                      t.points_adjustment
+                        ? 'text-error hover:brightness-125'
+                        : 'text-on-surface-variant hover:text-on-surface'
+                    }
+                  >
+                    <Icon name="gavel" className="text-lg" />
+                  </button>
                   <button
                     onClick={async () => {
                       const n = prompt('Nuevo nombre del equipo', t.name)
@@ -2251,18 +2317,35 @@ function CalendarioTab({ tournament }: { tournament: any }) {
     setActa(m.id)
     setMsg(null)
     try {
-      const [eventos, local, visita] = await Promise.all([
+      const [eventos, planilla, local, visita] = await Promise.all([
         api.matchEvents(m.id),
+        api.matchLineup(m.id).catch(() => []),
         m.home_team_id ? api.getPlayers(m.home_team_id) : Promise.resolve([]),
         m.away_team_id ? api.getPlayers(m.away_team_id) : Promise.resolve([]),
       ])
       const nombre = (id: string | null) =>
         [...local, ...visita].find((p: any) => p.id === id)?.name || ''
+      // La planilla (quiénes jugaron) es lo que imprime el acta; sin ella se
+      // sigue imprimiendo la nómina completa del equipo.
+      const alineados = (jugadores: any[], teamId: any) =>
+        jugadores
+          .map((p: any) => {
+            const fila = (planilla || []).find(
+              (f: any) =>
+                String(f.player_id) === String(p.id) && String(f.team_id) === String(teamId),
+            )
+            return fila
+              ? { ...p, is_starter: fila.is_starter, is_captain: fila.is_captain }
+              : null
+          })
+          .filter(Boolean)
       await exportMatchReportPDF(m, eventos, nombre, {
         tournament,
         tournamentName: tournament.name,
         homePlayers: local,
         awayPlayers: visita,
+        homeLineup: alineados(local, m.home_team_id),
+        awayLineup: alineados(visita, m.away_team_id),
         homeTeam: equipos[String(m.home_team_id)],
         awayTeam: equipos[String(m.away_team_id)],
         refereeName: m.referee_name,
@@ -2277,6 +2360,21 @@ function CalendarioTab({ tournament }: { tournament: any }) {
     await api.updateMatchSchedule(m.id, { [field]: value || null })
     if (active) pick(active)
     else revisar()
+  }
+
+  /** Aplaza un partido o lo devuelve al calendario. Un aplazado no cuenta para
+   *  la tabla ni entra en la validación: se juega cuando haya fecha nueva
+   *  (ponerle una lo reactiva solo). */
+  async function alternarAplazado(m: any) {
+    try {
+      await api.updateMatchStatus(m.id, {
+        status: m.status === 'postponed' ? 'scheduled' : 'postponed',
+      })
+      if (active) pick(active)
+      else revisar()
+    } catch (e: any) {
+      setMsg(e?.message || 'No se pudo cambiar el estado del partido')
+    }
   }
 
   // Partidos señalados por el validador, para marcar la fila y explicar por qué.
@@ -2409,6 +2507,18 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                   Grupo {m.group_name}
                 </span>
               )}
+              {(m.status === 'postponed' || m.walkover) && (
+                <span
+                  title={
+                    m.walkover
+                      ? woDetalle(m.walkover, m.home_team_name, m.away_team_name) || ''
+                      : 'No se juega en su fecha; ponle una nueva y vuelve al calendario'
+                  }
+                  className="rounded bg-tertiary/15 px-2 py-0.5 text-xs font-medium text-tertiary"
+                >
+                  {m.walkover ? woLabel(m.walkover) : ESTADO_LABEL.postponed}
+                </span>
+              )}
               <input
                 type="datetime-local"
                 value={m.scheduled_start ? String(m.scheduled_start).slice(0, 16) : ''}
@@ -2440,6 +2550,24 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                   </option>
                 ))}
               </select>
+              <button
+                onClick={() => alternarAplazado(m)}
+                title={
+                  m.status === 'postponed'
+                    ? 'Devolver al calendario'
+                    : 'Aplazar (no se juega en su fecha ni cuenta para la tabla)'
+                }
+                className={`rounded-lg border border-outline-variant px-2 py-1.5 transition hover:border-tertiary/60 ${
+                  m.status === 'postponed'
+                    ? 'text-tertiary'
+                    : 'text-on-surface-variant hover:text-tertiary'
+                }`}
+              >
+                <Icon
+                  name={m.status === 'postponed' ? 'event_available' : 'event_busy'}
+                  className="align-middle text-base"
+                />
+              </button>
               <button
                 onClick={() => descargarActa(m)}
                 disabled={acta === m.id}

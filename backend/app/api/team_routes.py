@@ -28,6 +28,7 @@ from app.schemas import (
     GroupAssignment,
     PlayerCreate,
     PlayerResponse,
+    PointsAdjustment,
     ShuffleGroupsRequest,
     TeamCreate,
     TeamUpdate,
@@ -81,6 +82,8 @@ def _team_payload(team: Team, link: TournamentTeam | None) -> dict:
         "colors": team.colors or ([team.color] if team.color else []),
         "group_name": link.group_name if link else None,
         "status": link.status if link else None,
+        "points_adjustment": (link.points_adjustment or 0) if link else 0,
+        "points_adjustment_reason": link.points_adjustment_reason if link else None,
     }
 
 
@@ -185,6 +188,43 @@ def update_team_group(
     if not link:
         raise HTTPException(status_code=404, detail="Equipo no inscrito en el torneo")
     link.group_name = payload_in.group_name
+    db.commit()
+    team = db.query(Team).filter(Team.id == team_id).first()
+    return _team_payload(team, link)
+
+
+@router.put(
+    "/tournaments/{tournament_id}/teams/{team_id}/points_adjustment",
+    response_model=TeamResponse,
+)
+def update_team_points_adjustment(
+    tournament_id: UUID,
+    team_id: UUID,
+    payload_in: PointsAdjustment,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
+):
+    """Sanción de puntos del reglamento (negativa descuenta, positiva bonifica).
+
+    Es la otra mitad del reglamento: hasta ahora el organizador solo podía
+    castigar a un equipo tocándole los resultados, que es mentirle a la tabla.
+    Esto no toca ningún partido; se suma a los puntos y queda con su motivo.
+    """
+    _torneo_administrable(db, tournament_id, current)
+    link = (
+        db.query(TournamentTeam)
+        .filter(
+            TournamentTeam.tournament_id == tournament_id,
+            TournamentTeam.team_id == team_id,
+        )
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Equipo no inscrito en el torneo")
+    link.points_adjustment = payload_in.points_adjustment
+    link.points_adjustment_reason = (
+        payload_in.points_adjustment_reason if payload_in.points_adjustment else None
+    )
     db.commit()
     team = db.query(Team).filter(Team.id == team_id).first()
     return _team_payload(team, link)

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Court,
     Match,
+    MatchStatus,
     SlotType,
     Stage,
     StageSlot,
@@ -58,6 +59,11 @@ def _ventana(match: Match, duracion: int) -> Optional[Tuple[datetime, datetime]]
     if not fin or fin <= match.scheduled_start:
         fin = match.scheduled_start + timedelta(minutes=duracion)
     return match.scheduled_start, fin
+
+
+def _estado(match: Match) -> str:
+    s = match.status
+    return s.value if hasattr(s, "value") else str(s)
 
 
 def _solapan(a: Tuple[datetime, datetime], b: Tuple[datetime, datetime]) -> bool:
@@ -108,6 +114,9 @@ def detectar_conflictos(
     if not stage_ids:
         return []
     partidos = db.query(Match).filter(Match.stage_id.in_(stage_ids)).all()
+    # Un partido aplazado no se va a jugar: no choca con nadie ni le falta
+    # fecha, precisamente porque está esperando una nueva.
+    partidos = [m for m in partidos if _estado(m) != "postponed"]
     if not partidos:
         return []
 
@@ -256,6 +265,7 @@ def detectar_conflictos(
             .filter(
                 Match.court_id.in_(court_ids),
                 Match.scheduled_start.isnot(None),
+                Match.status != MatchStatus.POSTPONED,
                 ~Match.stage_id.in_(stage_ids),
             )
             .all()

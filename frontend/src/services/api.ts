@@ -369,6 +369,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  /** Sanción de puntos del reglamento: negativa descuenta, positiva bonifica.
+   *  Con 0 se quita (y se borra el motivo). */
+  updateTeamPointsAdjustment: (
+    tid: string,
+    teamId: string,
+    points_adjustment: number,
+    points_adjustment_reason?: string | null,
+  ) =>
+    req(`/tournaments/${tid}/teams/${teamId}/points_adjustment`, {
+      method: 'PUT',
+      body: JSON.stringify({ points_adjustment, points_adjustment_reason }),
+    }),
   // `group_name: null` saca al equipo de todo grupo ("Sin grupo").
   updateTeamGroup: (tid: string, teamId: string, group_name: string | null) =>
     req(`/tournaments/${tid}/teams/${teamId}/group`, {
@@ -431,6 +443,15 @@ export const api = {
       body: JSON.stringify(data),
     }),
   matchEvents: (matchId: string) => req(`/matches/${matchId}/events`),
+  /** Planilla del partido: quiénes jugaron, de los dos equipos. */
+  matchLineup: (matchId: string) => req(`/matches/${matchId}/lineup`),
+  /** Reemplaza la planilla de UN equipo. Se encola si no hay red: el delegado
+   *  entrega la lista en la cancha, que es donde no hay señal. */
+  setMatchLineup: (matchId: string, teamId: string, players: any[]) =>
+    req(`/matches/${matchId}/lineup`, {
+      method: 'PUT',
+      body: JSON.stringify({ team_id: teamId, players }),
+    }),
   recordEvent: (data: any) =>
     req('/matches/events', { method: 'POST', body: JSON.stringify(data) }),
   updateEvent: (eventId: string, data: any) =>

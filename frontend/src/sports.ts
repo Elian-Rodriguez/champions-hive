@@ -26,6 +26,10 @@ export type SportMeta = {
   events: DisciplineEvent[]
   /** Columnas de disciplina en las tablas públicas. */
   discColumns: DiscColumn[]
+  /** Marcador [a favor, en contra] que fija el reglamento en un W.O. Es el
+   *  mismo que pone el backend; aquí está para que el árbitro sin señal vea el
+   *  número correcto sin esperar la respuesta del servidor. */
+  walkoverScore: [number, number]
 }
 
 const AMARILLA: DisciplineEvent = {
@@ -68,6 +72,7 @@ export const SPORTS: Record<string, SportMeta> = {
     scoreLabel: 'Goles',
     events: [AMARILLA, ROJA],
     discColumns: [COL_YELLOW, COL_RED],
+    walkoverScore: [3, 0],
   },
   micro: {
     value: 'micro',
@@ -78,6 +83,7 @@ export const SPORTS: Record<string, SportMeta> = {
     scoreLabel: 'Goles',
     events: [AMARILLA, AZUL, ROJA],
     discColumns: [COL_YELLOW, COL_BLUE, COL_RED],
+    walkoverScore: [3, 0],
   },
   basketball: {
     value: 'basketball',
@@ -97,6 +103,8 @@ export const SPORTS: Record<string, SportMeta> = {
       },
     ],
     discColumns: [{ key: 'fouls', label: 'Faltas', title: 'Faltas' }],
+    // Como en FIBA: el que no se presenta pierde 20-0.
+    walkoverScore: [20, 0],
   },
   // Banquitas: fútbol de canchas pequeñas, partidos cortos por tiempo. Puntúa
   // como fútbol (3/1/0, con empate) y el árbitro lleva tarjetas —incluida la
@@ -110,6 +118,7 @@ export const SPORTS: Record<string, SportMeta> = {
     scoreLabel: 'Goles',
     events: [AMARILLA, AZUL, ROJA, FALTA],
     discColumns: [COL_YELLOW, COL_BLUE, COL_RED, COL_FOULS],
+    walkoverScore: [3, 0],
   },
 }
 
@@ -130,3 +139,14 @@ export const sportLabel = (key?: string | null): string => sportOf(key).label
 /** True si la disciplina usa tarjeta azul (expulsión temporal). */
 export const hasBlueCard = (key?: string | null): boolean =>
   sportOf(key).events.some((e) => e.type === 'AZUL')
+
+/** Marcador [local, visitante] de un W.O. según quién no se presentó.
+ *  Con `both` no llegó nadie: 0-0, y la tabla lo cuenta como derrota de los dos. */
+export function marcadorWalkover(
+  sport: string | null | undefined,
+  ausente: 'home' | 'away' | 'both',
+): [number, number] {
+  const [aFavor, enContra] = sportOf(sport).walkoverScore
+  if (ausente === 'both') return [0, 0]
+  return ausente === 'home' ? [enContra, aFavor] : [aFavor, enContra]
+}

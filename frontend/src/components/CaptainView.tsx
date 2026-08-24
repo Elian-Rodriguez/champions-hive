@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api'
 import { Badge, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { sportOf } from '../sports'
+import { estadoLabel, woDetalle, woLabel } from '../utils/partido'
 
 /**
  * Panel del capitán: solo lo que le afecta a su equipo.
@@ -134,20 +135,36 @@ function FilaPartido({ m, jugado }: { m: any; jugado?: boolean }) {
         </p>
       </div>
       {jugado ? (
-        <span
-          className={`rounded-lg px-3 py-1 font-display text-lg font-bold ${
-            empate
-              ? 'bg-surface-container-high'
-              : gano
-                ? 'bg-secondary/15 text-secondary'
-                : 'bg-error-container/40 text-error'
-          }`}
-        >
-          {m.my_score ?? 0} - {m.rival_score ?? 0}
+        <span className="flex items-center gap-1.5">
+          {m.walkover && (
+            <Badge
+              className="bg-tertiary/15 text-tertiary"
+              title={woDetalle(m.walkover, m.is_home ? m.team_name : m.rival_name, m.is_home ? m.rival_name : m.team_name) || ''}
+            >
+              {woLabel(m.walkover)}
+            </Badge>
+          )}
+          <span
+            className={`rounded-lg px-3 py-1 font-display text-lg font-bold ${
+              empate
+                ? 'bg-surface-container-high'
+                : gano
+                  ? 'bg-secondary/15 text-secondary'
+                  : 'bg-error-container/40 text-error'
+            }`}
+          >
+            {m.my_score ?? 0} - {m.rival_score ?? 0}
+          </span>
         </span>
       ) : (
-        <Badge className="bg-surface-container-high text-on-surface-variant">
-          {m.status === 'live' ? 'En juego' : 'Programado'}
+        <Badge
+          className={
+            m.status === 'postponed'
+              ? 'bg-tertiary/15 text-tertiary'
+              : 'bg-surface-container-high text-on-surface-variant'
+          }
+        >
+          {m.status === 'live' ? 'En juego' : estadoLabel(m.status)}
         </Badge>
       )}
     </li>

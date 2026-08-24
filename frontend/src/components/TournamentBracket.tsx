@@ -1,4 +1,5 @@
 import { Icon } from './ui'
+import { woLabel } from '../utils/partido'
 
 function roundLabel(count: number): string {
   return count === 1
@@ -53,13 +54,17 @@ function MatchCard({ m }: { m: any }) {
   const live = m.status === 'live'
   const homeWin = finished && (m.home_score ?? 0) >= (m.away_score ?? 0)
   const awayWin = finished && (m.away_score ?? 0) > (m.home_score ?? 0)
+  // Un W.O. en una llave se dice: el equipo pasó sin jugar y la gente pregunta.
+  const wo = woLabel(m.walkover)
   const statusText = m.is_third_place
     ? '3er puesto'
     : finished
-      ? 'Final'
+      ? wo || 'Final'
       : live
         ? 'En vivo'
-        : 'Programado'
+        : m.status === 'postponed'
+          ? 'Aplazado'
+          : 'Programado'
   const winnerName = homeWin ? m.home_team_name : awayWin ? m.away_team_name : null
   return (
     <div className="rounded-xl border border-outline-variant/50 bg-surface-container-high p-2.5 shadow-sm">

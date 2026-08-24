@@ -583,13 +583,24 @@ export async function makeCalendarImage(
       ctx.textAlign = 'left'
       ctx.fillText(cuando, x0 + 12, cy)
 
-      // marcador o "vs"
+      // marcador, "vs" o el aviso de que ese partido no se juega
       const finished = m.status === 'finished'
       const live = m.status === 'live'
+      const postponed = m.status === 'postponed'
       ctx.textAlign = 'center'
-      ctx.fillStyle = finished ? GREEN : live ? ORANGE : MUTED
-      ctx.font = `800 ${finished || live ? 30 : 24}px Lexend, sans-serif`
-      ctx.fillText(finished || live ? `${m.home_score ?? 0} - ${m.away_score ?? 0}` : 'vs', cxm, cy)
+      ctx.fillStyle = finished ? GREEN : live || postponed ? ORANGE : MUTED
+      // «APLAZADO» va más chico para no pisar los nombres de los equipos: la
+      // columna del centro son 116 px.
+      ctx.font = `800 ${finished || live ? 30 : postponed ? 16 : 24}px Lexend, sans-serif`
+      ctx.fillText(
+        finished || live
+          ? `${m.home_score ?? 0} - ${m.away_score ?? 0}`
+          : postponed
+            ? 'APLAZADO'
+            : 'vs',
+        cxm,
+        cy,
+      )
 
       // equipos (con su logo si lo tienen)
       ctx.fillStyle = TEXT

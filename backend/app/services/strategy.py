@@ -19,6 +19,31 @@ FAIR_PLAY_WEIGHTS = {"yellow": 1, "blue": 2, "red": 3}
 # Deportes que puntúan como fútbol (victoria / empate / derrota).
 FOOTBALL_LIKE_SPORTS = ("football", "micro", "banquitas")
 
+# Marcador que fija el reglamento cuando un equipo no se presenta (W.O.).
+# Fútbol y sus variantes, 3-0; baloncesto, 20-0 como en FIBA. Va aparte de
+# SPORT_DEFAULTS a propósito: aquello se vuelca tal cual sobre las columnas del
+# torneo al crearlo, y esto no es una columna sino una regla de cálculo.
+WALKOVER_SCORES: Dict[str, tuple] = {
+    "football": (3, 0),
+    "micro": (3, 0),
+    "banquitas": (3, 0),
+    "basketball": (20, 0),
+}
+
+
+def marcador_walkover(sport_type: str, ausente: str) -> tuple:
+    """Marcador (local, visitante) de un W.O. según quién no se presentó.
+
+    Con `both` no se presentó nadie: 0-0, y la tabla lo cuenta como derrota de
+    los dos (ver `calculate_standings`), no como empate.
+    """
+    a_favor, en_contra = WALKOVER_SCORES.get(sport_type, (3, 0))
+    if ausente == "both":
+        return 0, 0
+    if ausente == "home":
+        return en_contra, a_favor
+    return a_favor, en_contra
+
 # Valores por defecto de cada disciplina; se aplican al crear el torneo solo
 # para los campos que el organizador no envía. Coinciden con los fallbacks ya
 # usados al calcular puntos y al generar el calendario.
@@ -55,6 +80,12 @@ class SportStrategy(ABC):
     ) -> tuple:
         ...
 
+    @abstractmethod
+    def puntos_por_derrota(self, rules: Dict) -> int:
+        """Puntos del que pierde. Lo necesita el doble W.O., donde no hay
+        marcador del que deducir quién ganó porque no se presentó nadie."""
+        ...
+
 
 class FootballStrategy(SportStrategy):
     def calculate_points(self, home_score, away_score, rules):
@@ -67,6 +98,9 @@ class FootballStrategy(SportStrategy):
             return loss, win
         return draw, draw
 
+    def puntos_por_derrota(self, rules):
+        return rules.get("loss", 0)
+
 
 class BasketballStrategy(SportStrategy):
     def calculate_points(self, home_score, away_score, rules):
@@ -75,6 +109,9 @@ class BasketballStrategy(SportStrategy):
         if home_score >= away_score:
             return win, loss
         return loss, win
+
+    def puntos_por_derrota(self, rules):
+        return rules.get("loss", 1)
 
 
 class StrategyFactory:
@@ -172,6 +209,7 @@ def calculate_standings(
     matches: List[Dict],
     sport_type: str,
     tiebreaker_rules: Optional[List[str]] = None,
+    points_adjustments: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Calcula la tabla de posiciones aplicando los criterios de desempate
@@ -184,9 +222,14 @@ def calculate_standings(
         GOLES_CONTRA     – goles / puntos recibidos (menos = mejor)
         FAIR_PLAY        – penalización por tarjetas (menos = mejor)
         PARTIDO_DIRECTO  – enfrentamiento directo entre equipos empatados
+
+    `points_adjustments` es {team_id: puntos} con las sanciones del reglamento
+    (negativas descuentan). Se aplican ANTES de ordenar, porque un descuento
+    que no mueve al equipo en la tabla no es una sanción.
     """
     rules = tiebreaker_rules or DEFAULT_TIEBREAKERS
     strategy = StrategyFactory.get_strategy(sport_type)
+    ajustes = {str(k): int(v or 0) for k, v in (points_adjustments or {}).items()}
 
     team_ids = set()
     for m in matches:
@@ -226,8 +269,16 @@ def calculate_standings(
         if not cuenta_para_la_tabla(m):
             continue
         hs, away_s = int(m["home_score"]), int(m["away_score"])
+        # Doble W.O.: no se presentó ninguno de los dos. Sin marcador del que
+        # deducir nada, 0-0 sería un empate y les daría un punto a cada uno por
+        # no aparecer; el reglamento los hace perder a los dos.
+        doble_wo = m.get("walkover") == "both"
 
-        hp, ap = strategy.calculate_points(hs, away_s, m.get("rules") or {})
+        if doble_wo:
+            derrota = strategy.puntos_por_derrota(m.get("rules") or {})
+            hp = ap = derrota
+        else:
+            hp, ap = strategy.calculate_points(hs, away_s, m.get("rules") or {})
         table[home]["league_points"] += hp
         table[away]["league_points"] += ap
         table[home]["points_scored"] += hs
@@ -236,7 +287,10 @@ def calculate_standings(
         table[away]["points_conceded"] += hs
         table[home]["matches_played"] += 1
         table[away]["matches_played"] += 1
-        if hs > away_s:
+        if doble_wo:
+            table[home]["losses"] += 1
+            table[away]["losses"] += 1
+        elif hs > away_s:
             table[home]["wins"] += 1
             table[away]["losses"] += 1
         elif hs < away_s:
@@ -260,8 +314,16 @@ def calculate_standings(
             elif etype in ("ROJA", "RED"):
                 table[target]["fair_play_penalty"] += FAIR_PLAY_WEIGHTS["red"]
 
+    # Sanciones del reglamento: se suman a los puntos ya ganados en cancha y
+    # quedan visibles en la fila para poder explicar el número.
+    for tid, row in table.items():
+        ajuste = ajustes.get(str(tid), 0)
+        row["points_adjustment"] = ajuste
+        row["league_points"] += ajuste
+
     standings = list(table.values())
     standings.sort(key=lambda t: _sort_key(t, rules), reverse=True)
+
 
     # Desempate por enfrentamiento directo entre equipos con la misma clave.
     if "PARTIDO_DIRECTO" in rules:

@@ -100,6 +100,7 @@ const ESTADO: Record<string, { label: string; bg: RGB; fg: RGB }> = {
   scheduled: { label: 'Programado', bg: [226, 232, 240], fg: [71, 85, 105] },
   live: { label: 'En juego', bg: [255, 138, 76], fg: WHITE },
   finished: { label: 'Finalizado', bg: GREEN, fg: [8, 20, 37] },
+  postponed: { label: 'Aplazado', bg: [253, 224, 71], fg: [69, 44, 4] },
 }
 
 // Cómo se pinta cada sanción en la planilla de disciplina. La clave es el tipo
@@ -369,6 +370,12 @@ export type ActaOptions = {
   tournamentName?: string
   homePlayers?: any[]
   awayPlayers?: any[]
+  /** Planilla del partido: quiénes jugaron de verdad, con `is_starter` y
+   *  `is_captain`. Si viene, es la que se imprime; el acta que enumera el
+   *  plantel entero no prueba quién estuvo en cancha, que es para lo que se
+   *  firma. Sin planilla se sigue imprimiendo la nómina completa. */
+  homeLineup?: any[]
+  awayLineup?: any[]
   /** Equipos tal como los devuelve /teams: logo_url y colores del uniforme. */
   homeTeam?: any
   awayTeam?: any
@@ -525,16 +532,25 @@ export async function exportMatchReportPDF(
   texto(doc, 'VISITANTE', ax, cy + 5.8, { size: 6, color: MUTED, space: 0.8, align: 'right' })
 
   texto(doc, `${hs}  -  ${as}`, W / 2, cy + 3.4, { size: 23, bold: true, color: NAVY, align: 'center' })
+  // W.O.: el marcador existe pero el partido no se jugó, y el acta tiene que
+  // decirlo — es lo que justifica el 3-0 ante quien la lee semanas después.
+  const wo = match.walkover || null
   const desenlace =
-    estado === 'finished'
-      ? hs > as
-        ? `GANA ${home}`
-        : as > hs
-          ? `GANA ${away}`
-          : 'EMPATE'
-      : estado === 'live'
-        ? 'MARCADOR PARCIAL'
-        : 'RESULTADO PENDIENTE'
+    estado === 'postponed'
+      ? 'PARTIDO APLAZADO'
+      : estado === 'finished'
+        ? wo === 'both'
+          ? 'DOBLE W.O.'
+          : wo
+            ? `GANA ${wo === 'home' ? away : home} POR W.O.`
+            : hs > as
+              ? `GANA ${home}`
+              : as > hs
+                ? `GANA ${away}`
+                : 'EMPATE'
+        : estado === 'live'
+          ? 'MARCADOR PARCIAL'
+          : 'RESULTADO PENDIENTE'
   texto(doc, desenlace, W / 2, cy + 9.4, {
     size: 6.4,
     color: MUTED,
@@ -761,21 +777,53 @@ export async function exportMatchReportPDF(
     else if (SANCION[e.event_type]) r.s.push(SANCION[e.event_type].corto)
     rendimiento.set(k, r)
   })
-  const hp = opts.homePlayers || []
-  const ap = opts.awayPlayers || []
+  // La planilla (quiénes jugaron) manda sobre la nómina completa del equipo:
+  // el acta se firma para dejar constancia de quién estuvo en cancha.
+  const hl = opts.homeLineup || []
+  const al = opts.awayLineup || []
+  const hp = hl.length ? hl : opts.homePlayers || []
+  const ap = al.length ? al : opts.awayPlayers || []
+  const conPlanilla = hl.length > 0 || al.length > 0
   if (hp.length || ap.length) {
     const conDoc = [...hp, ...ap].some((p) => p.identification_number)
     const filas = (js: any[]) =>
       js.length
         ? js.map((p) => {
             const r = rendimiento.get(String(p.id))
-            const fila = [p.number != null ? String(p.number) : '', p.name || '—']
+            const fila = [
+              p.number != null ? String(p.number) : '',
+              (p.name || '—') + (p.is_captain ? ' (C)' : ''),
+            ]
             if (conDoc) fila.push(p.identification_number || '')
             fila.push(r?.g ? String(r.g) : '', (r?.s || []).slice(0, 4).join(' '))
             return fila
           })
         : [conDoc ? ['', 'Sin nómina cargada', '', '', ''] : ['', 'Sin nómina cargada', '', '']]
     const cabezas = ['#', 'Jugador', ...(conDoc ? ['Documento'] : []), 'G', 'Sanc.']
+    // Con planilla, titulares y suplentes van separados por un renglón de
+    // sección: cuesta menos ancho que una columna y es como se lee un acta.
+    const seccion = (rotulo: string) => [
+      {
+        content: rotulo,
+        colSpan: cabezas.length,
+        styles: {
+          fillColor: [237, 242, 249] as any,
+          textColor: MUTED as any,
+          fontStyle: 'bold' as any,
+          fontSize: 6.2,
+          cellPadding: { top: 0.9, bottom: 0.9, left: 2, right: 2 },
+        },
+      },
+    ]
+    const cuerpo = (js: any[], conPlanillaEquipo: boolean): any[] => {
+      if (!conPlanillaEquipo || !js.length) return filas(js)
+      const titulares = js.filter((p) => p.is_starter !== false)
+      const suplentes = js.filter((p) => p.is_starter === false)
+      const out: any[] = []
+      if (titulares.length) out.push(seccion('TITULARES'), ...filas(titulares))
+      if (suplentes.length) out.push(seccion('SUPLENTES'), ...filas(suplentes))
+      return out.length ? out : filas(js)
+    }
     const anchoCol = (CW - 6) / 2
     const cols: any = conDoc
       ? {
@@ -789,19 +837,27 @@ export async function exportMatchReportPDF(
           2: { cellWidth: 8, halign: 'center', fontStyle: 'bold', textColor: NAVY },
           3: { cellWidth: 16, halign: 'center', fontSize: 7, fontStyle: 'bold' },
         }
-    titulo('Planteles', `${hp.length + ap.length} jugador(es) inscritos`)
+    titulo(
+      conPlanilla ? 'Planilla del partido' : 'Planteles',
+      // Sin "en planilla" a secas: si solo un equipo entregó la suya, el otro
+      // lado sigue mostrando su nómina y el número sería mentira.
+      conPlanilla
+        ? `${hp.length + ap.length} jugador(es)`
+        : `${hp.length + ap.length} jugador(es) inscritos`,
+    )
     // Si las dos nóminas no caben enteras, se pasan juntas a la página
     // siguiente: partidas por la mitad no se leen.
-    asegurar(14 + Math.max(hp.length, ap.length, 1) * 5.4)
+    // +2 renglones cuando hay planilla: los rótulos de titulares y suplentes.
+    asegurar(14 + (Math.max(hp.length, ap.length, 1) + (conPlanilla ? 2 : 0)) * 5.4)
     const arriba = y
-    const nomina = (js: any[], equipo: string, left: number) => {
+    const nomina = (js: any[], equipo: string, left: number, planilla: boolean) => {
       autoTable(doc, {
         startY: arriba,
         head: [
           [{ content: equipo.toUpperCase(), colSpan: cabezas.length, styles: { halign: 'left' } }],
           cabezas,
         ],
-        body: filas(js),
+        body: cuerpo(js, planilla),
         theme: 'grid',
         styles: {
           font: 'helvetica',
@@ -820,8 +876,8 @@ export async function exportMatchReportPDF(
       })
       return (doc as any).lastAutoTable.finalY
     }
-    const finL = nomina(hp, home, M)
-    const finR = nomina(ap, away, M + anchoCol + 6)
+    const finL = nomina(hp, home, M, hl.length > 0)
+    const finR = nomina(ap, away, M + anchoCol + 6, al.length > 0)
     y = Math.max(finL, finR) + 9
   }
 
@@ -919,7 +975,14 @@ export async function exportMatchReportPDF(
       color: MUTED,
       align: 'right',
     })
-    if (estado !== 'finished') marcaDeAgua(doc, W, H, estado === 'live' ? 'EN JUEGO' : 'PROVISIONAL')
+    if (estado !== 'finished')
+      marcaDeAgua(
+        doc,
+        W,
+        H,
+        estado === 'live' ? 'EN JUEGO' : estado === 'postponed' ? 'APLAZADO' : 'PROVISIONAL',
+      )
+    else if (wo) marcaDeAgua(doc, W, H, 'NO JUGADO')
   }
 
   doc.save(`acta-${slug(home)}-vs-${slug(away)}-${codigo.toLowerCase()}.pdf`)

@@ -65,6 +65,10 @@ class MatchStatus(str, enum.Enum):
     SCHEDULED = "scheduled"
     LIVE = "live"
     FINISHED = "finished"
+    # Aplazado: no se juega en su fecha y todavía no tiene una nueva. No suma a
+    # la tabla (solo cuentan los terminados) y el validador de calendario lo
+    # ignora, que es justo lo que se quiere de un partido suspendido por lluvia.
+    POSTPONED = "postponed"
 
 
 class StageType(str, enum.Enum):
@@ -168,6 +172,11 @@ class TournamentTeam(Base):
     team_id = Column(GUID(), ForeignKey("teams.id"))
     group_name = Column(String)
     status = Column(String, default="approved")
+    # Sanción de puntos del reglamento (negativa para descontar, positiva para
+    # una bonificación). Se suma a los puntos de la tabla sin tocar los
+    # partidos: el resultado en cancha fue el que fue.
+    points_adjustment = Column(Integer, default=0)
+    points_adjustment_reason = Column(String)
 
 
 class TeamPlayer(Base):
@@ -225,6 +234,10 @@ class Match(Base):
     scheduled_start = Column(DateTime)
     scheduled_end = Column(DateTime)
     referee_id = Column(GUID(), nullable=True)  # User (árbitro) asignado al partido
+    # W.O.: quién NO se presentó ("home", "away" o "both"). El partido sigue
+    # siendo `finished` y con marcador —cuenta para la tabla— pero queda dicho
+    # que no se jugó, que es lo que hoy se perdía al escribir 3-0 a mano.
+    walkover = Column(String)
 
     stage = relationship("Stage", back_populates="matches")
     home_team = relationship("Team", foreign_keys=[home_team_id])
@@ -232,6 +245,9 @@ class Match(Base):
     court = relationship("Court", back_populates="matches")
     events = relationship(
         "MatchStat", back_populates="match", cascade="all, delete-orphan"
+    )
+    lineup = relationship(
+        "MatchLineup", back_populates="match", cascade="all, delete-orphan"
     )
     slots = relationship(
         "StageSlot",
@@ -252,6 +268,28 @@ class MatchStat(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     match = relationship("Match", back_populates="events")
+
+
+class MatchLineup(Base):
+    """Quiénes jugaron ESE partido (planilla), no la nómina del equipo.
+
+    El acta se firma para dejar constancia de quién estuvo en cancha: sin esta
+    tabla el acta imprimía el plantel completo, que no prueba nada. `number` se
+    guarda aquí y no se lee de `TeamPlayer` porque el dorsal de ese día es el
+    que quedó escrito en la planilla, aunque después cambie.
+    """
+
+    __tablename__ = "match_lineups"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    match_id = Column(GUID(), ForeignKey("matches.id", ondelete="CASCADE"))
+    team_id = Column(GUID(), ForeignKey("teams.id"))
+    player_id = Column(GUID(), ForeignKey("players.id"))
+    is_starter = Column(Boolean, default=True)  # titular o suplente
+    is_captain = Column(Boolean, default=False)
+    number = Column(Integer)
+
+    match = relationship("Match", back_populates="lineup")
 
 
 class StageSlot(Base):

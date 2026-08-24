@@ -18,11 +18,8 @@ import TournamentBracket from './TournamentBracket'
 import { hasBlueCard, sportOf } from '../sports'
 import type { StatScope } from '../services/api'
 
-const STATUS_LABEL: Record<string, string> = {
-  scheduled: 'Programado',
-  live: 'En vivo',
-  finished: 'Finalizado',
-}
+import { ESTADO_LABEL as STATUS_LABEL, woDetalle, woLabel } from '../utils/partido'
+
 type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
 
 // Alcance por defecto de las estadísticas: todas las fases del torneo.
@@ -185,6 +182,9 @@ export default function PublicView({
   // team_id → logo_url del torneo abierto: alimenta las tablas en pantalla y
   // las imágenes de posiciones y calendario.
   const [teamLogos, setTeamLogos] = useState<Record<string, string | null>>({})
+  // Motivo de la sanción de puntos de cada equipo: el número lo trae la tabla,
+  // pero un -3 sin explicación al lado es lo que enciende el grupo de WhatsApp.
+  const [sanciones, setSanciones] = useState<Record<string, string | null>>({})
   // Catálogos para el resumen de formato: presets de clasificación y
   // etiquetas de los criterios de desempate.
   const [presetCat, setPresetCat] = useState<any>(null)
@@ -289,11 +289,19 @@ export default function PublicView({
     setCalDate('todas')
     setCalCourt('todas')
     setTeamLogos({})
+    setSanciones({})
     api
       .getTeams(t.id)
-      .then((teams: any[]) =>
-        setTeamLogos(Object.fromEntries((teams || []).map((e) => [e.id, e.logo_url || null]))),
-      )
+      .then((teams: any[]) => {
+        setTeamLogos(Object.fromEntries((teams || []).map((e) => [e.id, e.logo_url || null])))
+        setSanciones(
+          Object.fromEntries(
+            (teams || [])
+              .filter((e) => e.points_adjustment)
+              .map((e) => [e.id, e.points_adjustment_reason || null]),
+          ),
+        )
+      })
       .catch(() => {})
     const st = await api.getStages(t.id)
     setStages(st)
@@ -622,7 +630,12 @@ export default function PublicView({
                               </button>
                             </div>
                           </div>
-                          <StandingsTable rows={rows} onRowClick={openProfile} logos={teamLogos} />
+                          <StandingsTable
+                            rows={rows}
+                            onRowClick={openProfile}
+                            logos={teamLogos}
+                            motivos={sanciones}
+                          />
                         </Card>
                       ))}
                       {(() => {
@@ -833,7 +846,9 @@ export default function PublicView({
                                   <span className="truncate">{m.home_team_name || 'Por definir'}</span>
                                 </span>
                                 <span className="font-display font-bold tabular-nums">
-                                  {m.status === 'scheduled' ? 'vs' : `${m.home_score ?? 0} - ${m.away_score ?? 0}`}
+                                  {m.status === 'scheduled' || m.status === 'postponed'
+                                    ? 'vs'
+                                    : `${m.home_score ?? 0} - ${m.away_score ?? 0}`}
                                 </span>
                                 <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
                                   <span className="truncate">{m.away_team_name || 'Por definir'}</span>
@@ -841,7 +856,25 @@ export default function PublicView({
                                     <img src={teamLogos[m.away_team_id]!} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
                                   )}
                                 </span>
-                                <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
+                                <Badge
+                                  className={
+                                    m.status === 'postponed'
+                                      ? 'bg-tertiary/15 text-tertiary'
+                                      : 'bg-surface-container-highest text-on-surface-variant'
+                                  }
+                                >
+                                  {STATUS_LABEL[m.status] || m.status}
+                                </Badge>
+                                {m.walkover && (
+                                  <Badge
+                                    className="bg-tertiary/15 text-tertiary"
+                                    title={
+                                      woDetalle(m.walkover, m.home_team_name, m.away_team_name) || ''
+                                    }
+                                  >
+                                    {woLabel(m.walkover)}
+                                  </Badge>
+                                )}
                                 <button
                                   onClick={() => genShare('partido', () => makeMatchImage(selected, m, sponsors))}
                                   className="shrink-0 rounded-lg p-1.5 text-on-surface-variant transition hover:bg-surface-bright hover:text-secondary"
@@ -1138,7 +1171,7 @@ export default function PublicView({
                         />
                       )}
                     </div>
-                    <StandingsTable rows={teamStats} onRowClick={openProfile} />
+                    <StandingsTable rows={teamStats} onRowClick={openProfile} motivos={sanciones} />
                   </Card>
                   </div>
                   {(() => {

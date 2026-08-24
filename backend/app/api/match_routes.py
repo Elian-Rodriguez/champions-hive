@@ -15,11 +15,12 @@ from app.core.deps import (
 from app.db.database import get_db
 from app.db.models import (
     Match,
+    MatchLineup,
     MatchStat,
     MatchStatus,
-    SlotType,
+    Player,
     Stage,
-    StageSlot,
+    TeamPlayer,
     Tournament,
     User,
 )
@@ -27,18 +28,21 @@ from app.schemas import (
     EventCreate,
     EventResponse,
     EventUpdate,
+    LineupPlayerResponse,
+    LineupUpdate,
     MatchCreate,
     MatchResponse,
     MatchScheduleUpdate,
     MatchStatusUpdate,
     StandingsRequest,
 )
+from app.services.bracket import propagar_resultado
 from app.services.notifications import (
     notificar_cambio_de_partido,
     notificar_estado_de_partido,
     snapshot_partido,
 )
-from app.services.strategy import calculate_standings
+from app.services.strategy import calculate_standings, marcador_walkover
 
 router = APIRouter()
 
@@ -167,6 +171,11 @@ def update_match_schedule(
             match.scheduled_end = match.scheduled_start + timedelta(minutes=duracion)
         else:
             match.scheduled_end = None
+    # Ponerle fecha nueva a un aplazado ES reprogramarlo: vuelve al calendario.
+    # Si no, se quedaría aplazado para siempre, fuera de la tabla y sin que el
+    # validador mire su horario.
+    if match.status == MatchStatus.POSTPONED and cambios.get("scheduled_start"):
+        match.status = MatchStatus.SCHEDULED
     db.flush()
     notificar_cambio_de_partido(db, match, antes)
     db.commit()
@@ -186,40 +195,35 @@ def update_match_status(
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     _asegurar_puede_dirigir(db, current, match)
     antes = snapshot_partido(match)
+    enviado = payload_in.model_dump(exclude_unset=True)
     match.status = payload_in.status
+    if "walkover" in enviado:
+        # Mandar walkover: null quita la marca y deja el partido como jugado.
+        match.walkover = payload_in.walkover
     if payload_in.home_score is not None:
         match.home_score = payload_in.home_score
     if payload_in.away_score is not None:
         match.away_score = payload_in.away_score
 
-    # Auto-avance del bracket: al finalizar, resuelve los cruces "ganador de…"
-    # que dependen de este partido (cascada por ronda).
+    # W.O. sin marcador: lo pone el reglamento de la disciplina (3-0 en fútbol,
+    # 20-0 en baloncesto). Si el árbitro manda uno, manda el suyo.
     if (
-        match.status == MatchStatus.FINISHED
-        and match.home_score is not None
-        and match.away_score is not None
+        match.walkover
+        and match.status == MatchStatus.FINISHED
+        and payload_in.home_score is None
+        and payload_in.away_score is None
     ):
-        home_wins = match.home_score >= match.away_score
-        winner = match.home_team_id if home_wins else match.away_team_id
-        loser = match.away_team_id if home_wins else match.home_team_id
-        slots = (
-            db.query(StageSlot)
-            .filter(
-                StageSlot.source_match_id == match.id,
-                StageSlot.slot_type.in_([SlotType.WINNER_OF, SlotType.LOSER_OF]),
-                StageSlot.resolved == False,  # noqa: E712
-            )
-            .all()
+        torneo = _torneo_del_partido(db, match)
+        deporte = getattr(torneo, "sport_type", None) if torneo else None
+        deporte = getattr(deporte, "value", deporte)
+        match.home_score, match.away_score = marcador_walkover(
+            str(deporte), match.walkover
         )
-        for slot in slots:
-            team = winner if slot.slot_type == SlotType.WINNER_OF else loser
-            target = db.query(Match).filter(Match.id == slot.match_id).first()
-            if target:
-                if slot.is_home:
-                    target.home_team_id = team
-                else:
-                    target.away_team_id = team
-                slot.resolved = True
+
+    # Auto-avance del cuadro: escribe en los cruces "ganador de…" el equipo que
+    # corresponde al resultado ACTUAL. Corregir un marcador o devolver el
+    # partido a "en vivo" reescribe la casilla en vez de dejarla congelada.
+    propagar_resultado(db, match)
 
     db.flush()
     notificar_estado_de_partido(db, match, antes)
@@ -302,8 +306,119 @@ def delete_event(
     db.commit()
 
 
+# --------------------------------------------------------------------------- #
+#  Planilla del partido (quiénes jugaron)
+# --------------------------------------------------------------------------- #
+def _lineup_payload(db: Session, filas: List[MatchLineup]) -> List[dict]:
+    nombres = {}
+    ids = [f.player_id for f in filas if f.player_id]
+    if ids:
+        nombres = {
+            str(p.id): p.name for p in db.query(Player).filter(Player.id.in_(ids)).all()
+        }
+    return [
+        {
+            "id": f.id,
+            "match_id": f.match_id,
+            "team_id": f.team_id,
+            "player_id": f.player_id,
+            "player_name": nombres.get(str(f.player_id)),
+            "is_starter": bool(f.is_starter),
+            "is_captain": bool(f.is_captain),
+            "number": f.number,
+        }
+        for f in filas
+    ]
+
+
+@router.get("/{match_id}/lineup", response_model=List[LineupPlayerResponse])
+def get_match_lineup(match_id: UUID, db: Session = Depends(get_db)):
+    """Quiénes jugaron el partido, de los dos equipos.
+
+    Es pública como los eventos: el acta que sale de aquí circula por toda la
+    liga y el marcador muestra quién estuvo en cancha.
+    """
+    filas = db.query(MatchLineup).filter(MatchLineup.match_id == match_id).all()
+    return _lineup_payload(db, filas)
+
+
+@router.put("/{match_id}/lineup", response_model=List[LineupPlayerResponse])
+def set_match_lineup(
+    match_id: UUID,
+    payload_in: LineupUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """Reemplaza la planilla de UN equipo para este partido.
+
+    Cargar quién juega es la misma potestad que cargar el resultado: el árbitro
+    asignado y el dueño del torneo. Un jugador que no esté en la nómina del
+    equipo se rechaza; ahí empieza el control de elegibilidad.
+    """
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="Partido no encontrado")
+    _asegurar_puede_dirigir(db, current, match)
+
+    equipo = payload_in.team_id
+    if str(equipo) not in (str(match.home_team_id), str(match.away_team_id)):
+        raise HTTPException(
+            status_code=400, detail="Ese equipo no juega este partido"
+        )
+
+    pedidos = [e.player_id for e in payload_in.players]
+    if len(set(map(str, pedidos))) != len(pedidos):
+        raise HTTPException(
+            status_code=400, detail="Hay un jugador repetido en la planilla"
+        )
+
+    # La nómina del equipo es la que manda: el dorsal que no venga se toma de
+    # ahí, y el jugador que no esté inscrito no puede figurar en el acta.
+    inscritos = {
+        str(tp.player_id): tp
+        for tp in db.query(TeamPlayer).filter(TeamPlayer.team_id == equipo).all()
+    }
+    ajenos = [str(p) for p in pedidos if str(p) not in inscritos]
+    if ajenos:
+        nombres = {
+            str(p.id): p.name
+            for p in db.query(Player).filter(Player.id.in_(ajenos)).all()
+        }
+        detalle = ", ".join(nombres.get(p, p) for p in ajenos)
+        raise HTTPException(
+            status_code=400,
+            detail=f"No están en la nómina del equipo: {detalle}",
+        )
+
+    db.query(MatchLineup).filter(
+        MatchLineup.match_id == match_id, MatchLineup.team_id == equipo
+    ).delete(synchronize_session=False)
+    for entrada in payload_in.players:
+        inscrito = inscritos.get(str(entrada.player_id))
+        db.add(
+            MatchLineup(
+                match_id=match_id,
+                team_id=equipo,
+                player_id=entrada.player_id,
+                is_starter=entrada.is_starter,
+                is_captain=entrada.is_captain,
+                number=entrada.number if entrada.number is not None else (
+                    inscrito.number if inscrito else None
+                ),
+            )
+        )
+    db.commit()
+    filas = (
+        db.query(MatchLineup)
+        .filter(MatchLineup.match_id == match_id, MatchLineup.team_id == equipo)
+        .all()
+    )
+    return _lineup_payload(db, filas)
+
+
 @router.post("/standings")
 def get_standings(req: StandingsRequest, db: Session = Depends(get_db)):
+
     standings = calculate_standings(
         req.matches, req.sport_type.value, req.tiebreaker_rules
     )

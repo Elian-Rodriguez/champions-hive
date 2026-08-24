@@ -7,6 +7,9 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 from app.db.models import MatchStatus, SportType, StageType
 
+# Quién no se presentó en un W.O.: el local, el visitante o ninguno de los dos.
+WALKOVER_VALIDOS = ("home", "away", "both")
+
 
 # --------------------------------------------------------------------------- #
 #  Auth / Users
@@ -236,6 +239,8 @@ class TeamResponse(TeamBase):
     id: UUID
     group_name: Optional[str] = None
     status: Optional[str] = None
+    points_adjustment: Optional[int] = None
+    points_adjustment_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -243,6 +248,26 @@ class TeamResponse(TeamBase):
 
 class GroupAssignment(BaseModel):
     group_name: Optional[str] = None
+
+
+class PointsAdjustment(BaseModel):
+    """Sanción de puntos del reglamento: negativa descuenta, positiva bonifica.
+
+    El motivo viaja con el número porque una tabla con un -3 sin explicación es
+    justo lo que hace que el organizador pierda la discusión.
+    """
+
+    points_adjustment: int = 0
+    points_adjustment_reason: Optional[str] = None
+
+    @field_validator("points_adjustment")
+    @classmethod
+    def _rango(cls, v: int) -> int:
+        # Tope defensivo: un descuento es de unos pocos puntos; más que esto es
+        # un dedo pegado en el teclado, no un reglamento.
+        if v < -100 or v > 100:
+            raise ValueError("El ajuste de puntos debe estar entre -100 y 100")
+        return v
 
 
 class ShuffleGroupsRequest(BaseModel):
@@ -449,6 +474,21 @@ class MatchStatusUpdate(BaseModel):
     status: MatchStatus
     home_score: Optional[int] = None
     away_score: Optional[int] = None
+    # W.O.: quién no se presentó. "home", "away", "both" o null para quitarlo.
+    # Si no se manda marcador, el endpoint pone el que fija el reglamento de la
+    # disciplina (3-0 en fútbol, 20-0 en baloncesto).
+    walkover: Optional[str] = None
+
+    @field_validator("walkover")
+    @classmethod
+    def _validar_walkover(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        if v not in WALKOVER_VALIDOS:
+            raise ValueError(
+                "walkover debe ser 'home', 'away' o 'both' (quién no se presentó)"
+            )
+        return v
 
 
 class MatchResponse(BaseModel):
@@ -464,6 +504,42 @@ class MatchResponse(BaseModel):
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
     referee_id: Optional[UUID] = None
+    walkover: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --------------------------------------------------------------------------- #
+#  Planilla del partido (quiénes jugaron)
+# --------------------------------------------------------------------------- #
+class LineupEntry(BaseModel):
+    player_id: UUID
+    is_starter: bool = True
+    is_captain: bool = False
+    number: Optional[int] = None
+
+
+class LineupUpdate(BaseModel):
+    """Planilla de UN equipo para un partido: reemplaza la que hubiera.
+
+    Va por equipo y no por partido entero porque cada delegado entrega la suya
+    y el árbitro las carga cuando llegan, que nunca es al mismo tiempo.
+    """
+
+    team_id: UUID
+    players: List[LineupEntry] = []
+
+
+class LineupPlayerResponse(BaseModel):
+    id: UUID
+    match_id: UUID
+    team_id: UUID
+    player_id: UUID
+    player_name: Optional[str] = None
+    is_starter: bool = True
+    is_captain: bool = False
+    number: Optional[int] = None
 
     class Config:
         from_attributes = True

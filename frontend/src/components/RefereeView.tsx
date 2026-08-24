@@ -4,13 +4,12 @@ import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 import { useAppSelector } from '../hooks'
-import { sportOf, type DisciplineEvent } from '../sports'
+import { marcadorWalkover, sportOf, type DisciplineEvent } from '../sports'
+import { ESTADO_LABEL as STATUS_LABEL, woDetalle, woLabel } from '../utils/partido'
 
-const STATUS_LABEL: Record<string, string> = {
-  scheduled: 'Programado',
-  live: 'En vivo',
-  finished: 'Finalizado',
-}
+/** Un jugador dentro de la planilla del partido. Estar en el mapa es haber
+ *  jugado; `starter` distingue titular de suplente. */
+type Alineado = { starter: boolean; captain: boolean }
 
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
@@ -71,6 +70,13 @@ export default function RefereeView() {
   const [selHome, setSelHome] = useState('')
   const [selAway, setSelAway] = useState('')
   const [events, setEvents] = useState<any[]>([])
+  // Planilla del partido: equipo → jugador → titular/capitán. Se carga con el
+  // partido y se guarda por equipo, como llegan los delegados.
+  const [lineup, setLineup] = useState<Record<string, Record<string, Alineado>>>({})
+  const [lineupSucia, setLineupSucia] = useState<Record<string, boolean>>({})
+  const [guardandoLineup, setGuardandoLineup] = useState<string | null>(null)
+  // Panel de "no se jugó" (aplazar / W.O.), cerrado por defecto.
+  const [noJugado, setNoJugado] = useState(false)
   const [minute, setMinute] = useState('')
   const [running, setRunning] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -149,17 +155,141 @@ export default function RefereeView() {
     setElapsed(0)
     setSelHome('')
     setSelAway('')
+    setNoJugado(false)
+    setLineupSucia({})
     setHomePlayers(m.home_team_id ? await api.getPlayers(m.home_team_id) : [])
     setAwayPlayers(m.away_team_id ? await api.getPlayers(m.away_team_id) : [])
     setEvents(await api.matchEvents(m.id))
+    setLineup(aMapa(await api.matchLineup(m.id).catch(() => [])))
+  }
+  /** Las filas que devuelve el servidor, al mapa que edita la pantalla. */
+  function aMapa(filas: any[]): Record<string, Record<string, Alineado>> {
+    const mapa: Record<string, Record<string, Alineado>> = {}
+    for (const f of filas || []) {
+      const equipo = String(f.team_id)
+      mapa[equipo] = mapa[equipo] || {}
+      mapa[equipo][String(f.player_id)] = {
+        starter: !!f.is_starter,
+        captain: !!f.is_captain,
+      }
+    }
+    return mapa
   }
   async function refreshEvents() {
     setEvents(await api.matchEvents(match.id))
   }
   async function persist(status: string) {
     await api.updateMatchStatus(match.id, { status, home_score: home, away_score: away })
+    setMatch((m: any) => ({ ...m, status, home_score: home, away_score: away }))
     aviso(`Marcador guardado (${STATUS_LABEL[status]})`)
     if (stage) setMatches(await api.stageMatches(stage.id))
+  }
+
+  /** Aplazado: no se juega y todavía no hay fecha nueva. No cuenta para la
+   *  tabla y sale del calendario hasta que el organizador lo reprograme. */
+  async function aplazar() {
+    try {
+      await api.updateMatchStatus(match.id, { status: 'postponed' })
+      setMatch((m: any) => ({ ...m, status: 'postponed' }))
+      setNoJugado(false)
+      aviso('Partido aplazado — el organizador le pondrá fecha nueva')
+      if (stage) setMatches(await api.stageMatches(stage.id))
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo aplazar el partido', true)
+    }
+  }
+
+  /** W.O.: el partido se da por terminado con el marcador del reglamento y
+   *  queda dicho que no se jugó. El marcador se calcula aquí además de en el
+   *  servidor para que sin señal el árbitro vea el número correcto. */
+  async function marcarWalkover(ausente: 'home' | 'away' | 'both') {
+    const [local, visitante] = marcadorWalkover(tournament?.sport_type, ausente)
+    try {
+      await api.updateMatchStatus(match.id, {
+        status: 'finished',
+        walkover: ausente,
+        home_score: local,
+        away_score: visitante,
+      })
+      setHome(local)
+      setAway(visitante)
+      setMatch((m: any) => ({
+        ...m,
+        status: 'finished',
+        walkover: ausente,
+        home_score: local,
+        away_score: visitante,
+      }))
+      setNoJugado(false)
+      aviso(`${woDetalle(ausente, match.home_team_name, match.away_team_name)} · ${local}-${visitante}`)
+      if (stage) setMatches(await api.stageMatches(stage.id))
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo cargar el W.O.', true)
+    }
+  }
+
+  /** Deshace el W.O.: el partido vuelve a ser uno jugado y el marcador queda
+   *  en manos del árbitro. */
+  async function quitarWalkover() {
+    try {
+      await api.updateMatchStatus(match.id, { status: match.status, walkover: null })
+      setMatch((m: any) => ({ ...m, walkover: null }))
+      aviso('W.O. quitado — carga el marcador del partido')
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo quitar el W.O.', true)
+    }
+  }
+
+  // ---- Planilla ----
+  function tocarLineup(equipo: string, jugador: string, cambio: Partial<Alineado> | null) {
+    setLineup((prev) => {
+      const delEquipo = { ...(prev[equipo] || {}) }
+      if (cambio === null) delete delEquipo[jugador]
+      else
+        delEquipo[jugador] = {
+          starter: true,
+          captain: false,
+          ...(delEquipo[jugador] || {}),
+          ...cambio,
+        }
+      // El capitán es uno solo por equipo.
+      if (cambio?.captain)
+        for (const id of Object.keys(delEquipo))
+          if (id !== jugador) delEquipo[id] = { ...delEquipo[id], captain: false }
+      return { ...prev, [equipo]: delEquipo }
+    })
+    setLineupSucia((s) => ({ ...s, [equipo]: true }))
+  }
+
+  function todosTitulares(equipo: string, jugadores: any[]) {
+    setLineup((prev) => ({
+      ...prev,
+      [equipo]: Object.fromEntries(
+        jugadores.map((p) => [
+          String(p.id),
+          { starter: true, captain: !!prev[equipo]?.[String(p.id)]?.captain },
+        ]),
+      ),
+    }))
+    setLineupSucia((s) => ({ ...s, [equipo]: true }))
+  }
+
+  async function guardarLineup(equipo: string) {
+    setGuardandoLineup(equipo)
+    try {
+      const filas = Object.entries(lineup[equipo] || {}).map(([player_id, v]) => ({
+        player_id,
+        is_starter: v.starter,
+        is_captain: v.captain,
+      }))
+      await api.setMatchLineup(match.id, equipo, filas)
+      setLineupSucia((s) => ({ ...s, [equipo]: false }))
+      aviso(`Planilla guardada (${filas.length} jugador(es))`)
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo guardar la planilla', true)
+    } finally {
+      setGuardandoLineup(null)
+    }
   }
   async function goal(side: 'home' | 'away') {
     const player = side === 'home' ? selHome : selAway
@@ -255,6 +385,8 @@ export default function RefereeView() {
           tournamentName: tournament?.name,
           homePlayers,
           awayPlayers,
+          homeLineup: planillaDe(String(match.home_team_id), homePlayers),
+          awayLineup: planillaDe(String(match.away_team_id), awayPlayers),
           homeTeam: equipos[String(match.home_team_id)],
           awayTeam: equipos[String(match.away_team_id)],
           refereeName: match.referee_name,
@@ -271,6 +403,20 @@ export default function RefereeView() {
     if (!id) return ''
     const p = [...homePlayers, ...awayPlayers].find((x) => x.id === id)
     return p ? p.name : ''
+  }
+
+  /** Los jugadores de la planilla de un equipo, con sus datos completos, en el
+   *  orden de la nómina. Es lo que imprime el acta. */
+  function planillaDe(equipo: string, jugadores: any[]) {
+    const marcados = lineup[equipo]
+    if (!marcados || !Object.keys(marcados).length) return []
+    return jugadores
+      .filter((p) => marcados[String(p.id)])
+      .map((p) => ({
+        ...p,
+        is_starter: marcados[String(p.id)].starter,
+        is_captain: marcados[String(p.id)].captain,
+      }))
   }
 
   const cards = sportOf(tournament?.sport_type).events
@@ -331,6 +477,20 @@ export default function RefereeView() {
                   <Badge className="bg-surface-container-highest text-on-surface-variant">
                     {STATUS_LABEL[match.status] || match.status}
                   </Badge>
+                )}
+                {match.walkover && (
+                  <button
+                    onClick={puedeCorregir ? quitarWalkover : undefined}
+                    title={`${woDetalle(
+                      match.walkover,
+                      match.home_team_name,
+                      match.away_team_name,
+                    )}${puedeCorregir ? ' · toca para quitarlo' : ''}`}
+                    className="shrink-0 rounded-full bg-tertiary/15 px-2 py-0.5 font-display text-xs font-bold text-tertiary"
+                  >
+                    {woLabel(match.walkover)}
+                    {puedeCorregir ? ' ×' : ''}
+                  </button>
                 )}
                 {meta && (
                   <span className="hidden truncate text-xs uppercase tracking-wide text-on-surface-variant sm:inline">
@@ -439,10 +599,44 @@ export default function RefereeView() {
               <Button onClick={() => persist('finished')}>
                 <Icon name="flag" /> Finalizar
               </Button>
+              <Button
+                variant={noJugado ? 'outline' : 'ghost'}
+                onClick={() => setNoJugado((v) => !v)}
+              >
+                <Icon name="event_busy" /> No se jugó
+              </Button>
               <Button variant="ghost" onClick={descargarActa} disabled={acta}>
                 <Icon name="picture_as_pdf" /> {acta ? 'Generando…' : 'Acta'}
               </Button>
             </div>
+
+            {/* Lo que pasa cuando el partido no se juega: se aplaza (no cuenta
+                para la tabla) o alguien no se presenta (W.O., con el marcador
+                que fija el reglamento). Hasta ahora la única salida era
+                escribir un 3-0 a mano, indistinguible de un partido jugado. */}
+            {noJugado && (
+              <div className="mt-4 rounded-xl border border-tertiary/40 bg-tertiary/5 p-3">
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button variant="outline" onClick={aplazar}>
+                    <Icon name="event_repeat" /> Aplazar
+                  </Button>
+                  <Button variant="ghost" onClick={() => marcarWalkover('away')}>
+                    <Icon name="person_off" /> No llegó {match.away_team_name || 'el visitante'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => marcarWalkover('home')}>
+                    <Icon name="person_off" /> No llegó {match.home_team_name || 'el local'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => marcarWalkover('both')}>
+                    <Icon name="group_off" /> No llegó ninguno
+                  </Button>
+                </div>
+                <p className="mt-2 text-center text-xs text-on-surface-variant">
+                  Aplazado sale del calendario y no cuenta para la tabla. El W.O. deja el
+                  partido finalizado {sportOf(tournament?.sport_type).walkoverScore[0]}-
+                  {sportOf(tournament?.sport_type).walkoverScore[1]} y anotado como no jugado.
+                </p>
+              </div>
+            )}
           </Card>
 
           {/* Registro en vivo */}
@@ -549,6 +743,40 @@ export default function RefereeView() {
             )}
           </Card>
         </div>
+
+        {/* Planilla: quiénes jugaron ese día. El acta se firma para dejar
+            constancia de eso, y hasta ahora imprimía el plantel entero. */}
+        <Card className="mt-4 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="flex items-center gap-2 font-display text-sm font-semibold">
+              <Icon name="assignment_ind" className="text-secondary" /> Planilla del partido
+            </h4>
+            <span className="text-xs text-on-surface-variant">
+              Marca quién jugó: es lo que sale en el acta
+            </span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[
+              { id: String(match.home_team_id), nombre: match.home_team_name, jugadores: homePlayers },
+              { id: String(match.away_team_id), nombre: match.away_team_name, jugadores: awayPlayers },
+            ].map((eq) => (
+              <TeamLineup
+                key={eq.id}
+                teamName={eq.nombre}
+                players={eq.jugadores}
+                value={lineup[eq.id] || {}}
+                dirty={!!lineupSucia[eq.id]}
+                saving={guardandoLineup === eq.id}
+                readOnly={!puedeCorregir}
+                onToggle={(pid, activo) => tocarLineup(eq.id, pid, activo ? {} : null)}
+                onStarter={(pid, starter) => tocarLineup(eq.id, pid, { starter })}
+                onCaptain={(pid, captain) => tocarLineup(eq.id, pid, { captain })}
+                onAll={() => todosTitulares(eq.id, eq.jugadores)}
+                onSave={() => guardarLineup(eq.id)}
+              />
+            ))}
+          </div>
+        </Card>
       </div>
     )
   }
@@ -620,11 +848,14 @@ export default function RefereeView() {
                           />
                         </span>
                       </div>
-                      <div className="mt-2 flex justify-center">
+                      <div className="mt-2 flex justify-center gap-1.5">
                         {m.status === 'live' ? (
                           <LiveChip />
                         ) : (
                           <Badge className="bg-surface-container-highest text-on-surface-variant">{STATUS_LABEL[m.status] || m.status}</Badge>
+                        )}
+                        {m.walkover && (
+                          <Badge className="bg-tertiary/15 text-tertiary">{woLabel(m.walkover)}</Badge>
                         )}
                       </div>
                       {m.referee_name && (
@@ -643,6 +874,134 @@ export default function RefereeView() {
             </ul>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+/** Planilla de un equipo: quién jugó, quién fue titular y quién es el capitán.
+ *  El delegado entrega la lista en la cancha, así que se guarda por equipo y
+ *  entra en la cola de salida si no hay señal. */
+function TeamLineup({
+  teamName,
+  players,
+  value,
+  dirty,
+  saving,
+  readOnly,
+  onToggle,
+  onStarter,
+  onCaptain,
+  onAll,
+  onSave,
+}: {
+  teamName: string | null
+  players: any[]
+  value: Record<string, Alineado>
+  dirty: boolean
+  saving: boolean
+  readOnly: boolean
+  onToggle: (playerId: string, activo: boolean) => void
+  onStarter: (playerId: string, starter: boolean) => void
+  onCaptain: (playerId: string, captain: boolean) => void
+  onAll: () => void
+  onSave: () => void
+}) {
+  const enPlanilla = players.filter((p) => value[String(p.id)]).length
+  const titulares = players.filter((p) => value[String(p.id)]?.starter).length
+  return (
+    <div className="rounded-xl border border-outline-variant/60 bg-surface-container-low p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="truncate font-display text-sm font-semibold">{teamName || 'Por definir'}</p>
+        <span className="shrink-0 text-xs tabular-nums text-on-surface-variant">
+          {enPlanilla} en planilla · {titulares} titular(es)
+        </span>
+      </div>
+      {players.length === 0 ? (
+        <p className="py-6 text-center text-xs text-on-surface-variant">
+          Sin nómina cargada. El organizador la inscribe desde el panel.
+        </p>
+      ) : (
+        <>
+          <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
+            {players.map((p) => {
+              const v = value[String(p.id)]
+              return (
+                <li
+                  key={p.id}
+                  className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                    v ? 'bg-surface-container-high' : ''
+                  }`}
+                >
+                  <button
+                    disabled={readOnly}
+                    onClick={() => onToggle(String(p.id), !v)}
+                    title={v ? 'Sacar de la planilla' : 'Poner en la planilla'}
+                    className={`grid h-6 w-6 shrink-0 place-items-center rounded ${
+                      v ? 'text-secondary' : 'text-on-surface-variant'
+                    } disabled:opacity-40`}
+                  >
+                    <Icon
+                      name={v ? 'check_box' : 'check_box_outline_blank'}
+                      className="text-lg"
+                    />
+                  </button>
+                  <span className="w-6 shrink-0 text-right font-display text-xs font-bold tabular-nums text-on-surface-variant">
+                    {p.number ?? ''}
+                  </span>
+                  <span className={`min-w-0 flex-1 truncate ${v ? '' : 'text-on-surface-variant'}`}>
+                    {p.name}
+                  </span>
+                  {v && (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <button
+                        disabled={readOnly}
+                        onClick={() => onStarter(String(p.id), !v.starter)}
+                        title={v.starter ? 'Titular (toca para suplente)' : 'Suplente (toca para titular)'}
+                        className={`h-6 w-6 rounded-full font-display text-[11px] font-bold disabled:opacity-40 ${
+                          v.starter
+                            ? 'bg-secondary/20 text-secondary'
+                            : 'bg-surface-bright text-on-surface-variant'
+                        }`}
+                      >
+                        {v.starter ? 'T' : 'S'}
+                      </button>
+                      <button
+                        disabled={readOnly}
+                        onClick={() => onCaptain(String(p.id), !v.captain)}
+                        title="Capitán"
+                        className={`grid h-6 w-6 place-items-center rounded-full disabled:opacity-40 ${
+                          v.captain ? 'text-tertiary' : 'text-on-surface-variant'
+                        }`}
+                      >
+                        <Icon name={v.captain ? 'star' : 'star_outline'} className="text-sm" />
+                      </button>
+                    </span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {!readOnly && (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                onClick={onAll}
+                className="rounded-md px-2 py-1 text-xs text-on-surface-variant hover:bg-surface-bright hover:text-on-surface"
+              >
+                Todos titulares
+              </button>
+              <Button
+                variant={dirty ? 'primary' : 'ghost'}
+                onClick={onSave}
+                disabled={saving}
+                className="px-3 py-1 text-xs"
+              >
+                <Icon name={dirty ? 'save' : 'check'} className="text-sm" />
+                {saving ? 'Guardando…' : dirty ? 'Guardar planilla' : 'Guardada'}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
