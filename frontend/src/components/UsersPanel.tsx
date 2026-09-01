@@ -468,7 +468,71 @@ export default function UsersPanel() {
             ))}
           </ul>
         )}
+        {esSuper && <ActividadDeCuentas />}
       </Card>
+    </div>
+  )
+}
+
+/** Historial de las cuentas: altas, reseteos y recuperaciones por correo.
+ *
+ *  Es lo que responde «¿quién me restableció la clave?» y «¿alguien pidió
+ *  recuperar mi cuenta?». Solo para el superadministrador, que es quien da
+ *  soporte; lo de cada campeonato se lee en la pestaña Historial del torneo. */
+function ActividadDeCuentas() {
+  const [filas, setFilas] = useState<any[]>([])
+  const [abierto, setAbierto] = useState(false)
+  const [cargado, setCargado] = useState(false)
+
+  useEffect(() => {
+    if (!abierto || cargado) return
+    api
+      .platformAudit(100)
+      .then(setFilas)
+      .catch(() => setFilas([]))
+      .finally(() => setCargado(true))
+  }, [abierto, cargado])
+
+  return (
+    <div className="border-t border-outline-variant/30">
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-semibold text-on-surface-variant transition hover:text-on-surface"
+      >
+        <Icon name="history" className="text-base" />
+        Actividad de cuentas
+        <Icon
+          name={abierto ? 'expand_less' : 'expand_more'}
+          className="ml-auto text-base"
+        />
+      </button>
+      {abierto && (
+        <div className="px-3 pb-3">
+          {!cargado ? (
+            <div className="grid place-items-center py-6">
+              <Spinner className="h-5 w-5" />
+            </div>
+          ) : filas.length === 0 ? (
+            <p className="py-4 text-center text-sm text-on-surface-variant">
+              Todavía no hay movimientos de cuentas.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {filas.map((f) => (
+                <li
+                  key={f.id}
+                  className="flex flex-wrap items-center gap-x-2 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm"
+                >
+                  <span className="min-w-0 flex-1 truncate">{f.summary}</span>
+                  <span className="text-xs text-on-surface-variant">
+                    {fecha(f.created_at)} · {f.user_email || 'sin sesión'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }

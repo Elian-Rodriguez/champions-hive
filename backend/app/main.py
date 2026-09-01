@@ -15,10 +15,16 @@ from app.api import (
 )
 from app.core.config import settings
 from app.core.limiter import limiter
+from app.core.log import configurar_logging, logger
 from app.core.security import get_password_hash
 from app.db import models  # noqa: F401  (registra los modelos en Base.metadata)
 from app.db.database import Base, SessionLocal, engine, run_sqlite_migrations
 from app.db.models import User
+from app.services.correo import correo_configurado
+
+# Lo primero: el log, para que lo que pase al arrancar (migraciones, siembra
+# del superadministrador) tenga dónde contarse.
+configurar_logging(settings.LOG_LEVEL)
 
 # Crea las tablas y aplica las migraciones ligeras de SQLite al arrancar.
 Base.metadata.create_all(bind=engine)
@@ -55,6 +61,16 @@ def seed_admin():
 
 
 seed_admin()
+
+# Una línea al arrancar que responde las tres preguntas de soporte: contra qué
+# base corre, si el correo saliente está configurado y en qué huso escribe los
+# avisos. Sin esto, un despliegue mal configurado solo se descubre fallando.
+logger.info(
+    "Champion Hive arriba | base=%s | correo=%s | huso=%+d min",
+    settings.DATABASE_URL.split("://", 1)[0],
+    "configurado" if correo_configurado() else "sin configurar (reseteo manual)",
+    settings.TIMEZONE_OFFSET_MINUTES,
+)
 
 app = FastAPI(
     title="Champion Hive API",

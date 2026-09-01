@@ -29,6 +29,7 @@ type Tab =
   | 'posiciones'
   | 'avance'
   | 'marca'
+  | 'historial'
 type Section = 'dashboard' | 'torneos' | 'sedes' | 'usuarios'
 
 // Las cuatro secciones las ve cualquier administrador: el superadmin gestiona
@@ -236,7 +237,7 @@ export default function AdminView() {
                   <Badge className="bg-secondary-container/40 text-secondary">{selected.sport_type}</Badge>
                 </div>
                 <div className="mb-5 flex flex-wrap gap-2 border-b border-outline-variant/30 pb-3">
-                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'marca'] as Tab[]).map((t) => (
+                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'marca', 'historial'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
@@ -257,6 +258,7 @@ export default function AdminView() {
                 {tab === 'posiciones' && <PosicionesTab tournament={selected} />}
                 {tab === 'avance' && <AvanceTab tournament={selected} />}
                 {tab === 'marca' && <MarcaTab tournament={selected} />}
+                {tab === 'historial' && <HistorialTab tournament={selected} />}
               </Card>
             )}
           </div>
@@ -2581,6 +2583,222 @@ function CalendarioTab({ tournament }: { tournament: any }) {
               </button>
             </li>
           ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// Icono y color de cada tipo de cambio del historial.
+const ACCION_ESTILO: Record<string, { icon: string; tone: string }> = {
+  marcador: { icon: 'scoreboard', tone: 'text-secondary' },
+  evento: { icon: 'bolt', tone: 'text-tertiary' },
+  planilla: { icon: 'assignment_ind', tone: 'text-primary' },
+  programacion: { icon: 'event_repeat', tone: 'text-primary' },
+  sancion: { icon: 'gavel', tone: 'text-error' },
+  cuenta: { icon: 'manage_accounts', tone: 'text-on-surface-variant' },
+  torneo: { icon: 'delete_forever', tone: 'text-error' },
+}
+
+// Cómo se nombra cada campo en el detalle de un cambio.
+const CAMPO_HISTORIAL: Record<string, string> = {
+  local: 'Goles del local',
+  visitante: 'Goles del visitante',
+  estado: 'Estado',
+  walkover: 'W.O.',
+  fecha: 'Fecha',
+  cancha: 'Cancha',
+  arbitro: 'Árbitro',
+  antes: 'Antes',
+  despues: 'Después',
+  motivo: 'Motivo',
+  jugadores: 'Jugadores',
+  rol: 'Rol',
+  cupo: 'Cupo',
+  email: 'Correo',
+}
+
+/** Las fechas del backend son UTC sin sufijo; sin la Z el navegador las lee
+ *  como hora local y el historial mostraría horas que nunca pasaron. */
+function fechaHistorial(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(/[Zz]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`)
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+// Lo que se guarda es el valor crudo (es el registro), pero lo que se lee tiene
+// que estar en el mismo idioma que el resumen de arriba.
+const VALOR_HISTORIAL: Record<string, Record<string, string>> = {
+  estado: ESTADO_LABEL,
+  walkover: {
+    home: 'no llegó el local',
+    away: 'no llegó el visitante',
+    both: 'no llegó ninguno',
+  },
+}
+
+function valorLegible(campo: string, v: any): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'boolean') return v ? 'sí' : 'no'
+  const traducido = VALOR_HISTORIAL[campo]?.[String(v)]
+  if (traducido) return traducido
+  if (campo === 'fecha') return fechaHistorial(String(v))
+  return String(v)
+}
+
+/** El detalle de un cambio: lo que decía antes y lo que dice ahora. Es la
+ *  mitad que hace útil el historial —sin el valor anterior no se puede
+ *  deshacer— así que se muestra tal cual quedó guardado. */
+function DetalleCambio({ data }: { data: any }) {
+  const filas = Object.entries(data || {})
+  if (!filas.length) return null
+  return (
+    <div className="mt-2 space-y-1 border-t border-outline-variant/30 pt-2 text-xs">
+      {filas.map(([campo, valor]: [string, any]) => {
+        const esCambio = valor && typeof valor === 'object' && 'despues' in valor
+        return (
+          <div key={campo} className="flex flex-wrap items-center gap-x-2">
+            <span className="text-on-surface-variant">
+              {CAMPO_HISTORIAL[campo] || campo}:
+            </span>
+            {esCambio ? (
+              <>
+                <span className="rounded bg-error-container/40 px-1.5 py-0.5 text-on-error-container line-through">
+                  {valorLegible(campo, valor.antes)}
+                </span>
+                <Icon name="arrow_forward" className="text-sm text-on-surface-variant" />
+                <span className="rounded bg-secondary/15 px-1.5 py-0.5 font-semibold text-secondary">
+                  {valorLegible(campo, valor.despues)}
+                </span>
+              </>
+            ) : (
+              <span className="font-medium">{valorLegible(campo, valor)}</span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// El historial del campeonato: quién cambió qué y qué decía antes. Existe por
+// una discusión concreta —«alguien me cambió un resultado»— que hasta ahora no
+// tenía respuesta, porque el marcador es una columna que se sobrescribe.
+function HistorialTab({ tournament }: { tournament: any }) {
+  const [filas, setFilas] = useState<any[]>([])
+  const [accion, setAccion] = useState<string | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [abierta, setAbierta] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    setCargando(true)
+    api
+      .tournamentAudit(tournament.id, { action: accion })
+      .then((r: any[]) => vivo && setFilas(r))
+      .catch((e: any) => vivo && setError(e.message))
+      .finally(() => vivo && setCargando(false))
+    return () => {
+      vivo = false
+    }
+  }, [tournament.id, accion])
+
+  // Los filtros salen de lo que hay: un campeonato sin sanciones no muestra
+  // un filtro de sanciones vacío.
+  const tipos = Array.from(
+    new Map(filas.map((f) => [f.action, f.action_label || f.action])).entries(),
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="font-display font-semibold">Historial del campeonato</h3>
+        <span className="text-xs text-on-surface-variant">
+          Quién cambió qué y qué decía antes. Lo ves tú, no el árbitro ni el público.
+        </span>
+      </div>
+
+      {(accion || tipos.length > 1) && (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setAccion(null)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+              accion === null
+                ? 'bg-secondary text-on-secondary'
+                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-bright'
+            }`}
+          >
+            Todo
+          </button>
+          {tipos.map(([valor, etiqueta]) => (
+            <button
+              key={valor}
+              onClick={() => setAccion(valor)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                accion === valor
+                  ? 'bg-secondary text-on-secondary'
+                  : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-bright'
+              }`}
+            >
+              {etiqueta}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error && <p className="text-sm text-error">{error}</p>}
+      {cargando ? (
+        <div className="grid place-items-center py-10">
+          <Spinner className="h-6 w-6" />
+        </div>
+      ) : filas.length === 0 ? (
+        <EmptyState
+          icon="history"
+          title="Todavía no hay movimientos"
+          hint="Aquí van quedando los marcadores, los eventos, las sanciones y las reprogramaciones."
+        />
+      ) : (
+        <ul className="space-y-1.5">
+          {filas.map((f) => {
+            const estilo = ACCION_ESTILO[f.action] || {
+              icon: 'history',
+              tone: 'text-on-surface-variant',
+            }
+            const abierto = abierta === f.id
+            const tieneDetalle = Object.keys(f.data || {}).length > 0
+            return (
+              <li key={f.id} className="rounded-lg bg-surface-container-high px-3 py-2">
+                <button
+                  onClick={() => setAbierta(abierto ? null : f.id)}
+                  className="flex w-full items-start gap-2 text-left"
+                  disabled={!tieneDetalle}
+                >
+                  <Icon name={estilo.icon} className={`mt-0.5 text-base ${estilo.tone}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm">{f.summary}</span>
+                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-on-surface-variant">
+                      <span>{fechaHistorial(f.created_at)}</span>
+                      <span>·</span>
+                      <span className="font-medium">{f.user_email || 'sistema'}</span>
+                    </span>
+                  </span>
+                  {tieneDetalle && (
+                    <Icon
+                      name={abierto ? 'expand_less' : 'expand_more'}
+                      className="text-base text-on-surface-variant"
+                    />
+                  )}
+                </button>
+                {abierto && <DetalleCambio data={f.data} />}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

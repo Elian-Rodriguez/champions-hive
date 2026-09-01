@@ -352,6 +352,57 @@ class User(Base):
     last_login_at = Column(DateTime)
 
 
+class AuditLog(Base):
+    """Quién cambió qué y cuándo.
+
+    Un marcador es una columna que se sobrescribe: cuando el organizador dice
+    «alguien me cambió un resultado» no había nada que responderle. Aquí queda
+    la constancia, y con el valor de ANTES, que es lo que permite deshacerlo.
+
+    `user_email` es una copia, no una lectura de `users`: la cuenta se puede
+    borrar y el rastro tiene que sobrevivirla —si no, el borrado de la cuenta
+    borraría también la prueba de lo que hizo—. Por eso `user_id` tampoco es
+    clave foránea.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    user_id = Column(GUID(), nullable=True)
+    user_email = Column(String)  # copia: la cuenta puede desaparecer
+    user_role = Column(String)
+    action = Column(String, index=True)  # marcador, evento, sancion, cuenta…
+    # Contexto para filtrar desde el panel; sin clave foránea por lo mismo que
+    # el usuario: el rastro sobrevive al torneo que lo originó.
+    tournament_id = Column(GUID(), nullable=True, index=True)
+    match_id = Column(GUID(), nullable=True, index=True)
+    team_id = Column(GUID(), nullable=True)
+    # Frase lista para leer, escrita en el momento del cambio: dentro de un mes
+    # nadie va a reconstruirla desde los ids.
+    summary = Column(String)
+    data = Column(JSON)  # {antes: {...}, despues: {...}}
+
+
+class PasswordResetToken(Base):
+    """Enlace de recuperación de contraseña, de un solo uso.
+
+    Se guarda el HASH del token y no el token, por lo mismo que las
+    contraseñas: quien lea la base no puede entrar con lo que hay ahí. Vive
+    poco (`RESET_TOKEN_MINUTES`) y se marca usado al canjearlo, así el enlace
+    que quedó en el buzón no sirve dos veces.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id = Column(GUID(), ForeignKey("users.id"), index=True)
+    token_hash = Column(String, unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
+
 class TournamentPhoto(Base):
     __tablename__ = "tournament_photos"
 

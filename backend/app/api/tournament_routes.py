@@ -39,6 +39,7 @@ from app.db.models import (
     Venue,
 )
 from app.schemas import (
+    AuditEntry,
     ImageUpdate,
     PhotoCreate,
     PhotoResponse,
@@ -54,6 +55,7 @@ from app.schemas import (
     TournamentResponse,
     TournamentUpdate,
 )
+from app.services import auditoria
 from app.services.bracket import equipo_del_slot
 from app.services.notifications import (
     notificar_cambio_de_partido,
@@ -638,6 +640,15 @@ def reset_all(db: Session = Depends(get_db), current: User = Depends(require_sup
     db.query(Sponsor).delete(synchronize_session=False)
     db.query(TournamentPhoto).delete(synchronize_session=False)
     db.query(Tournament).delete(synchronize_session=False)
+    # El rastro no se borra con los torneos: es lo único que queda de lo que
+    # había, y esta es la operación más destructiva de la plataforma.
+    auditoria.registrar(
+        db,
+        current,
+        auditoria.ACCION_TORNEO,
+        resumen=f"Borró TODOS los campeonatos de la plataforma ({n})",
+        datos={"torneos": n},
+    )
     db.commit()
     return {"message": f"{n} torneo(s) eliminados", "deleted": n}
 
@@ -1841,6 +1852,31 @@ def get_schedule_conflicts(
     }
 
 
+@router.get("/{tournament_id}/audit", response_model=List[AuditEntry])
+def get_tournament_audit(
+    tournament_id: UUID,
+    match_id: Optional[UUID] = None,
+    action: Optional[str] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_staff),
+):
+    """Historial del campeonato: quién cambió qué y qué decía antes.
+
+    Es del organizador y del superadministrador, no del público ni del árbitro:
+    lo que resuelve es la discusión de «alguien me cambió un resultado», y para
+    eso hace falta ver el nombre de quien lo hizo.
+    """
+    _torneo_administrable(db, tournament_id, current)
+    return auditoria.historial(
+        db,
+        tournament_id=tournament_id,
+        match_id=match_id,
+        accion=action,
+        limite=limit,
+    )
+
+
 @router.get("/{tournament_id}/stats")
 def get_tournament_stats(tournament_id: UUID, db: Session = Depends(get_db)):
     tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
@@ -2378,6 +2414,13 @@ def delete_tournament(
     db.query(TournamentPhoto).filter(
         TournamentPhoto.tournament_id == tournament_id
     ).delete(synchronize_session=False)
+    auditoria.registrar(
+        db,
+        current,
+        auditoria.ACCION_TORNEO,
+        resumen=f"Eliminó el campeonato «{tournament.name}» y todos sus datos",
+        datos={"torneo": tournament.name, "partidos": len(match_ids)},
+    )
     db.query(Tournament).filter(Tournament.id == tournament_id).delete(
         synchronize_session=False
     )

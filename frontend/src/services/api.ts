@@ -200,6 +200,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ current_password, new_password }),
     }),
+  /** Pide el enlace de recuperación. Responde lo mismo exista o no la cuenta,
+   *  así que el frontend nunca sabe (ni muestra) si el correo está registrado. */
+  forgotPassword: (email: string) =>
+    req('/auth/forgot_password', { method: 'POST', body: JSON.stringify({ email }) }),
+  /** Canjea el enlace del correo por una contraseña nueva. */
+  resetPasswordWithToken: (token: string, new_password: string) =>
+    req('/auth/reset_password_confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password }),
+    }),
+  /** Historial de la plataforma (altas, reseteos, recuperaciones). Superadmin. */
+  platformAudit: (limit = 200) => req(`/auth/audit?limit=${limit}`),
 
   // ---- Capitanes del equipo ----
   teamManagers: (teamId: string) => req(`/teams/${teamId}/managers`),
@@ -280,6 +292,17 @@ export const api = {
     }),
   /** Cruces del calendario: cancha ocupada, equipo o árbitro duplicado, llave
    *  antes de su clasificatorio, poco descanso y partidos sin fecha o cancha. */
+  /** Historial del campeonato: quién cambió qué y qué decía antes. */
+  tournamentAudit: (
+    id: string,
+    opts?: { matchId?: string | null; action?: string | null; limit?: number },
+  ) => {
+    const q = new URLSearchParams()
+    if (opts?.matchId) q.set('match_id', opts.matchId)
+    if (opts?.action) q.set('action', opts.action)
+    q.set('limit', String(opts?.limit ?? 200))
+    return req(`/tournaments/${id}/audit?${q.toString()}`)
+  },
   scheduleConflicts: (id: string, minRestMinutes?: number) =>
     req(
       `/tournaments/${id}/schedule_conflicts${

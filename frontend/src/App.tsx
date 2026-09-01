@@ -14,13 +14,31 @@ export default function App() {
   const { token, role } = useAppSelector((s) => s.auth)
   const [view, setView] = useState<View>('landing')
   const [publicTid, setPublicTid] = useState<string | null>(null)
+  // Token del enlace de recuperación que llegó por correo (?reset=…).
+  const [resetToken, setResetToken] = useState<string | null>(null)
 
-  // Deep-link: ?t=<id> abre el marcador público de ese torneo (QR del torneo).
+  // Deep-links: ?t=<id> abre el marcador público de ese torneo (QR del
+  // torneo) y ?reset=<token> abre la pantalla de contraseña nueva.
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('t')
+    const params = new URLSearchParams(window.location.search)
+    const t = params.get('t')
     if (t) {
       setPublicTid(t)
       setView('public')
+    }
+    const reset = params.get('reset')
+    if (reset) {
+      setResetToken(reset)
+      setView('login')
+      // El token sale de la barra de direcciones en cuanto se lee: es una
+      // credencial y no tiene por qué quedar en el historial del navegador.
+      params.delete('reset')
+      const query = params.toString()
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname + (query ? `?${query}` : ''),
+      )
     }
   }, [])
 
@@ -44,6 +62,8 @@ export default function App() {
       <LoginView
         onSuccess={() => setView('app')}
         onBack={() => setView('landing')}
+        resetToken={resetToken}
+        onResetDone={() => setResetToken(null)}
       />
     )
   }

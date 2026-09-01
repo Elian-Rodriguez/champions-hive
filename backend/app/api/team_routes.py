@@ -36,6 +36,7 @@ from app.schemas import (
     TeamManagerResponse,
     TeamResponse,
 )
+from app.services import auditoria
 
 router = APIRouter()
 
@@ -221,9 +222,32 @@ def update_team_points_adjustment(
     )
     if not link:
         raise HTTPException(status_code=404, detail="Equipo no inscrito en el torneo")
+    antes = link.points_adjustment or 0
     link.points_adjustment = payload_in.points_adjustment
     link.points_adjustment_reason = (
         payload_in.points_adjustment_reason if payload_in.points_adjustment else None
+    )
+    equipo = db.query(Team).filter(Team.id == team_id).first()
+    nombre = equipo.name if equipo else "un equipo"
+    auditoria.registrar(
+        db,
+        current,
+        auditoria.ACCION_SANCION,
+        resumen=(
+            f"Sanción de {nombre}: {antes:+d} → {payload_in.points_adjustment:+d} puntos"
+            + (
+                f" ({payload_in.points_adjustment_reason})"
+                if payload_in.points_adjustment_reason
+                else ""
+            )
+        ),
+        tournament_id=tournament_id,
+        team_id=team_id,
+        datos={
+            "antes": antes,
+            "despues": payload_in.points_adjustment,
+            "motivo": payload_in.points_adjustment_reason,
+        },
     )
     db.commit()
     team = db.query(Team).filter(Team.id == team_id).first()

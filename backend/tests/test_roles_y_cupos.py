@@ -502,8 +502,15 @@ def test_las_sedes_de_otro_organizador_no_salen_en_el_panel(client, crear_usuari
 
 def test_el_superadmin_ve_las_sedes_de_todos(client, superadmin, crear_usuario):
     admin_a, _ = crear_usuario("admin")
-    client.post(f"{API}/venues", json={"name": "Sede soporte"}, headers=admin_a)
-    nombres = {v["name"] for v in client.get(f"{API}/venues", headers=superadmin).json()}
+    r = client.post(f"{API}/venues", json={"name": "Sede soporte"}, headers=admin_a)
+    assert r.status_code == 201, r.text
+    # El listado pagina de a 100 y cada test de la suite deja una sede suya, así
+    # que lo que se comprueba —que el superadmin las ve todas— hay que pedirlo
+    # sin que la paginación se coma la recién creada.
+    nombres = {
+        v["name"]
+        for v in client.get(f"{API}/venues?limit=500", headers=superadmin).json()
+    }
     assert "Sede soporte" in nombres
 
 

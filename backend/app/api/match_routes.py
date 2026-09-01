@@ -20,6 +20,7 @@ from app.db.models import (
     MatchStatus,
     Player,
     Stage,
+    Team,
     TeamPlayer,
     Tournament,
     User,
@@ -36,6 +37,7 @@ from app.schemas import (
     MatchStatusUpdate,
     StandingsRequest,
 )
+from app.services import auditoria
 from app.services.bracket import propagar_resultado
 from app.services.notifications import (
     notificar_cambio_de_partido,
@@ -46,12 +48,68 @@ from app.services.strategy import calculate_standings, marcador_walkover
 
 router = APIRouter()
 
+# Cómo se lee cada estado en la frase que guarda el historial.
+ESTADO_TEXTO = {
+    "scheduled": "programado",
+    "live": "en vivo",
+    "finished": "finalizado",
+    "postponed": "aplazado",
+}
+
 
 def _torneo_del_partido(db: Session, match: Match) -> Optional[Tournament]:
     stage = db.query(Stage).filter(Stage.id == match.stage_id).first()
     if not stage:
         return None
     return db.query(Tournament).filter(Tournament.id == stage.tournament_id).first()
+
+
+def _rotulo(db: Session, match: Match) -> str:
+    """«Equipo A vs Equipo B»: el historial se tiene que leer sin abrir nada."""
+    ids = [i for i in (match.home_team_id, match.away_team_id) if i]
+    nombres = (
+        {str(t.id): t.name for t in db.query(Team).filter(Team.id.in_(ids)).all()}
+        if ids
+        else {}
+    )
+    local = nombres.get(str(match.home_team_id), "Por definir")
+    visita = nombres.get(str(match.away_team_id), "Por definir")
+    return f"{local} vs {visita}"
+
+
+def _torneo_id(db: Session, match: Match):
+    torneo = _torneo_del_partido(db, match)
+    return torneo.id if torneo else None
+
+
+def _foto_marcador(match: Match) -> dict:
+    """Lo que puede terminar en discusión: marcador, estado y W.O."""
+    estado = getattr(match.status, "value", match.status)
+    return {
+        "estado": str(estado),
+        "local": match.home_score,
+        "visitante": match.away_score,
+        "walkover": match.walkover,
+    }
+
+
+def _resumen_marcador(rotulo: str, antes: dict, despues: dict, detalle: dict) -> str:
+    partes = []
+    if "local" in detalle or "visitante" in detalle:
+        partes.append(
+            f"marcador {antes['local']}-{antes['visitante']} → "
+            f"{despues['local']}-{despues['visitante']}"
+        )
+    if "estado" in detalle:
+        partes.append(
+            f"{ESTADO_TEXTO.get(antes['estado'], antes['estado'])} → "
+            f"{ESTADO_TEXTO.get(despues['estado'], despues['estado'])}"
+        )
+    if "walkover" in detalle:
+        partes.append(
+            "se marcó W.O." if despues["walkover"] else "se quitó el W.O."
+        )
+    return f"{rotulo}: " + (", ".join(partes) if partes else "sin cambios")
 
 
 def _asegurar_puede_dirigir(db: Session, user: User, match: Match) -> None:
@@ -177,6 +235,31 @@ def update_match_schedule(
     if match.status == MatchStatus.POSTPONED and cambios.get("scheduled_start"):
         match.status = MatchStatus.SCHEDULED
     db.flush()
+    detalle = auditoria.diferencias(
+        {
+            "fecha": antes.get("scheduled_start"),
+            "cancha": antes.get("court_id"),
+            "arbitro": antes.get("referee_id"),
+        },
+        {
+            "fecha": match.scheduled_start,
+            "cancha": match.court_id,
+            "arbitro": match.referee_id,
+        },
+    )
+    if detalle:
+        auditoria.registrar(
+            db,
+            current,
+            auditoria.ACCION_PROGRAMACION,
+            resumen=(
+                f"Reprogramó {_rotulo(db, match)}: "
+                + ", ".join(sorted(detalle))
+            ),
+            tournament_id=_torneo_id(db, match),
+            match_id=match.id,
+            datos=detalle,
+        )
     notificar_cambio_de_partido(db, match, antes)
     db.commit()
     db.refresh(match)
@@ -195,6 +278,7 @@ def update_match_status(
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     _asegurar_puede_dirigir(db, current, match)
     antes = snapshot_partido(match)
+    antes_marcador = _foto_marcador(match)
     enviado = payload_in.model_dump(exclude_unset=True)
     match.status = payload_in.status
     if "walkover" in enviado:
@@ -225,6 +309,23 @@ def update_match_status(
     # partido a "en vivo" reescribe la casilla en vez de dejarla congelada.
     propagar_resultado(db, match)
 
+    # El rastro: un marcador es una columna que se sobrescribe, así que sin
+    # esto «alguien me cambió el resultado» no tiene respuesta.
+    despues_marcador = _foto_marcador(match)
+    detalle = auditoria.diferencias(antes_marcador, despues_marcador)
+    if detalle:
+        auditoria.registrar(
+            db,
+            current,
+            auditoria.ACCION_MARCADOR,
+            resumen=_resumen_marcador(
+                _rotulo(db, match), antes_marcador, despues_marcador, detalle
+            ),
+            tournament_id=_torneo_id(db, match),
+            match_id=match.id,
+            datos=detalle,
+        )
+
     db.flush()
     notificar_estado_de_partido(db, match, antes)
     db.commit()
@@ -249,16 +350,43 @@ def record_event(
     _asegurar_puede_dirigir(db, current, match)
     event = MatchStat(**event_data.model_dump(exclude_unset=True))
     db.add(event)
+    db.flush()
+    auditoria.registrar(
+        db,
+        current,
+        auditoria.ACCION_EVENTO,
+        resumen=f"Cargó {_texto_evento(db, event)} en {_rotulo(db, match)}",
+        tournament_id=_torneo_id(db, match),
+        match_id=match.id,
+        datos={"evento": event.event_type, "detalle": event.event_data},
+    )
     db.commit()
     db.refresh(event)
     return event
 
 
-def _evento_dirigible(db: Session, event_id: UUID, user: User) -> MatchStat:
+def _texto_evento(db: Session, event: MatchStat) -> str:
+    """«GOL de Juan Pérez (local) al 23'», para leer el historial de corrido."""
+    detalle = event.event_data or {}
+    partes = [str(event.event_type or "evento")]
+    if event.player_id:
+        jugador = db.query(Player).filter(Player.id == event.player_id).first()
+        if jugador:
+            partes.append(f"de {jugador.name}")
+    lado = {"home": "local", "away": "visitante"}.get(detalle.get("team"))
+    if lado:
+        partes.append(f"({lado})")
+    if detalle.get("minute") is not None:
+        partes.append(f"al {detalle['minute']}'")
+    return " ".join(partes)
+
+
+def _evento_dirigible(db: Session, event_id: UUID, user: User):
     """El evento existe y quien lo toca puede dirigir ese partido.
 
     Corregir un gol mal cargado es la misma potestad que cargarlo: el árbitro
-    asignado y el dueño del torneo, nadie más.
+    asignado y el dueño del torneo, nadie más. Devuelve también el partido
+    porque quien corrige necesita anotarlo en el historial.
     """
     event = db.query(MatchStat).filter(MatchStat.id == event_id).first()
     if not event:
@@ -267,7 +395,7 @@ def _evento_dirigible(db: Session, event_id: UUID, user: User) -> MatchStat:
     if not match:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     _asegurar_puede_dirigir(db, user, match)
-    return event
+    return event, match
 
 
 @router.put("/events/{event_id}", response_model=EventResponse)
@@ -278,7 +406,8 @@ def update_event(
     current: User = Depends(get_current_user),
 ):
     """Corrige un evento ya cargado (jugador, tipo, equipo o minuto)."""
-    event = _evento_dirigible(db, event_id, current)
+    event, match = _evento_dirigible(db, event_id, current)
+    antes = _texto_evento(db, event)
     cambios = payload_in.model_dump(exclude_unset=True)
     if "event_data" in cambios:
         # Mezcla, no reemplazo: corregir el minuto no puede borrar el equipo.
@@ -289,6 +418,18 @@ def update_event(
         event.event_data = detalle
     for campo, valor in cambios.items():
         setattr(event, campo, valor)
+    db.flush()
+    despues = _texto_evento(db, event)
+    if antes != despues:
+        auditoria.registrar(
+            db,
+            current,
+            auditoria.ACCION_EVENTO,
+            resumen=f"Corrigió «{antes}» → «{despues}» en {_rotulo(db, match)}",
+            tournament_id=_torneo_id(db, match),
+            match_id=match.id,
+            datos={"antes": antes, "despues": despues},
+        )
     db.commit()
     db.refresh(event)
     return event
@@ -301,7 +442,16 @@ def delete_event(
     current: User = Depends(get_current_user),
 ):
     """Borra un evento cargado por error."""
-    event = _evento_dirigible(db, event_id, current)
+    event, match = _evento_dirigible(db, event_id, current)
+    auditoria.registrar(
+        db,
+        current,
+        auditoria.ACCION_EVENTO,
+        resumen=f"Borró {_texto_evento(db, event)} en {_rotulo(db, match)}",
+        tournament_id=_torneo_id(db, match),
+        match_id=match.id,
+        datos={"evento": event.event_type, "detalle": event.event_data},
+    )
     db.delete(event)
     db.commit()
 
@@ -407,6 +557,21 @@ def set_match_lineup(
                 ),
             )
         )
+    db.flush()
+    nombre_equipo = db.query(Team).filter(Team.id == equipo).first()
+    auditoria.registrar(
+        db,
+        current,
+        auditoria.ACCION_PLANILLA,
+        resumen=(
+            f"Cargó la planilla de {nombre_equipo.name if nombre_equipo else 'un equipo'} "
+            f"({len(payload_in.players)} jugador(es)) en {_rotulo(db, match)}"
+        ),
+        tournament_id=_torneo_id(db, match),
+        match_id=match.id,
+        team_id=equipo,
+        datos={"jugadores": len(payload_in.players)},
+    )
     db.commit()
     filas = (
         db.query(MatchLineup)

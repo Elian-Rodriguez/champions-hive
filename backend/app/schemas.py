@@ -79,6 +79,39 @@ class PasswordReset(BaseModel):
     new_password: Optional[str] = None
 
 
+class ForgotPassword(BaseModel):
+    """Petición del enlace de recuperación. Solo hace falta el correo."""
+
+    email: EmailStr
+
+
+class PasswordResetWithToken(BaseModel):
+    """Canje del enlace recibido por correo por una contraseña nueva."""
+
+    token: str
+    new_password: str
+
+
+# --------------------------------------------------------------------------- #
+#  Auditoría
+# --------------------------------------------------------------------------- #
+class AuditEntry(BaseModel):
+    """Una línea del historial: quién, qué, cuándo y qué decía antes."""
+
+    id: str
+    created_at: Optional[datetime] = None
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    user_role: Optional[str] = None
+    action: str
+    action_label: Optional[str] = None
+    tournament_id: Optional[str] = None
+    match_id: Optional[str] = None
+    team_id: Optional[str] = None
+    summary: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+
 # --------------------------------------------------------------------------- #
 #  Capitanes / responsables de equipo
 # --------------------------------------------------------------------------- #
