@@ -10,7 +10,7 @@ import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { escudoDesdeArchivo } from '../utils/imagen'
 import { ESTADO_LABEL, woDetalle, woLabel } from '../utils/partido'
-import { SPORT_LIST } from '../sports'
+import { hasBlueCard, SPORT_LIST } from '../sports'
 import { useAppSelector } from '../hooks'
 
 const SPORTS = SPORT_LIST
@@ -1974,11 +1974,29 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
     nominas: vis.nominas !== false,
     metricas: vis.metricas !== false,
   })
+  // Reglamento disciplinario: apagado salvo que el organizador lo encienda.
+  // Hay ligas que llevan la disciplina en un comité y no quieren que el
+  // sistema marque a nadie, así que esto no puede venir puesto por defecto.
+  const dis = tournament.discipline_config || {}
+  const [disciplina, setDisciplina] = useState<Record<string, any>>({
+    enabled: !!dis.enabled,
+    yellow_limit: dis.yellow_limit ?? 3,
+    yellow_matches: dis.yellow_matches ?? 1,
+    red_matches: dis.red_matches ?? 1,
+    double_yellow_matches: dis.double_yellow_matches ?? 1,
+    blue_limit: dis.blue_limit ?? 0,
+    blue_matches: dis.blue_matches ?? 1,
+    reset_stage_id: dis.reset_stage_id ?? '',
+  })
+  const [fases, setFases] = useState<any[]>([])
   const [msg, setMsg] = useState<string | null>(null)
 
   useEffect(() => {
     api.getTiebreakerOptions().then(setOptions).catch(() => setOptions([]))
   }, [])
+  useEffect(() => {
+    api.getStages(tournament.id).then(setFases).catch(() => setFases([]))
+  }, [tournament.id])
 
   const labelOf = (k: string) => options.find((o) => o.key === k)?.label || k
   const available = options.filter((o) => !rules.includes(o.key))
@@ -1993,6 +2011,16 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
         points_config: { win: Number(win), draw: Number(draw), loss: Number(loss) },
         tiebreaker_rules: rules,
         visibility,
+        discipline_config: {
+          enabled: disciplina.enabled,
+          yellow_limit: Number(disciplina.yellow_limit),
+          yellow_matches: Number(disciplina.yellow_matches),
+          red_matches: Number(disciplina.red_matches),
+          double_yellow_matches: Number(disciplina.double_yellow_matches),
+          blue_limit: Number(disciplina.blue_limit),
+          blue_matches: Number(disciplina.blue_matches),
+          reset_stage_id: disciplina.reset_stage_id || null,
+        },
       })
       setMsg('Configuración guardada')
       onChanged()
@@ -2087,6 +2115,148 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
             placeholder="sin límite"
           />
         </div>
+      </div>
+
+      {/* Suspensiones automáticas: OPCIONAL. Apagado, nada de esto existe para
+          el torneo y la plataforma se comporta como siempre. */}
+      <div>
+        <label className="flex items-start gap-2 rounded-lg bg-surface-container-high px-3 py-2">
+          <input
+            type="checkbox"
+            checked={disciplina.enabled}
+            onChange={(e) =>
+              setDisciplina({ ...disciplina, enabled: e.target.checked })
+            }
+            className="mt-0.5 h-4 w-4 accent-secondary"
+          />
+          <span>
+            <span className="text-sm font-medium">Suspensiones automáticas por tarjetas</span>
+            <span className="block text-xs text-on-surface-variant">
+              Cuenta las tarjetas y avisa quién no puede jugar la próxima fecha. Si tu
+              liga resuelve la disciplina en un comité, déjalo apagado: nada cambia.
+            </span>
+          </span>
+        </label>
+
+        {disciplina.enabled && (
+          <div className="mt-3 space-y-3 rounded-lg border border-outline-variant/50 p-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-xs text-on-surface-variant">
+                    Amarillas que suspenden
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={disciplina.yellow_limit}
+                    onChange={(e) =>
+                      setDisciplina({ ...disciplina, yellow_limit: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-on-surface-variant">
+                    Fechas que cuesta
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={disciplina.yellow_matches}
+                    onChange={(e) =>
+                      setDisciplina({ ...disciplina, yellow_matches: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-xs text-on-surface-variant">
+                    Fechas por roja
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={disciplina.red_matches}
+                    onChange={(e) =>
+                      setDisciplina({ ...disciplina, red_matches: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-on-surface-variant">
+                    Por doble amarilla
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={disciplina.double_yellow_matches}
+                    onChange={(e) =>
+                      setDisciplina({
+                        ...disciplina,
+                        double_yellow_matches: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              {hasBlueCard(tournament.sport_type) && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-on-surface-variant">
+                      Azules que suspenden
+                    </label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={disciplina.blue_limit}
+                      onChange={(e) =>
+                        setDisciplina({ ...disciplina, blue_limit: e.target.value })
+                      }
+                      placeholder="0 = no acumulan"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-on-surface-variant">
+                      Fechas que cuestan
+                    </label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={disciplina.blue_matches}
+                      onChange={(e) =>
+                        setDisciplina({ ...disciplina, blue_matches: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-xs text-on-surface-variant">
+                  Las tarjetas se borran desde
+                </label>
+                <Select
+                  value={disciplina.reset_stage_id || ''}
+                  onChange={(e) =>
+                    setDisciplina({ ...disciplina, reset_stage_id: e.target.value })
+                  }
+                >
+                  <option value="">No se borran: cuentan todas</option>
+                  {fases.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-on-surface-variant">
+              La suspensión se cumple con los partidos que juegue el equipo después de
+              la tarjeta. No se guarda nada: si el árbitro corrige o borra una tarjeta,
+              la suspensión cambia sola.
+            </p>
+          </div>
+        )}
       </div>
 
       <div>

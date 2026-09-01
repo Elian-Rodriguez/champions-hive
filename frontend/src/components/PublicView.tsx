@@ -170,6 +170,9 @@ export default function PublicView({
   const [teamStats, setTeamStats] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
   const [fairPlay, setFairPlay] = useState<any[]>([])
+  // Suspendidos por tarjetas. Solo trae algo si el organizador encendió el
+  // reglamento disciplinario del torneo; si no, la sección no se dibuja.
+  const [disciplina, setDisciplina] = useState<any>(null)
   const [valla, setValla] = useState<any[]>([])
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
   const [shareImg, setShareImg] = useState<{
@@ -267,6 +270,7 @@ export default function PublicView({
     // Si el organizador oculta las sanciones el backend responde 403: se deja
     // la tabla vacía y la sección simplemente no se muestra.
     api.fairplay(tid, scope).then(setFairPlay).catch(() => setFairPlay([]))
+    api.tournamentDiscipline(tid).then(setDisciplina).catch(() => setDisciplina(null))
   }
 
   async function openTournament(t: any) {
@@ -280,6 +284,7 @@ export default function PublicView({
     setTeamStats([])
     setMetrics(null)
     setFairPlay([])
+    setDisciplina(null)
     setStandings({})
     setQualifiers(null)
     setBracket(null)
@@ -1296,6 +1301,73 @@ export default function PublicView({
                       </Card>
                     )
                   })()}
+                  {/* Suspendidos: la pregunta del sábado —«¿quién no puede
+                      jugar mañana?»— publicada donde la ven todos, capitanes
+                      incluidos. Solo aparece si el torneo lo tiene encendido. */}
+                  {disciplina?.enabled &&
+                    (disciplina.sanctions?.length > 0 ||
+                      disciplina.at_risk?.length > 0) && (
+                      <Card className="p-4">
+                        <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                          <Icon name="gavel" className="text-error" /> Suspendidos
+                        </h3>
+                        {disciplina.sanctions?.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {disciplina.sanctions.map((s: any) => (
+                              <li
+                                key={`${s.player_id}-${s.since_match_id}`}
+                                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-error-container/25 px-3 py-2 text-sm"
+                              >
+                                <span className="font-semibold">{s.player_name}</span>
+                                <span className="text-on-surface-variant">
+                                  {s.team_name}
+                                </span>
+                                <span className="ml-auto flex items-center gap-2">
+                                  <Badge className="bg-error-container text-on-error-container">
+                                    {s.reason}
+                                  </Badge>
+                                  <span className="text-xs text-on-surface-variant">
+                                    {s.pending === 1
+                                      ? 'se pierde la próxima fecha'
+                                      : `le faltan ${s.pending} fechas`}
+                                  </span>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-on-surface-variant">
+                            Nadie suspendido para la próxima fecha.
+                          </p>
+                        )}
+                        {disciplina.at_risk?.length > 0 && (
+                          <>
+                            <p className="mb-1.5 mt-3 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                              A una amarilla de la suspensión
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {disciplina.at_risk.map((r: any) => (
+                                <span
+                                  key={r.player_id}
+                                  className="rounded-full bg-surface-container-high px-2.5 py-1 text-xs"
+                                >
+                                  {r.player_name}
+                                  <span className="text-on-surface-variant">
+                                    {' · '}
+                                    {r.team_name}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        <p className="mt-2 text-xs text-on-surface-variant">
+                          {disciplina.config?.yellow_limit} amarillas ={' '}
+                          {disciplina.config?.yellow_matches} fecha(s); roja ={' '}
+                          {disciplina.config?.red_matches} fecha(s).
+                        </p>
+                      </Card>
+                    )}
                   {fairPlay.length > 0 && (
                     <Card className="p-4">
                       <div className="mb-3 flex items-center justify-between gap-2">

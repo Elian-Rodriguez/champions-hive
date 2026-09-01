@@ -77,6 +77,10 @@ export default function RefereeView() {
   const [guardandoLineup, setGuardandoLineup] = useState<string | null>(null)
   // Panel de "no se jugó" (aplazar / W.O.), cerrado por defecto.
   const [noJugado, setNoJugado] = useState(false)
+  // Jugadores suspendidos por tarjetas, si el torneo tiene encendido el
+  // reglamento disciplinario. La planilla avisa antes de que entren a la
+  // cancha, que es donde se atrapa una alineación indebida.
+  const [suspendidos, setSuspendidos] = useState<Record<string, string>>({})
   const [minute, setMinute] = useState('')
   const [running, setRunning] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -161,6 +165,18 @@ export default function RefereeView() {
     setAwayPlayers(m.away_team_id ? await api.getPlayers(m.away_team_id) : [])
     setEvents(await api.matchEvents(m.id))
     setLineup(aMapa(await api.matchLineup(m.id).catch(() => [])))
+    // Si el organizador no publica sanciones el backend responde 403 y la
+    // planilla simplemente no avisa nada.
+    api
+      .tournamentDiscipline(tournament.id)
+      .then((d: any) =>
+        setSuspendidos(
+          Object.fromEntries(
+            (d?.sanctions || []).map((s: any) => [String(s.player_id), s.reason]),
+          ),
+        ),
+      )
+      .catch(() => setSuspendidos({}))
   }
   /** Las filas que devuelve el servidor, al mapa que edita la pantalla. */
   function aMapa(filas: any[]): Record<string, Record<string, Alineado>> {
@@ -765,6 +781,7 @@ export default function RefereeView() {
                 teamName={eq.nombre}
                 players={eq.jugadores}
                 value={lineup[eq.id] || {}}
+                suspendidos={suspendidos}
                 dirty={!!lineupSucia[eq.id]}
                 saving={guardandoLineup === eq.id}
                 readOnly={!puedeCorregir}
@@ -886,6 +903,7 @@ function TeamLineup({
   teamName,
   players,
   value,
+  suspendidos,
   dirty,
   saving,
   readOnly,
@@ -898,6 +916,8 @@ function TeamLineup({
   teamName: string | null
   players: any[]
   value: Record<string, Alineado>
+  /** jugador → motivo de su suspensión, si el torneo la calcula. */
+  suspendidos: Record<string, string>
   dirty: boolean
   saving: boolean
   readOnly: boolean
@@ -926,11 +946,16 @@ function TeamLineup({
           <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
             {players.map((p) => {
               const v = value[String(p.id)]
+              const castigo = suspendidos[String(p.id)]
               return (
                 <li
                   key={p.id}
                   className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
-                    v ? 'bg-surface-container-high' : ''
+                    castigo && v
+                      ? 'bg-error-container/30'
+                      : v
+                        ? 'bg-surface-container-high'
+                        : ''
                   }`}
                 >
                   <button
@@ -951,6 +976,14 @@ function TeamLineup({
                   </span>
                   <span className={`min-w-0 flex-1 truncate ${v ? '' : 'text-on-surface-variant'}`}>
                     {p.name}
+                    {castigo && (
+                      <span
+                        title={`Suspendido: ${castigo}. La app avisa, la decisión es del organizador.`}
+                        className="ml-1.5 rounded bg-error-container px-1 py-0.5 text-[10px] font-bold text-on-error-container"
+                      >
+                        SUSPENDIDO
+                      </span>
+                    )}
                   </span>
                   {v && (
                     <span className="flex shrink-0 items-center gap-1">

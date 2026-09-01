@@ -102,6 +102,12 @@ class Tournament(Base):
     # Qué secciones se publican en el marcador público. Ausente = todo público.
     # Claves: sanciones, nominas, metricas.
     visibility = Column(JSON)
+    # Reglamento disciplinario: cuántas amarillas suspenden, por cuántas
+    # fechas, etc. Ausente o `enabled: false` = apagado, que es como sigue todo
+    # torneo que ya existía: la suspensión automática es OPCIONAL, porque hay
+    # ligas que la llevan a mano en un comité y no quieren que el sistema
+    # marque a nadie (ver services/disciplina.py).
+    discipline_config = Column(JSON)
     logo_url = Column(String)
     banner_url = Column(String)
     points_config = Column(JSON)

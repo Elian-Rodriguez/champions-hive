@@ -292,6 +292,9 @@ export const api = {
     }),
   /** Cruces del calendario: cancha ocupada, equipo o árbitro duplicado, llave
    *  antes de su clasificatorio, poco descanso y partidos sin fecha o cancha. */
+  /** Suspendidos por tarjetas y quién está a una de estarlo. Con el reglamento
+   *  disciplinario apagado devuelve `enabled: false` y listas vacías. */
+  tournamentDiscipline: (id: string) => req(`/tournaments/${id}/discipline`),
   /** Historial del campeonato: quién cambió qué y qué decía antes. */
   tournamentAudit: (
     id: string,

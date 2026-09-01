@@ -398,6 +398,9 @@ class TournamentBase(BaseModel):
     logo_url: Optional[str] = None
     banner_url: Optional[str] = None
     max_matches_per_day: Optional[int] = None
+    # Reglamento disciplinario. Ausente = apagado, que es como sigue todo
+    # torneo que ya existía (ver services/disciplina.py).
+    discipline_config: Optional[Dict[str, Any]] = None
 
 
 class TournamentCreate(TournamentBase):
@@ -440,6 +443,14 @@ class TournamentUpdate(BaseModel):
     status: Optional[str] = None
     # Qué se publica en el marcador público: sanciones, nominas, metricas.
     visibility: Optional[Dict[str, Any]] = None
+    discipline_config: Optional[Dict[str, Any]] = None
+
+    @field_validator("discipline_config")
+    @classmethod
+    def _validar_disciplina(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        from app.services.disciplina import validar_config
+
+        return validar_config(v)
 
 
 # --------------------------------------------------------------------------- #

@@ -55,7 +55,7 @@ from app.schemas import (
     TournamentResponse,
     TournamentUpdate,
 )
-from app.services import auditoria
+from app.services import auditoria, disciplina
 from app.services.bracket import equipo_del_slot
 from app.services.notifications import (
     notificar_cambio_de_partido,
@@ -1850,6 +1850,26 @@ def get_schedule_conflicts(
         "warnings": len(conflictos) - errores,
         "ok": not conflictos,
     }
+
+
+@router.get("/{tournament_id}/discipline")
+def get_discipline(
+    tournament_id: UUID,
+    db: Session = Depends(get_db),
+    current=Depends(get_current_user_optional),
+):
+    """Quién está suspendido y quién está a una tarjeta de estarlo.
+
+    Sigue el mismo interruptor de publicación que las sanciones: si el
+    organizador no publica esa sección, esto tampoco sale. Con el reglamento
+    disciplinario apagado devuelve las listas vacías y `enabled: false`, que es
+    lo que hace que la pantalla simplemente no dibuje la sección.
+    """
+    tournament = db.query(Tournament).filter(Tournament.id == tournament_id).first()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Torneo no encontrado")
+    _asegurar_visible(tournament, "sanciones", current)
+    return disciplina.calcular(db, tournament)
 
 
 @router.get("/{tournament_id}/audit", response_model=List[AuditEntry])

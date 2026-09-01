@@ -174,6 +174,7 @@ function FilaPartido({ m, jugado }: { m: any; jugado?: boolean }) {
 export default function CaptainView() {
   const [teams, setTeams] = useState<any[]>([])
   const [sel, setSel] = useState<any>(null)
+  const [castigados, setCastigados] = useState<any[]>([])
   const [agenda, setAgenda] = useState<any>({ upcoming: [], played: [], live: [] })
   const [resumen, setResumen] = useState<any>(null)
   const [tab, setTab] = useState<'agenda' | 'equipo'>('agenda')
@@ -198,6 +199,18 @@ export default function CaptainView() {
       .captainSummary(sel.team_id, sel.tournament_id)
       .then(setResumen)
       .catch(() => setResumen(null))
+    // Suspendidos del campeonato, filtrados a los de mi equipo. Solo trae algo
+    // si el organizador encendió el reglamento disciplinario.
+    api
+      .tournamentDiscipline(sel.tournament_id)
+      .then((d: any) =>
+        setCastigados(
+          (d?.sanctions || []).filter(
+            (s: any) => String(s.team_id) === String(sel.team_id),
+          ),
+        ),
+      )
+      .catch(() => setCastigados([]))
   }, [sel])
 
   const deporte = useMemo(() => sportOf(sel?.sport_type), [sel])
@@ -369,6 +382,33 @@ export default function CaptainView() {
                         {p.position}º de {p.of}
                       </Badge>
                       <span className="text-on-surface-variant">{p.league_points} pts</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {/* Lo primero que quiere saber un capitán el sábado: con quién NO
+              cuenta mañana. Solo aparece si el torneo calcula suspensiones. */}
+          {castigados.length > 0 && (
+            <Card className="p-2">
+              <h3 className="flex items-center gap-2 px-3 py-2 font-display font-semibold">
+                <Icon name="gavel" className="text-error" /> No pueden jugar
+              </h3>
+              <ul className="space-y-1.5 px-3 pb-3">
+                {castigados.map((s) => (
+                  <li
+                    key={`${s.player_id}-${s.since_match_id}`}
+                    className="flex flex-wrap items-center gap-x-2 rounded-lg bg-error-container/25 px-3 py-2 text-sm"
+                  >
+                    <span className="font-semibold">{s.player_name}</span>
+                    <span className="ml-auto text-xs text-on-surface-variant">
+                      {s.reason}
+                      {' · '}
+                      {s.pending === 1
+                        ? 'la próxima fecha'
+                        : `${s.pending} fechas`}
                     </span>
                   </li>
                 ))}
