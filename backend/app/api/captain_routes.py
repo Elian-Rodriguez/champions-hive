@@ -31,6 +31,7 @@ from app.db.models import (
     User,
     Venue,
 )
+from app.services.strategy import puntos_del_evento
 
 router = APIRouter()
 
@@ -324,8 +325,10 @@ def resumen_de_equipo(
         if not pid or pid not in jugadores:
             continue
         et = (e.event_type or "").upper()
-        if et in ("GOL", "GOAL"):
-            por_jugador[pid]["goals"] += 1
+        # Puntos, no eventos: en tejo una moñona vale por nueve manos.
+        anotacion = puntos_del_evento(et)
+        if anotacion:
+            por_jugador[pid]["goals"] += anotacion
         elif et in ("AMARILLA", "YELLOW"):
             por_jugador[pid]["yellow"] += 1
         elif et in ("AZUL", "BLUE"):

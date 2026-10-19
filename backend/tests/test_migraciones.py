@@ -19,7 +19,13 @@ def test_enums_del_modelo_cubre_todos_los_tipos():
 def test_las_etiquetas_son_los_nombres_de_los_miembros():
     """SQLAlchemy persiste los NOMBRES (FOOTBALL), no los valores (football)."""
     tipos = enums_del_modelo()
-    assert tipos["sporttype"] == ["FOOTBALL", "MICRO", "BASKETBALL", "BANQUITAS"]
+    assert tipos["sporttype"] == [
+        "FOOTBALL",
+        "MICRO",
+        "BASKETBALL",
+        "BANQUITAS",
+        "TEJO",
+    ]
     assert tipos["stagetype"] == ["GROUP", "KNOCKOUT", "LEAGUE", "SWISS"]
     assert tipos["matchstatus"] == ["SCHEDULED", "LIVE", "FINISHED", "POSTPONED"]
 
@@ -28,7 +34,7 @@ def test_los_valores_nuevos_van_al_final():
     """ALTER TYPE ... ADD VALUE agrega al final: mientras los valores nuevos se
     declaren al final del enum, las bases viejas y las nuevas quedan con el
     mismo orden de etiquetas."""
-    assert enums_del_modelo()["sporttype"][-1] == "BANQUITAS"
+    assert enums_del_modelo()["sporttype"][-1] == "TEJO"
     # POSTPONED (aplazado) se declaró después de FINISHED por lo mismo: la base
     # que ya existe recibe la etiqueta al final y no cambia el orden.
     assert enums_del_modelo()["matchstatus"][-1] == "POSTPONED"

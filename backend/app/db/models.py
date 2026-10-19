@@ -59,6 +59,10 @@ class SportType(str, enum.Enum):
     MICRO = "micro"
     BASKETBALL = "basketball"
     BANQUITAS = "banquitas"
+    # Tejo: deporte nacional colombiano. No se juega por tiempo sino a 21
+    # puntos, y lo que suma no es un gol repetido sino cuatro jugadas que
+    # valen distinto (ver PUNTOS_POR_EVENTO en services/strategy.py).
+    TEJO = "tejo"
 
 
 class MatchStatus(str, enum.Enum):

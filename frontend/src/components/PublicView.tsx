@@ -12,10 +12,21 @@ import {
 } from '../utils/socialImage'
 import type { TableCol } from '../utils/socialImage'
 import QRCode from 'qrcode'
-import { Badge, Button, Card, EmptyState, Icon, Spinner } from './ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  HiveMark,
+  Icon,
+  LiveChip,
+  Spinner,
+  Stat,
+} from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
-import { hasBlueCard, sportOf } from '../sports'
+import { hasBlueCard, sportLabel, sportOf } from '../sports'
+import { CHART_SERIES, THEME } from '../theme'
 import type { StatScope } from '../services/api'
 
 import { ESTADO_LABEL as STATUS_LABEL, woDetalle, woLabel } from '../utils/partido'
@@ -229,7 +240,7 @@ export default function PublicView({
       const data = await QRCode.toDataURL(link, {
         width: 600,
         margin: 2,
-        color: { dark: '#081425', light: '#ffffff' },
+        color: { dark: THEME.ink, light: '#ffffff' },
       })
       setQr({ data, link })
     } catch {
@@ -478,13 +489,17 @@ export default function PublicView({
 
   return (
     <div className="min-h-screen bg-surface text-on-surface">
-      <header className="border-b border-outline-variant/40 bg-surface-container-low">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <button onClick={onBack} className="flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface">
+      <header className="edge-glow glass sticky top-0 z-20">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2.5">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 rounded-full px-2 py-1 text-sm text-on-surface-variant transition hover:text-secondary"
+          >
             <Icon name="arrow_back" className="text-base" /> Inicio
           </button>
-          <span className="flex items-center gap-2 font-display font-bold">
-            <Icon name="scoreboard" className="text-secondary" /> Marcador público
+          <span className="flex items-center gap-2">
+            <HiveMark className="h-7 w-7" icon="scoreboard" />
+            <span className="headline text-sm tracking-[0.1em]">Marcador público</span>
           </span>
         </div>
       </header>
@@ -501,14 +516,28 @@ export default function PublicView({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {tournaments.map((t) => (
                 <button key={t.id} onClick={() => openTournament(t)} className="text-left">
-                  <Card className="h-full p-5 transition hover:border-secondary/60">
+                  <Card hover className="h-full overflow-hidden p-5">
                     <div className="flex items-center gap-3">
-                      <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg bg-secondary-container/40 text-secondary">
-                        {t.logo_url ? <img src={t.logo_url} alt="" className="h-full w-full object-cover" /> : <Icon name="emoji_events" />}
+                      <span className="relative grid h-12 w-12 shrink-0 place-items-center">
+                        <span className={`clip-hex absolute inset-0 bg-current opacity-40 ${sportOf(t.sport_type).accent}`} />
+                        <span className="clip-hex absolute inset-[2px] grid place-items-center overflow-hidden bg-surface-container-high">
+                          {t.logo_url ? (
+                            <img src={t.logo_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <Icon name={sportOf(t.sport_type).icon} className={sportOf(t.sport_type).accent} />
+                          )}
+                        </span>
                       </span>
-                      <div>
-                        <h3 className="font-display font-semibold">{t.name}</h3>
-                        <p className="text-xs uppercase tracking-wide text-on-surface-variant">{t.sport_type} · {t.status}</p>
+                      <div className="min-w-0">
+                        <h3 className="truncate font-display text-lg font-bold">{t.name}</h3>
+                        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
+                          <span className={sportOf(t.sport_type).accent}>{sportLabel(t.sport_type)}</span>
+                          {t.status === 'active' ? (
+                            <LiveChip label="En juego" className="scale-90" />
+                          ) : (
+                            <span>· {t.status}</span>
+                          )}
+                        </p>
                       </div>
                     </div>
                   </Card>
@@ -530,16 +559,27 @@ export default function PublicView({
                 <Icon name="qr_code_2" className="text-base" /> QR
               </button>
             </div>
-            {selected.banner_url && <img src={selected.banner_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />}
+            {selected.banner_url && (
+              <div className="relative mb-4 overflow-hidden rounded-2xl">
+                <img src={selected.banner_url} alt="" className="h-44 w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/30 to-transparent" />
+              </div>
+            )}
             <div className="flex items-center gap-3">
               {selected.logo_url && (
-                <img
-                  src={selected.logo_url}
-                  alt=""
-                  className="h-12 w-12 shrink-0 rounded-xl border border-outline-variant/40 object-cover"
-                />
+                <span className="relative grid h-14 w-14 shrink-0 place-items-center">
+                  <span className="clip-hex absolute inset-0 bg-volt" />
+                  <span className="clip-hex absolute inset-[2px] overflow-hidden">
+                    <img src={selected.logo_url} alt="" className="h-full w-full object-cover" />
+                  </span>
+                </span>
               )}
-              <h2 className="font-display text-2xl font-bold">{selected.name}</h2>
+              <div className="min-w-0">
+                <h2 className="headline break-words text-2xl md:text-3xl">{selected.name}</h2>
+                <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${sportOf(selected.sport_type).accent}`}>
+                  {sportLabel(selected.sport_type)}
+                </p>
+              </div>
             </div>
 
             {stats && (
@@ -547,14 +587,10 @@ export default function PublicView({
                 {[
                   { k: 'teams', label: 'Equipos', icon: 'groups' },
                   { k: 'stages', label: 'Fases', icon: 'account_tree' },
-                  { k: 'matches', label: 'Partidos', icon: 'sports_soccer' },
+                  { k: 'matches', label: 'Partidos', icon: sportOf(selected.sport_type).icon },
                   { k: 'finished_matches', label: 'Jugados', icon: 'check_circle' },
                 ].map((s) => (
-                  <div key={s.k} className="rounded-xl bg-surface-container p-4">
-                    <Icon name={s.icon} className="text-secondary" />
-                    <p className="mt-1 font-display text-2xl font-bold">{stats[s.k]}</p>
-                    <p className="text-xs text-on-surface-variant">{s.label}</p>
-                  </div>
+                  <Stat key={s.k} icon={s.icon} label={s.label} value={stats[s.k] ?? 0} />
                 ))}
               </div>
             )}
@@ -572,13 +608,15 @@ export default function PublicView({
             )}
 
             {/* Tabs */}
-            <div className="mt-5 flex flex-wrap gap-2 border-b border-outline-variant/30 pb-3">
+            <div className="mt-5 flex flex-wrap gap-1.5 rounded-xl border border-outline-variant/60 bg-surface-container-low p-1.5">
               {TABS.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                    tab === t.key ? 'bg-secondary text-on-secondary' : 'text-on-surface-variant hover:bg-surface-container-high'
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 font-display text-sm font-bold transition duration-200 ease-snap ${
+                    tab === t.key
+                      ? 'bg-volt text-on-secondary shadow-volt-sm'
+                      : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
                   }`}
                 >
                   <Icon name={t.icon} className="text-base" /> {t.label}
@@ -640,6 +678,7 @@ export default function PublicView({
                             onRowClick={openProfile}
                             logos={teamLogos}
                             motivos={sanciones}
+                            sport={selected?.sport_type}
                           />
                         </Card>
                       ))}
@@ -966,7 +1005,9 @@ export default function PublicView({
                       </div>
                       <p className="mt-1.5 text-xs text-on-surface-variant">
                         {!statScope.stageId
-                          ? 'Goleadores, valla menos vencida y sanciones suman todo el torneo.'
+                          ? `${sportOf(selected?.sport_type).scorersLabel}, ${sportOf(
+                              selected?.sport_type,
+                            ).defenseLabel.toLowerCase()} y sanciones suman todo el torneo.`
                           : statScope.mode === 'only'
                             ? 'Solo se cuenta lo ocurrido en esa fase.'
                             : 'Se cuenta esa fase y todas las posteriores.'}
@@ -980,10 +1021,14 @@ export default function PublicView({
                       </h3>
                       <div className="mb-4 flex flex-wrap gap-3 text-sm">
                         {[
-                          { label: 'Goles', v: metrics.totals?.goals },
+                          { label: sportOf(selected?.sport_type).scoreLabel, v: metrics.totals?.goals },
                           { label: 'Partidos', v: metrics.totals?.matches },
-                          { label: 'Amarillas', v: metrics.totals?.yellow },
-                          { label: 'Rojas', v: metrics.totals?.red },
+                          // Las columnas de disciplina las pone el deporte: un
+                          // torneo de tejo no tiene amarillas que contar.
+                          ...sportOf(selected?.sport_type).discColumns.map((c) => ({
+                            label: c.title,
+                            v: metrics.totals?.[c.key],
+                          })),
                         ].map((s) => (
                           <div key={s.label} className="rounded-lg bg-surface-container-high px-3 py-2">
                             <span className="text-on-surface-variant">{s.label}: </span>
@@ -1016,7 +1061,7 @@ export default function PublicView({
                         const maxPts = Math.max(1, ...series.flatMap((s: any) => s.points))
                         const W = 320
                         const Hh = 120
-                        const colors = ['#4ae176', '#bec6e0', '#ffb690', '#7fd1ff', '#ff9db1', '#ffd479']
+                        const colors = CHART_SERIES
                         const xx = (i: number) => (maxLen > 1 ? (i / (maxLen - 1)) * W : 0)
                         const yy = (p: number) => Hh - (p / maxPts) * Hh
                         return (
@@ -1055,12 +1100,20 @@ export default function PublicView({
                     <Card className="p-4">
                       <div className="mb-3 flex items-center justify-between gap-2">
                         <h3 className="flex items-center gap-2 font-display font-semibold">
-                          <Icon name="shield" className="text-secondary" /> Valla menos vencida
+                          <Icon name="shield" className="text-secondary" />{' '}
+                          {sportOf(selected?.sport_type).defenseLabel}
                         </h3>
                         <ShareChip
                           onClick={() =>
                             genShare('valla', () =>
-                              makeStatsImage(selected, 'Valla menos vencida', scopeLabel, vallaCols, valla, sponsors),
+                              makeStatsImage(
+                                selected,
+                                sportOf(selected?.sport_type).defenseLabel,
+                                scopeLabel,
+                                vallaCols,
+                                valla,
+                                sponsors,
+                              ),
                             )
                           }
                         />
@@ -1116,13 +1169,24 @@ export default function PublicView({
                   <Card className="p-4">
                     <div className="mb-3 flex items-center justify-between gap-2">
                       <h3 className="flex items-center gap-2 font-display font-semibold">
-                        <Icon name="sports_soccer" className="text-secondary" /> Goleadores
+                        <Icon
+                          name={sportOf(selected?.sport_type).icon}
+                          className="text-secondary"
+                        />{' '}
+                        {sportOf(selected?.sport_type).scorersLabel}
                       </h3>
                       {playerStats.length > 0 && (
                         <ShareChip
                           onClick={() =>
                             genShare('goleadores', () =>
-                              makeStatsImage(selected, 'Goleadores', scopeLabel, golCols, playerStats, sponsors),
+                              makeStatsImage(
+                                selected,
+                                sportOf(selected?.sport_type).scorersLabel,
+                                scopeLabel,
+                                golCols,
+                                playerStats,
+                                sponsors,
+                              ),
                             )
                           }
                         />
@@ -1176,7 +1240,12 @@ export default function PublicView({
                         />
                       )}
                     </div>
-                    <StandingsTable rows={teamStats} onRowClick={openProfile} motivos={sanciones} />
+                    <StandingsTable
+                      rows={teamStats}
+                      onRowClick={openProfile}
+                      motivos={sanciones}
+                      sport={selected?.sport_type}
+                    />
                   </Card>
                   </div>
                   {(() => {
@@ -1192,7 +1261,8 @@ export default function PublicView({
                         </h3>
                         {lider && (
                           <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-secondary/10 px-3 py-1.5 text-sm text-secondary">
-                            <Icon name="shield" className="text-base" /> Valla menos vencida:&nbsp;
+                            <Icon name="shield" className="text-base" />{' '}
+                            {sportOf(selected?.sport_type).defenseLabel}:&nbsp;
                             <b>{lider.team_name}</b>&nbsp;({lider.conceded ?? 0} en contra)
                           </div>
                         )}
@@ -1457,7 +1527,10 @@ export default function PublicView({
                 const fp = fairPlay.find((s: any) => String(s.team_id) === String(tid))
                 const blueCard = hasBlueCard(selected?.sport_type)
                 const cells = [
-                  { label: 'Goles', value: ts?.points_scored ?? profile.row?.points_scored ?? 0 },
+                  {
+                    label: sportOf(selected?.sport_type).scoreLabel,
+                    value: ts?.points_scored ?? profile.row?.points_scored ?? 0,
+                  },
                   { label: 'En contra', value: ts?.points_conceded ?? profile.row?.points_conceded ?? 0 },
                   { label: 'Faltas', value: fp?.fouls ?? 0 },
                   { label: '🟨 Amar.', value: fp?.yellow ?? 0 },

@@ -6,11 +6,11 @@
 
 const W = 1080
 const H = 1080
-const GREEN = '#4ae176'
-const GREEN_DK = '#00b954'
-const ORANGE = '#ffb690'
-const TEXT = '#d8e3fb'
-const MUTED = '#9fb0c9'
+const GREEN = '#c7ff3f'
+const GREEN_DK = '#9be000'
+const ORANGE = '#ff6a3d'
+const TEXT = '#eaf0fa'
+const MUTED = '#99a4b8'
 
 type Ctx = CanvasRenderingContext2D
 
@@ -70,8 +70,8 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
 
   // Fondo base
   const bg = ctx.createLinearGradient(0, 0, cw, ch)
-  bg.addColorStop(0, '#0a1424')
-  bg.addColorStop(1, '#0d1f33')
+  bg.addColorStop(0, '#070910')
+  bg.addColorStop(1, '#101624')
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, cw, ch)
 
@@ -88,8 +88,8 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
     ctx.drawImage(banner, (cw - bw) / 2, (360 - bh) / 2, bw, bh)
     ctx.globalAlpha = 1
     const fade = ctx.createLinearGradient(0, 0, 0, 360)
-    fade.addColorStop(0, 'rgba(10,20,36,0.45)')
-    fade.addColorStop(1, 'rgba(10,20,36,1)')
+    fade.addColorStop(0, 'rgba(7,9,16,0.45)')
+    fade.addColorStop(1, 'rgba(7,9,16,1)')
     ctx.fillStyle = fade
     ctx.fillRect(0, 0, cw, 360)
     ctx.restore()
@@ -97,8 +97,8 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
 
   // Glow verde
   const glow = ctx.createRadialGradient(cw - 120, 80, 0, cw - 120, 80, 520)
-  glow.addColorStop(0, 'rgba(74,225,118,0.16)')
-  glow.addColorStop(1, 'rgba(74,225,118,0)')
+  glow.addColorStop(0, 'rgba(199,255,63,0.16)')
+  glow.addColorStop(1, 'rgba(199,255,63,0)')
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, cw, ch)
 
@@ -120,7 +120,7 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
     ctx.drawImage(logo, x, cy - 52, 104, 104)
     ctx.restore()
     ctx.lineWidth = 3
-    ctx.strokeStyle = 'rgba(74,225,118,0.5)'
+    ctx.strokeStyle = 'rgba(199,255,63,0.5)'
     rr(ctx, x, cy - 52, 104, 104, 24)
     ctx.stroke()
     x += 130
@@ -128,7 +128,7 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
     ctx.fillStyle = GREEN
     rr(ctx, x, cy - 52, 104, 104, 24)
     ctx.fill()
-    ctx.fillStyle = '#003915'
+    ctx.fillStyle = '#0f1a00'
     ctx.font = '800 56px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
@@ -162,7 +162,7 @@ async function drawSponsors(ctx: Ctx, sponsors: any[]) {
   const list = (sponsors || []).slice(0, 5)
   const baseY = ch - 150
   // separador
-  ctx.fillStyle = 'rgba(216,227,251,0.08)'
+  ctx.fillStyle = 'rgba(234,240,250,0.08)'
   ctx.fillRect(64, baseY, cw - 128, 2)
   ctx.fillStyle = MUTED
   ctx.font = '700 22px Inter, sans-serif'
@@ -212,7 +212,7 @@ function pill(ctx: Ctx, label: string, cx: number, y: number, color: string) {
   rr(ctx, cx - w / 2, y, w, 50, 25)
   ctx.fillStyle = color
   ctx.fill()
-  ctx.fillStyle = '#06210f'
+  ctx.fillStyle = '#131c00'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(label.toUpperCase(), cx, y + 26)
@@ -261,7 +261,7 @@ function drawTeamLogo(
     ctx.restore()
     return
   }
-  ctx.fillStyle = 'rgba(216,227,251,0.12)'
+  ctx.fillStyle = 'rgba(234,240,250,0.12)'
   rr(ctx, x, y, size, size, size / 2)
   ctx.fill()
   ctx.fillStyle = MUTED
@@ -310,7 +310,7 @@ export async function makeMatchImage(t: any, m: any, sponsors: any[]): Promise<B
   teamRow(ctx, m.away_team_name, as, finished ? 590 : 640, aw)
 
   // separador
-  ctx.fillStyle = 'rgba(216,227,251,0.08)'
+  ctx.fillStyle = 'rgba(234,240,250,0.08)'
   ctx.fillRect(90, finished ? 640 : 700, W - 180, 2)
 
   // fecha + meta
@@ -368,9 +368,9 @@ function marcaDePagina(ctx: Ctx, indice: number, total: number) {
   ctx.font = '800 22px Inter, sans-serif'
   const w = ctx.measureText(label).width + 40
   rr(ctx, cw - 64 - w, 74, w, 40, 20)
-  ctx.fillStyle = 'rgba(74,225,118,0.14)'
+  ctx.fillStyle = 'rgba(199,255,63,0.14)'
   ctx.fill()
-  ctx.strokeStyle = 'rgba(74,225,118,0.45)'
+  ctx.strokeStyle = 'rgba(199,255,63,0.45)'
   ctx.lineWidth = 2
   ctx.stroke()
   ctx.fillStyle = GREEN
@@ -440,7 +440,7 @@ export async function makeStandingsImage(
       // g es la posición real en la tabla; i, la fila dentro de esta imagen.
       const g = desde + i
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(216,227,251,0.05)'
+        ctx.fillStyle = 'rgba(234,240,250,0.05)'
         rr(ctx, x0, y, tw, rowH - 6, 12)
         ctx.fill()
       }
@@ -567,7 +567,7 @@ export async function makeCalendarImage(
     paginas[p].forEach((m: any, i: number) => {
       const g = desde + i
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(216,227,251,0.05)'
+        ctx.fillStyle = 'rgba(234,240,250,0.05)'
         rr(ctx, x0, y + 2, tw, rowH - 6, 12)
         ctx.fill()
       }
@@ -729,7 +729,7 @@ export async function makeStatsImage(
       // la columna "#" de goleadores sigue numerando 11, 12, 13…
       const g = desde + i
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(216,227,251,0.05)'
+        ctx.fillStyle = 'rgba(234,240,250,0.05)'
         rr(ctx, x0 - 12, y, tw + 24, rowH - 5, 10)
         ctx.fill()
       }
@@ -787,11 +787,11 @@ function drawKoMatch(ctx: Ctx, m: any, x: number, yC: number, w: number, h: numb
   const awayWin = finished && (m.away_score ?? 0) > (m.home_score ?? 0)
   const y = yC - h / 2
 
-  ctx.fillStyle = 'rgba(216,227,251,0.06)'
+  ctx.fillStyle = 'rgba(234,240,250,0.06)'
   rr(ctx, x, y, w, h, 14)
   ctx.fill()
   ctx.lineWidth = 2
-  ctx.strokeStyle = live ? 'rgba(255,182,144,0.8)' : 'rgba(216,227,251,0.14)'
+  ctx.strokeStyle = live ? 'rgba(255,106,61,0.8)' : 'rgba(234,240,250,0.14)'
   rr(ctx, x, y, w, h, 14)
   ctx.stroke()
 
@@ -880,7 +880,7 @@ export async function makeBracketImage(
   const colX = (ri: number) => x0 + colW * ri + (colW - boxW) / 2
 
   // conectores (debajo de las cajas)
-  ctx.strokeStyle = 'rgba(216,227,251,0.18)'
+  ctx.strokeStyle = 'rgba(234,240,250,0.18)'
   ctx.lineWidth = 2
   for (let ri = 1; ri < mains.length; ri++) {
     const prev = centers[ri - 1]

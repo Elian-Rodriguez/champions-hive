@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { api } from '../services/api'
 import { useAppDispatch } from '../hooks'
 import { setCredentials } from '../store/authSlice'
-import { Brand, Button, Eyebrow, Icon, Input } from './ui'
+import { Brand, Button, Eyebrow, HiveMark, Icon, Input } from './ui'
 
 const FEATURES = [
   { icon: 'account_tree', label: 'Brackets en vivo' },
@@ -127,7 +127,8 @@ export default function LoginView({
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Panel hero (solo escritorio) */}
-      <div className="hero-glow relative hidden flex-col justify-between overflow-hidden border-r border-outline-variant/30 bg-surface-container-lowest p-10 lg:flex">
+      <div className="hero-glow noise relative hidden flex-col justify-between overflow-hidden border-r border-outline-variant/40 bg-surface-container-lowest p-10 lg:flex">
+        <div className="bg-hive pointer-events-none absolute inset-0 opacity-70" />
         <button
           onClick={onBack}
           className="flex w-fit items-center gap-1 text-sm text-on-surface-variant transition hover:text-on-surface"
@@ -147,12 +148,17 @@ export default function LoginView({
           </p>
 
           <div className="relative mx-auto w-fit">
-            <div className="absolute inset-0 rounded-3xl bg-secondary/20 blur-2xl" />
-            <img
-              src="/icon-512.png"
-              alt="Champion Hive"
-              className="relative h-44 w-44 rounded-3xl border border-secondary/30 object-cover"
-            />
+            <div className="absolute inset-0 rounded-full bg-secondary/25 blur-3xl" />
+            <span className="relative grid h-48 w-48 place-items-center">
+              <span className="clip-hex absolute inset-0 bg-volt" />
+              <span className="clip-hex absolute inset-[3px] overflow-hidden bg-surface-container-lowest">
+                <img
+                  src="/icon-512.png"
+                  alt="Champion Hive"
+                  className="h-full w-full scale-105 object-cover"
+                />
+              </span>
+            </span>
           </div>
 
           <div>
@@ -195,12 +201,12 @@ export default function LoginView({
             <Icon name="arrow_back" className="text-base" /> Volver
           </button>
           <div className="mb-6 flex items-center gap-3 lg:hidden">
-            <img src="/icon-192.png" alt="" className="h-10 w-10 rounded-xl" />
+            <HiveMark className="h-10 w-10" />
             <Brand className="text-2xl" />
           </div>
 
-          <h1 className="font-display text-3xl font-bold">{TITULOS[modo].titulo}</h1>
-          <p className="mt-1 text-sm text-on-surface-variant">{TITULOS[modo].bajada}</p>
+          <h1 className="headline text-3xl">{TITULOS[modo].titulo}</h1>
+          <p className="mt-2 text-sm text-on-surface-variant">{TITULOS[modo].bajada}</p>
 
           <form
             onSubmit={

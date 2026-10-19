@@ -15,8 +15,9 @@ import {
 import { api } from '../services/api'
 import { Card, Icon, Spinner } from './ui'
 import { SPORT_LIST } from '../sports'
+import { CHART_SERIES, chartTooltip, THEME } from '../theme'
 
-const PALETTE = ['#4ae176', '#bec6e0', '#ffb690', '#7fd1ff', '#ff9db1', '#ffd479']
+const PALETTE = CHART_SERIES
 const SPORT_LABEL: Record<string, string> = Object.fromEntries(
   SPORT_LIST.map((s) => [s.value, s.label]),
 )
@@ -26,13 +27,7 @@ const STATUS_LABEL: Record<string, string> = {
   finished: 'Finalizado',
 }
 
-const tooltipStyle = {
-  background: '#152031',
-  border: '1px solid #45464d',
-  borderRadius: 10,
-  color: '#d8e3fb',
-  fontSize: 12,
-}
+const tooltipStyle = chartTooltip
 
 function Kpi({
   icon,
@@ -46,12 +41,17 @@ function Kpi({
   accent?: string
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-outline-variant/40 bg-gradient-to-br from-surface-container-high to-surface-container p-5">
-      <span className={`grid h-10 w-10 place-items-center rounded-xl bg-surface-bright/60 ${accent}`}>
-        <Icon name={icon} />
+    <div className="hover-lift relative overflow-hidden rounded-2xl border border-outline-variant/70 bg-gradient-to-br from-surface-container-high to-surface-container p-5 hover:border-secondary/40">
+      <Icon
+        name={icon}
+        className={`pointer-events-none absolute -right-3 -top-3 text-7xl opacity-[0.07] ${accent}`}
+      />
+      <span className="relative grid h-11 w-11 place-items-center">
+        <span className={`clip-hex absolute inset-0 bg-current opacity-20 ${accent}`} />
+        <Icon name={icon} className={`relative ${accent}`} />
       </span>
-      <p className="mt-3 font-display text-3xl font-extrabold tabular-nums">{value}</p>
-      <p className="text-sm text-on-surface-variant">{label}</p>
+      <p className="tnum mt-3 font-display text-3xl font-extrabold leading-none">{value}</p>
+      <p className="mt-1 text-sm text-on-surface-variant">{label}</p>
     </div>
   )
 }
@@ -94,7 +94,7 @@ export default function DashboardView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold">Panel general</h1>
+        <h1 className="headline text-2xl md:text-3xl">Panel general</h1>
         <p className="text-sm text-on-surface-variant">Resumen de toda tu actividad en Champion Hive.</p>
       </div>
 
@@ -154,20 +154,20 @@ export default function DashboardView() {
               <AreaChart data={goals} margin={{ top: 5, right: 10, left: -18, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gGoals" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4ae176" stopOpacity={0.45} />
-                    <stop offset="95%" stopColor="#4ae176" stopOpacity={0} />
+                    <stop offset="5%" stopColor={THEME.volt} stopOpacity={0.45} />
+                    <stop offset="95%" stopColor={THEME.volt} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: '#c6c6cd', fontSize: 11 }}
+                  tick={{ fill: THEME.textDim, fontSize: 11 }}
                   tickFormatter={(d) => (d === 'Sin fecha' ? 's/f' : String(d).slice(5))}
-                  axisLine={{ stroke: '#2a3548' }}
+                  axisLine={{ stroke: THEME.line }}
                   tickLine={false}
                 />
-                <YAxis tick={{ fill: '#c6c6cd', fontSize: 11 }} allowDecimals={false} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: '#45464d' }} />
-                <Area type="monotone" dataKey="goals" stroke="#4ae176" strokeWidth={2.5} fill="url(#gGoals)" />
+                <YAxis tick={{ fill: THEME.textDim, fontSize: 11 }} allowDecimals={false} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: THEME.line }} />
+                <Area type="monotone" dataKey="goals" stroke={THEME.volt} strokeWidth={2.5} fill="url(#gGoals)" />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -205,17 +205,17 @@ export default function DashboardView() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="p-4 lg:col-span-2">
           <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
-            <Icon name="leaderboard" className="text-secondary" /> Goleadores
+            <Icon name="leaderboard" className="text-secondary" /> Máximos anotadores
           </h3>
           {scorers.length === 0 ? (
-            <p className="py-10 text-center text-sm text-on-surface-variant">Aún sin goleadores.</p>
+            <p className="py-10 text-center text-sm text-on-surface-variant">Aún sin anotadores.</p>
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(180, scorers.length * 34)}>
               <BarChart data={scorers} layout="vertical" margin={{ top: 0, right: 16, left: 8, bottom: 0 }}>
-                <XAxis type="number" tick={{ fill: '#c6c6cd', fontSize: 11 }} allowDecimals={false} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" width={120} tick={{ fill: '#d8e3fb', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#1f2a3c' }} />
-                <Bar dataKey="goals" fill="#4ae176" radius={[0, 6, 6, 0]} barSize={16} />
+                <XAxis type="number" tick={{ fill: THEME.textDim, fontSize: 11 }} allowDecimals={false} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={120} tick={{ fill: THEME.text, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: THEME.surfaceHigh }} />
+                <Bar dataKey="goals" fill={THEME.volt} radius={[0, 6, 6, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
           )}

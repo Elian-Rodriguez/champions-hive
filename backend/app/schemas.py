@@ -520,7 +520,7 @@ class MatchStatusUpdate(BaseModel):
     away_score: Optional[int] = None
     # W.O.: quién no se presentó. "home", "away", "both" o null para quitarlo.
     # Si no se manda marcador, el endpoint pone el que fija el reglamento de la
-    # disciplina (3-0 en fútbol, 20-0 en baloncesto).
+    # disciplina (3-0 en fútbol, 20-0 en baloncesto, 21-0 en tejo).
     walkover: Optional[str] = None
 
     @field_validator("walkover")

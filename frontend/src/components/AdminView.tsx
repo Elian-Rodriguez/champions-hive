@@ -10,7 +10,7 @@ import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { escudoDesdeArchivo } from '../utils/imagen'
 import { ESTADO_LABEL, woDetalle, woLabel } from '../utils/partido'
-import { hasBlueCard, SPORT_LIST } from '../sports'
+import { hasBlueCard, sportLabel, sportOf, SPORT_LIST } from '../sports'
 import { useAppSelector } from '../hooks'
 
 const SPORTS = SPORT_LIST
@@ -152,7 +152,7 @@ export default function AdminView() {
           <div className="space-y-4">
             <Card className="p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-display font-semibold">Nuevo torneo</h2>
+                <h2 className="headline text-base tracking-[0.08em]">Nuevo torneo</h2>
                 {cupo != null && (
                   <Badge
                     className={
@@ -202,13 +202,19 @@ export default function AdminView() {
                           setSelected(t)
                           setTab('resumen')
                         }}
-                        className={`flex w-full items-center justify-between px-3 py-3 text-left transition hover:bg-surface-container-high ${
-                          selected?.id === t.id ? 'bg-surface-container-high' : ''
+                        className={`flex w-full items-center justify-between border-l-2 px-3 py-3 text-left transition ${
+                          selected?.id === t.id
+                            ? 'border-volt bg-secondary/[0.07]'
+                            : 'border-transparent hover:bg-surface-container-high'
                         }`}
                       >
-                        <span>
-                          <span className="block font-medium">{t.name}</span>
-                          <span className="text-xs uppercase text-on-surface-variant">{t.sport_type}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-display font-semibold">{t.name}</span>
+                          <span
+                            className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${sportOf(t.sport_type).accent}`}
+                          >
+                            {sportLabel(t.sport_type)}
+                          </span>
                         </span>
                         <Badge className="bg-primary-container text-on-primary-container">{t.status}</Badge>
                       </button>
@@ -233,16 +239,18 @@ export default function AdminView() {
             ) : (
               <Card className="p-5">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-display text-2xl font-bold">{selected.name}</h2>
-                  <Badge className="bg-secondary-container/40 text-secondary">{selected.sport_type}</Badge>
+                  <h2 className="headline text-2xl">{selected.name}</h2>
+                  <Badge className="bg-secondary-container/40 text-secondary">{sportLabel(selected.sport_type)}</Badge>
                 </div>
-                <div className="mb-5 flex flex-wrap gap-2 border-b border-outline-variant/30 pb-3">
+                <div className="mb-5 flex flex-wrap gap-1.5 rounded-xl border border-outline-variant/60 bg-surface-container-low p-1.5">
                   {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'marca', 'historial'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
-                      className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition ${
-                        tab === t ? 'bg-secondary text-on-secondary' : 'text-on-surface-variant hover:bg-surface-container-high'
+                      className={`rounded-lg px-3 py-1.5 font-display text-sm font-bold capitalize transition duration-200 ease-snap ${
+                        tab === t
+                          ? 'bg-volt text-on-secondary shadow-volt-sm'
+                          : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
                       }`}
                     >
                       {t}
@@ -274,7 +282,7 @@ const HELP_STEPS: { icon: string; title: string; body: string }[] = [
   {
     icon: 'add_circle',
     title: '1. Crea el torneo',
-    body: 'En la pestaña Torneos escribe el nombre, elige el deporte (fútbol, microfútbol, banquitas o baloncesto) y pulsa Crear.',
+    body: 'En la pestaña Torneos escribe el nombre, elige el deporte (fútbol, microfútbol, banquitas, baloncesto o tejo) y pulsa Crear.',
   },
   {
     icon: 'tune',
@@ -1663,7 +1671,7 @@ function PosicionesTab({ tournament }: { tournament: any }) {
           {Object.entries(standings).map(([group, rows]) => (
             <div key={group}>
               <h3 className="mb-2 font-display font-semibold">{group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}</h3>
-              <StandingsTable rows={rows} />
+              <StandingsTable rows={rows} sport={tournament?.sport_type} />
             </div>
           ))}
         </div>
@@ -1878,7 +1886,7 @@ function AvanceTab({ tournament }: { tournament: any }) {
               <h4 className="mb-1 text-sm font-medium">
                 {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
               </h4>
-              <StandingsTable rows={rws} />
+              <StandingsTable rows={rws} sport={tournament?.sport_type} />
             </div>
           ))}
           {thirds.length > 0 && (
@@ -2052,7 +2060,8 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
       <div>
         <h3 className="mb-1 font-display font-semibold">Qué se ve en el marcador público</h3>
         <p className="mb-2 text-xs text-on-surface-variant">
-          Posiciones, calendario, goleadores y valla menos vencida son siempre públicos.
+          Posiciones, calendario, {sportOf(tournament.sport_type).scorersLabel.toLowerCase()} y{' '}
+          {sportOf(tournament.sport_type).defenseLabel.toLowerCase()} son siempre públicos.
           Lo que apagues aquí solo lo verás tú y el superadministrador.
         </p>
         <div className="space-y-1.5">

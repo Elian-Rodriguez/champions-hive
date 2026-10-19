@@ -68,6 +68,7 @@ from app.services.strategy import (
     StrategyFactory,
     calculate_standings,
     cross_group_sort_key,
+    puntos_del_evento,
 )
 from app.services.validacion_calendario import SEVERIDAD_ERROR, detectar_conflictos
 
@@ -696,9 +697,13 @@ def dashboard(db: Session = Depends(get_db), current: User = Depends(require_sta
     d_yellow = d_blue = d_red = d_fouls = 0
     for e in eventos:
         et = (e.event_type or "").upper()
-        if et in ("GOL", "GOAL"):
+        # Lo que suma cada jugada lo dice la disciplina: un gol es 1 y una
+        # moñona de tejo son 9, así que el ranking se arma con puntos y no
+        # contando eventos.
+        anotacion = puntos_del_evento(et)
+        if anotacion:
             if e.player_id:
-                goals_by_player[str(e.player_id)] += 1
+                goals_by_player[str(e.player_id)] += anotacion
         elif et in ("AMARILLA", "YELLOW"):
             d_yellow += 1
         elif et in ("AZUL", "BLUE"):
@@ -1963,8 +1968,9 @@ def get_player_stats(
             {"goals": 0, "yellow": 0, "blue": 0, "red": 0, "fouls": 0, "matches": set()},
         )
         et = (e.event_type or "").upper()
-        if et in ("GOL", "GOAL"):
-            a["goals"] += 1
+        anotacion = puntos_del_evento(et)
+        if anotacion:
+            a["goals"] += anotacion
         elif et in ("AMARILLA", "YELLOW"):
             a["yellow"] += 1
         elif et in ("AZUL", "BLUE"):

@@ -455,7 +455,7 @@ export default function CaptainView() {
               <EmptyState
                 icon="groups"
                 title="Sin estadísticas todavía"
-                hint="Aparecen en cuanto el árbitro cargue goles o tarjetas de tus jugadores."
+                hint={`Aparecen en cuanto el árbitro cargue ${deporte.scoreLabel.toLowerCase()} o sanciones de tus jugadores.`}
               />
             )}
           </Card>

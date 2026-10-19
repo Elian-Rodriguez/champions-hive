@@ -19,6 +19,31 @@ FAIR_PLAY_WEIGHTS = {"yellow": 1, "blue": 2, "red": 3}
 # Deportes que puntúan como fútbol (victoria / empate / derrota).
 FOOTBALL_LIKE_SPORTS = ("football", "micro", "banquitas")
 
+# Deportes donde el empate no existe porque no se juega por tiempo: la partida
+# termina cuando alguien llega al tanteo, así que siempre hay un ganador.
+NO_DRAW_SPORTS = ("basketball", "tejo")
+
+# Eventos que suman al marcador y cuánto vale cada uno. El fútbol y el
+# baloncesto tienen uno solo —el gol, que vale 1 y el árbitro repite—, y el
+# tejo tiene cuatro que valen distinto, que es justo lo que lo hace una
+# disciplina aparte y no un fútbol con otro nombre: la mano (el tejo más cerca
+# del bocín) 1, la mecha 3, la embocinada 6 y la moñona —mecha y bocín en el
+# mismo tiro— 9. Es la tabla que convierte un evento cargado en puntos, y la
+# que hace que la tabla de goleadores del tejo rankee por puntos anotados.
+PUNTOS_POR_EVENTO: Dict[str, int] = {
+    "GOL": 1,
+    "GOAL": 1,
+    "MANO": 1,
+    "MECHA": 3,
+    "EMBOCINADA": 6,
+    "MOÑONA": 9,
+}
+
+
+def puntos_del_evento(event_type: Optional[str]) -> int:
+    """Lo que suma al marcador un evento cargado; 0 si no es de anotación."""
+    return PUNTOS_POR_EVENTO.get((event_type or "").upper(), 0)
+
 # Marcador que fija el reglamento cuando un equipo no se presenta (W.O.).
 # Fútbol y sus variantes, 3-0; baloncesto, 20-0 como en FIBA. Va aparte de
 # SPORT_DEFAULTS a propósito: aquello se vuelca tal cual sobre las columnas del
@@ -28,6 +53,9 @@ WALKOVER_SCORES: Dict[str, tuple] = {
     "micro": (3, 0),
     "banquitas": (3, 0),
     "basketball": (20, 0),
+    # Tejo: la partida se juega a 21, así que ese es el marcador del que no
+    # llegó a la cancha.
+    "tejo": (21, 0),
 }
 
 
@@ -69,6 +97,15 @@ SPORT_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "points_config": {"win": 3, "draw": 1, "loss": 0},
         "match_duration": 20,
         "waiting_time": 5,
+    },
+    # Tejo: la partida no dura lo que diga el reloj sino hasta que alguien
+    # llega a 21, así que la duración es una estimación para armar el
+    # calendario; entre partida y partida hay que recoger los tejos y reponer
+    # las mechas, y por eso el descanso viene puesto.
+    "tejo": {
+        "points_config": {"win": 2, "loss": 0},
+        "match_duration": 45,
+        "waiting_time": 10,
     },
 }
 
@@ -114,11 +151,32 @@ class BasketballStrategy(SportStrategy):
         return rules.get("loss", 1)
 
 
+class TejoStrategy(SportStrategy):
+    """Tejo: se juega a 21 puntos, así que no hay empate que repartir.
+
+    Va aparte del baloncesto por los puntos de la derrota: en la FIBA perder
+    suma 1 y en las ligas de tejo no suma nada, y ese 0 es la diferencia entre
+    una tabla que premia presentarse y una que premia ganar.
+    """
+
+    def calculate_points(self, home_score, away_score, rules):
+        win = rules.get("win", 2)
+        loss = rules.get("loss", 0)
+        if home_score >= away_score:
+            return win, loss
+        return loss, win
+
+    def puntos_por_derrota(self, rules):
+        return rules.get("loss", 0)
+
+
 class StrategyFactory:
     @staticmethod
     def get_strategy(sport_type: str) -> SportStrategy:
         if sport_type == "basketball":
             return BasketballStrategy()
+        if sport_type == "tejo":
+            return TejoStrategy()
         if sport_type in FOOTBALL_LIKE_SPORTS:
             return FootballStrategy()
         raise ValueError(f"Deporte no soportado: {sport_type}")

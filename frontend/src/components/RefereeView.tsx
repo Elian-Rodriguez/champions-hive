@@ -4,7 +4,14 @@ import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 import { useAppSelector } from '../hooks'
-import { marcadorWalkover, sportOf, type DisciplineEvent } from '../sports'
+import {
+  esAnotacion,
+  marcadorWalkover,
+  puntosDelEvento,
+  sportOf,
+  type DisciplineEvent,
+  type ScoreEvent,
+} from '../sports'
 import { ESTADO_LABEL as STATUS_LABEL, woDetalle, woLabel } from '../utils/partido'
 
 /** Un jugador dentro de la planilla del partido. Estar en el mapa es haber
@@ -307,15 +314,22 @@ export default function RefereeView() {
       setGuardandoLineup(null)
     }
   }
-  async function goal(side: 'home' | 'away') {
+  /** Carga una jugada que suma al marcador. Cuánto suma lo dice la disciplina
+   *  (en tejo una moñona son nueve puntos), no el botón. */
+  async function anotar(side: 'home' | 'away', jugada: ScoreEvent) {
     const player = side === 'home' ? selHome : selAway
-    if (side === 'home') setHome((h) => h + 1)
-    else setAway((a) => a + 1)
+    if (side === 'home') setHome((h) => h + jugada.points)
+    else setAway((a) => a + jugada.points)
     await api.recordEvent({
       match_id: match.id,
       player_id: player || null,
-      event_type: 'GOL',
-      event_data: { team: side, kind: 'goal', minute: minute ? Number(minute) : null },
+      event_type: jugada.type,
+      event_data: {
+        team: side,
+        kind: 'goal',
+        points: jugada.points,
+        minute: minute ? Number(minute) : null,
+      },
     })
     await refreshEvents()
   }
@@ -348,14 +362,22 @@ export default function RefereeView() {
   // mano), así que corregir o borrar un gol tiene que mover el número igual que
   // lo movió el botón "Gol" al cargarlo. Devuelve si lo tocó.
   function ajustarMarcador(antes: any, despues: any | null): boolean {
-    const lado = (ev: any) => (ev?.event_type === 'GOL' ? ev.event_data?.team || null : null)
-    const sale = lado(antes)
-    const entra = lado(despues)
-    if (sale === entra) return false
-    if (sale === 'home') setHome((h) => Math.max(0, h - 1))
-    if (sale === 'away') setAway((a) => Math.max(0, a - 1))
-    if (entra === 'home') setHome((h) => h + 1)
-    if (entra === 'away') setAway((a) => a + 1)
+    // Lado y puntos de la jugada: cambiar una mano por una moñona no mueve el
+    // marcador de a uno, mueve los ocho que van de 1 a 9.
+    const valor = (ev: any): [string | null, number] =>
+      ev && esAnotacion(ev.event_type)
+        ? [ev.event_data?.team || null, puntosDelEvento(ev.event_type)]
+        : [null, 0]
+    const [sale, ptsSale] = valor(antes)
+    const [entra, ptsEntra] = valor(despues)
+    if (sale === entra && ptsSale === ptsEntra) return false
+    const delta = { home: 0, away: 0 }
+    if (sale === 'home') delta.home -= ptsSale
+    if (sale === 'away') delta.away -= ptsSale
+    if (entra === 'home') delta.home += ptsEntra
+    if (entra === 'away') delta.away += ptsEntra
+    if (delta.home) setHome((h) => Math.max(0, h + delta.home))
+    if (delta.away) setAway((a) => Math.max(0, a + delta.away))
     return true
   }
 
@@ -435,11 +457,16 @@ export default function RefereeView() {
       }))
   }
 
-  const cards = sportOf(tournament?.sport_type).events
+  const disciplina = sportOf(tournament?.sport_type)
+  const cards = disciplina.events
+  const jugadas = disciplina.scoreEvents
   // Tipos que se pueden elegir al corregir. Si el evento cargado es de un tipo
   // que la disciplina ya no ofrece, se suma para no cambiárselo sin querer.
   const eventTypes = [
-    { type: 'GOL', label: 'Gol' },
+    ...jugadas.map((j) => ({
+      type: j.type,
+      label: j.points > 1 ? `${j.label} (+${j.points})` : j.label,
+    })),
     ...cards.map((c) => ({ type: c.type, label: c.label })),
     { type: 'CAMBIO', label: 'Cambio' },
   ]
@@ -464,7 +491,12 @@ export default function RefereeView() {
       .filter(Boolean)
       .join(' · ')
     const eventStyle = (type: string) => {
-      if (type === 'GOL') return { border: 'border-secondary', icon: 'sports_soccer', tone: 'text-secondary' }
+      if (esAnotacion(type))
+        return {
+          border: 'border-secondary',
+          icon: jugadas.find((j) => j.type === type)?.icon || 'sports_soccer',
+          tone: 'text-secondary',
+        }
       if (type === 'CAMBIO') return { border: 'border-primary', icon: 'swap_horiz', tone: 'text-primary' }
       if (type === 'ROJA' || type === 'ANTIDEPORTIVA')
         return { border: 'border-red-500', icon: 'style', tone: 'text-red-400' }
@@ -566,10 +598,18 @@ export default function RefereeView() {
                 onSelect={setSelHome}
                 onInc={() => setHome((h) => h + 1)}
                 onDec={() => setHome((h) => Math.max(0, h - 1))}
-                onGoal={() => goal('home')}
+                scoreEvents={jugadas}
+                onScore={(j) => anotar('home', j)}
                 onCard={(t) => card('home', t)}
               />
-              <div className="pt-12 font-display text-xl font-bold text-on-surface-variant">VS</div>
+              <div className="grid place-items-center pt-12">
+                <span className="relative grid h-10 w-10 place-items-center">
+                  <span className="clip-hex absolute inset-0 bg-surface-container-high" />
+                  <span className="relative font-display text-sm font-extrabold tracking-tight text-on-surface-variant">
+                    VS
+                  </span>
+                </span>
+              </div>
               <SideColumn
                 name={match.away_team_name}
                 score={away}
@@ -580,7 +620,8 @@ export default function RefereeView() {
                 onSelect={setSelAway}
                 onInc={() => setAway((a) => a + 1)}
                 onDec={() => setAway((a) => Math.max(0, a - 1))}
-                onGoal={() => goal('away')}
+                scoreEvents={jugadas}
+                onScore={(j) => anotar('away', j)}
                 onCard={(t) => card('away', t)}
                 scoreClass="text-tertiary"
               />
@@ -657,8 +698,9 @@ export default function RefereeView() {
 
           {/* Registro en vivo */}
           <Card className="flex max-h-[72vh] flex-col p-4">
-            <h4 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold">
-              <Icon name="bolt" className="text-secondary" /> Registro en vivo
+            <h4 className="mb-3 flex items-center gap-2">
+              <Icon name="bolt" className="text-secondary" />
+              <span className="headline text-sm tracking-[0.1em]">Registro en vivo</span>
             </h4>
             {events.length === 0 ? (
               <p className="py-10 text-center text-sm text-on-surface-variant">Sin eventos todavía.</p>
@@ -1050,7 +1092,8 @@ function SideColumn({
   onSelect,
   onInc,
   onDec,
-  onGoal,
+  scoreEvents,
+  onScore,
   onCard,
   scoreClass = 'text-secondary',
 }: {
@@ -1063,27 +1106,35 @@ function SideColumn({
   onSelect: (id: string) => void
   onInc: () => void
   onDec: () => void
-  onGoal: () => void
+  scoreEvents: ScoreEvent[]
+  onScore: (jugada: ScoreEvent) => void
   onCard: (type: string) => void
   scoreClass?: string
 }) {
   const kit = colors && colors.length ? colors : ['#64748b']
   const initial = (name || '?').trim().charAt(0).toUpperCase()
+  // Con una sola jugada (el gol) el valor sobra; con cuatro que valen distinto
+  // es lo primero que hay que ver.
+  const varias = scoreEvents.length > 1
   return (
     <div>
-      <div
-        className="mx-auto grid h-12 w-12 place-items-center rounded-full border-2 font-display text-lg font-bold"
-        style={{ borderColor: kit[0], color: kit[0] }}
-      >
-        {initial}
+      <div className="relative mx-auto grid h-14 w-14 place-items-center">
+        <span className="clip-hex absolute inset-0" style={{ background: kit[0] }} />
+        <span className="clip-hex absolute inset-[2px] bg-surface-container" />
+        <span className="relative font-display text-xl font-extrabold" style={{ color: kit[0] }}>
+          {initial}
+        </span>
       </div>
       <div className="mx-auto mb-1.5 mt-2 flex w-14 justify-center gap-0.5" title="Uniformes">
         {kit.map((col, i) => (
           <div key={i} className="h-1.5 flex-1 rounded-full" style={{ background: col }} />
         ))}
       </div>
-      <p className="mb-2 truncate font-display font-semibold">{name || 'Por definir'}</p>
-      <div className={`font-display text-4xl font-extrabold tabular-nums sm:text-5xl ${scoreClass}`}>
+      <p className="mb-2 truncate font-display font-bold">{name || 'Por definir'}</p>
+      <div
+        key={score}
+        className={`tnum animate-count-flip font-display text-5xl font-extrabold leading-none sm:text-6xl ${scoreClass}`}
+      >
         {score}
       </div>
       <div className="mt-2 flex justify-center gap-2">
@@ -1106,12 +1157,27 @@ function SideColumn({
           </option>
         ))}
       </select>
-      <button
-        onClick={onGoal}
-        className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg bg-secondary py-1.5 text-sm font-semibold text-on-secondary hover:brightness-110"
-      >
-        <Icon name="sports_soccer" className="text-base" /> Gol
-      </button>
+      {/* Una jugada, un botón. El fútbol tiene una sola y el tejo cuatro que
+          valen distinto, así que el valor va impreso en el botón: en la cancha
+          nadie se acuerda de cuánto vale una embocinada. */}
+      <div className="mt-2 space-y-1.5">
+        {scoreEvents.map((j) => (
+          <button
+            key={j.type}
+            onClick={() => onScore(j)}
+            title={j.hint ? `${j.hint} · +${j.points}` : `+${j.points}`}
+            className="btn-sheen flex w-full items-center gap-2 rounded-lg bg-volt px-2.5 py-2 font-display text-sm font-bold text-on-secondary shadow-volt-sm transition duration-200 ease-snap hover:brightness-[1.07] active:scale-[0.97]"
+          >
+            <Icon name={j.icon} className="shrink-0 text-base" />
+            <span className="truncate">{j.label}</span>
+            {varias && (
+              <span className="tnum ml-auto shrink-0 rounded bg-on-secondary/20 px-1.5 py-0.5 text-[11px] font-extrabold">
+                +{j.points}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
       <div className="mt-2 flex flex-wrap justify-center gap-1.5">
         {cards.map((c) => (
           <button
@@ -1239,7 +1305,7 @@ function EventEditor({
               event_type: tipo,
               event_data: {
                 team,
-                kind: tipo === 'GOL' ? 'goal' : isSub ? 'sub' : 'card',
+                kind: esAnotacion(tipo) ? 'goal' : isSub ? 'sub' : 'card',
                 minute: minuto === '' ? null : Number(minuto),
                 player_out: isSub ? playerOut || null : null,
               },

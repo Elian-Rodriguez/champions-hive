@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import QRCode from 'qrcode'
-import { sportOf } from '../sports'
+import { esAnotacion, puntosDelEvento, sportOf } from '../sports'
 
 const GREEN: [number, number, number] = [74, 225, 118]
 
@@ -651,10 +651,15 @@ export async function exportMatchReportPDF(
   // Goles: el marcador no se deriva de los eventos (el árbitro también lo mueve
   // a mano), así que la columna del parcial solo se muestra cuando los goles
   // cargados cuadran con el resultado. Si no cuadran, el acta no inventa.
-  const goles = evs.filter((e) => e.event_type === 'GOL' || e.event_type === 'GOAL')
-  const golesH = goles.filter((e) => lado(e) === 'home').length
-  const golesA = goles.filter((e) => lado(e) === 'away').length
-  const cuadra = goles.length > 0 && golesH === hs && golesA === as
+  const goles = evs.filter((e) => esAnotacion(e.event_type))
+  const suma = (equipo: 'home' | 'away') =>
+    goles
+      .filter((e) => lado(e) === equipo)
+      .reduce((t, e) => t + puntosDelEvento(e.event_type), 0)
+  const cuadra = goles.length > 0 && suma('home') === hs && suma('away') === as
+  // Con varias jugadas (tejo) la columna dice cuál fue y cuánto valió; con una
+  // sola no hace falta repetir «Gol» en cada fila.
+  const variasJugadas = disciplina.scoreEvents.length > 1
   titulo(disciplina.scoreLabel, `${goles.length} anotación(es)`)
   if (!goles.length) {
     vacio(`Sin ${disciplina.scoreLabel.toLowerCase()} registrados en el acta.`)
@@ -662,23 +667,32 @@ export async function exportMatchReportPDF(
     let ph = 0
     let pa = 0
     const filas = goles.map((e) => {
-      if (lado(e) === 'home') ph++
-      if (lado(e) === 'away') pa++
+      const pts = puntosDelEvento(e.event_type)
+      if (lado(e) === 'home') ph += pts
+      if (lado(e) === 'away') pa += pts
       const f = [minuto(e), equipoDe(e), jugador(e.player_id)]
+      if (variasJugadas) {
+        const j = disciplina.scoreEvents.find((x) => x.type === e.event_type)
+        f.push(`${j?.label || e.event_type} (+${pts})`)
+      }
       if (cuadra) f.push(`${ph} - ${pa}`)
       return f
     })
-    tabla(
-      cuadra ? ['Min', 'Equipo', 'Jugador', 'Parcial'] : ['Min', 'Equipo', 'Jugador'],
-      filas,
-      {
-        columnStyles: {
-          0: { cellWidth: 15, halign: 'center', fontStyle: 'bold', textColor: NAVY },
-          1: { cellWidth: 54 },
-          3: { cellWidth: 24, halign: 'center', fontStyle: 'bold', textColor: NAVY },
+    const cab = ['Min', 'Equipo', 'Jugador']
+    if (variasJugadas) cab.push('Jugada')
+    if (cuadra) cab.push('Parcial')
+    tabla(cab, filas, {
+      columnStyles: {
+        0: { cellWidth: 15, halign: 'center', fontStyle: 'bold', textColor: NAVY },
+        1: { cellWidth: 54 },
+        [cab.length - 1]: {
+          cellWidth: 24,
+          halign: 'center',
+          fontStyle: 'bold',
+          textColor: NAVY,
         },
       },
-    )
+    })
   }
 
   // Disciplina
@@ -773,7 +787,7 @@ export async function exportMatchReportPDF(
     if (!e.player_id) return
     const k = String(e.player_id)
     const r = rendimiento.get(k) || { g: 0, s: [] }
-    if (e.event_type === 'GOL' || e.event_type === 'GOAL') r.g += 1
+    if (esAnotacion(e.event_type)) r.g += puntosDelEvento(e.event_type)
     else if (SANCION[e.event_type]) r.s.push(SANCION[e.event_type].corto)
     rendimiento.set(k, r)
   })

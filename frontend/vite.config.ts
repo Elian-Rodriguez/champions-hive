@@ -12,10 +12,13 @@ export default defineConfig({
       manifest: {
         name: 'Champion Hive',
         short_name: 'Hive',
-        description: 'Gestión de torneos deportivos y panel de árbitro',
+        description:
+          'Gestión de torneos deportivos en tiempo real: fútbol, microfútbol, banquitas, baloncesto y tejo',
         lang: 'es',
-        theme_color: '#39d353',
-        background_color: '#081425',
+        // Mismos tokens que tailwind.config.js: la pantalla de arranque de
+        // la PWA tiene que ser la misma tinta que la aplicación.
+        theme_color: '#C7FF3F',
+        background_color: '#070910',
         display: 'standalone',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },

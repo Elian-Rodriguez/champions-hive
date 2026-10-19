@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api } from '../services/api'
-import { Brand, Button, Card, Eyebrow, Icon, LiveChip } from './ui'
+import { Brand, Button, Card, Eyebrow, HiveMark, Icon, LiveChip, SectionTitle } from './ui'
 import { sportOf } from '../sports'
 
 const FEATURES = [
   { icon: 'bolt', title: 'En tiempo real', desc: 'El árbitro carga goles, tarjetas y cambios desde el celular; el público lo ve al instante.' },
   { icon: 'account_tree', title: 'Grupos y eliminatorias', desc: 'Fase de grupos, liga, suizo y bracket de eliminación con 3er puesto y auto-avance.' },
-  { icon: 'sports_soccer', title: 'Multideporte', desc: 'Fútbol, microfútbol, banquitas y baloncesto, cada uno con su lógica de puntuación.' },
+  { icon: 'sports_soccer', title: 'Multideporte', desc: 'Fútbol, microfútbol, banquitas, baloncesto y tejo, cada uno con su reglamento y su forma de puntuar.' },
   { icon: 'leaderboard', title: 'Posiciones y desempates', desc: 'Tabla configurable: puntos, diferencia, fair-play y enfrentamiento directo.' },
   { icon: 'insights', title: 'Estadísticas y gráficas', desc: 'Goleadores, curva de puntos, goles por fecha y un dashboard profesional.' },
   { icon: 'install_mobile', title: 'PWA instalable', desc: 'Funciona desde el celular del árbitro y del público, también offline.' },
@@ -20,10 +20,20 @@ const STEPS = [
   { icon: 'public', title: 'Comparte el marcador', desc: 'Posiciones, bracket y estadísticas públicas, sin login.' },
 ]
 
+/** Planilla de ejemplo de la tarjeta destacada: lo que el árbitro va
+ *  cargando desde la cancha, que es más elocuente que describirlo. */
+const FEED = [
+  { min: "12'", icon: 'sports_soccer', text: 'Gol · Pumas', score: '1 - 0' },
+  { min: "27'", icon: 'style', text: 'Amarilla · Águilas', score: '1 - 0' },
+  { min: "41'", icon: 'swap_horiz', text: 'Cambio · Pumas', score: '1 - 0' },
+  { min: "58'", icon: 'sports_soccer', text: 'Gol · Águilas', score: '1 - 1' },
+]
+
 const MARQUEE = [
   { icon: 'sports_soccer', label: 'Fútbol' },
   { icon: 'sports_soccer', label: 'Banquitas' },
   { icon: 'sports_basketball', label: 'Baloncesto' },
+  { icon: 'track_changes', label: 'Tejo' },
   { icon: 'bolt', label: 'Tiempo real' },
   { icon: 'account_tree', label: 'Brackets' },
   { icon: 'leaderboard', label: 'Posiciones' },
@@ -75,12 +85,10 @@ export default function LandingView({
       />
 
       {/* Nav */}
-      <header className="sticky top-0 z-30 border-b border-outline-variant/30 bg-surface/70 backdrop-blur-lg">
+      <header className="edge-glow glass sticky top-0 z-30">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <span className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-secondary text-on-secondary">
-              <Icon name="emoji_events" className="text-lg" />
-            </span>
+          <span className="group flex items-center gap-2.5">
+            <HiveMark className="h-9 w-9 transition duration-300 ease-snap group-hover:rotate-[20deg]" />
             <Brand className="text-lg" />
           </span>
           <div className="hidden items-center gap-7 text-sm text-on-surface-variant md:flex">
@@ -105,9 +113,9 @@ export default function LandingView({
           <span className="inline-flex items-center gap-1.5 rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-secondary">
             <Icon name="bolt" className="text-sm" /> Gestión de torneos en tiempo real
           </span>
-          <h1 className="mt-5 font-display text-4xl font-extrabold uppercase leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
+          <h1 className="headline mt-5 text-4xl sm:text-5xl md:text-6xl">
             Domina la cancha.{' '}
-            <span className="text-secondary">Gestiona con precisión.</span>
+            <span className="text-volt-gradient">Gestiona con precisión.</span>
           </h1>
           <p className="mt-5 max-w-lg text-lg text-on-surface-variant">
             La plataforma todo-en-uno para gestionar campeonatos deportivos: equipos, fixtures,
@@ -139,7 +147,7 @@ export default function LandingView({
           <div className="relative aspect-square">
             {/* Anillos de arena */}
             <div className="absolute inset-0 rounded-full border border-secondary/20" />
-            <div className="absolute inset-[7%] rounded-full border border-outline-variant/30" />
+            <div className="absolute inset-[7%] rounded-full border border-outline-variant/40" />
             <div className="absolute inset-[16%] rounded-full border border-secondary/10" />
             {/* Barrido tipo radar */}
             <motion.div
@@ -147,19 +155,29 @@ export default function LandingView({
               className="absolute inset-[7%] rounded-full"
               style={{
                 background:
-                  'conic-gradient(from 0deg, transparent 0deg, rgba(74,225,118,0.18) 40deg, transparent 110deg)',
+                  'conic-gradient(from 0deg, transparent 0deg, rgba(199,255,63,0.22) 40deg, transparent 110deg)',
               }}
               animate={{ rotate: 360 }}
               transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
             />
-            {/* Emblema */}
-            <div className="absolute inset-[19%] grid place-items-center">
-              <img
-                src="/icon-512.png"
-                alt="Champion Hive"
-                className="h-full w-full object-contain drop-shadow-[0_0_45px_rgba(74,225,118,0.35)]"
-              />
-            </div>
+            {/* Emblema, recortado en hexágono: la casa se llama colmena y el
+                PNG cuadrado le metía un ladrillo negro en medio al hero. */}
+            <motion.div
+              className="absolute inset-[20%] grid place-items-center"
+              animate={{ y: [0, -9, 0] }}
+              transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <span className="relative block h-full w-full drop-shadow-[0_0_60px_rgba(199,255,63,0.35)]">
+                <span className="clip-hex absolute inset-0 bg-volt" />
+                <span className="clip-hex absolute inset-[3px] overflow-hidden bg-surface-container-lowest">
+                  <img
+                    src="/icon-512.png"
+                    alt="Champion Hive"
+                    className="h-full w-full scale-105 object-cover"
+                  />
+                </span>
+              </span>
+            </motion.div>
 
             {/* Chips flotantes */}
             <motion.div
@@ -175,14 +193,16 @@ export default function LandingView({
               animate={{ y: [0, 10, 0] }}
               transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
             >
-              <p className="mb-1 text-[10px] uppercase tracking-wide text-on-surface-variant">Final</p>
-              <div className="flex items-center justify-between gap-5 text-sm font-bold text-secondary">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant">
+                Final
+              </p>
+              <div className="flex items-center justify-between gap-5 font-display text-sm font-bold text-secondary">
                 <span>Pumas</span>
-                <span className="tabular-nums">4</span>
+                <span className="tnum text-lg">4</span>
               </div>
-              <div className="flex items-center justify-between gap-5 text-sm text-on-surface-variant">
+              <div className="flex items-center justify-between gap-5 font-display text-sm text-on-surface-variant">
                 <span>Águilas</span>
-                <span className="tabular-nums">0</span>
+                <span className="tnum text-lg">0</span>
               </div>
             </motion.div>
 
@@ -215,18 +235,24 @@ export default function LandingView({
       {/* Torneos en juego (estilo Stitch: tarjetas con cabecera en degradado) */}
       {tournaments.length > 0 && (
         <section id="torneos" className="mx-auto max-w-6xl px-4 py-20">
-          <div className="flex items-end justify-between">
-            <div>
-              <Eyebrow>En vivo</Eyebrow>
-              <h2 className="mt-2 font-display text-3xl font-bold md:text-4xl">Torneos en juego</h2>
-              <p className="mt-2 text-on-surface-variant">
-                {active.length > 0 ? `${active.length} en vivo ahora mismo.` : 'Explora los campeonatos.'}
-              </p>
-            </div>
-            <button onClick={onPublic} className="hidden text-sm font-semibold text-secondary transition hover:underline sm:block">
-              Ver todos →
-            </button>
-          </div>
+          <SectionTitle
+            eyebrow="En vivo"
+            hint={
+              active.length > 0
+                ? `${active.length} en vivo ahora mismo.`
+                : 'Explora los campeonatos.'
+            }
+            right={
+              <button
+                onClick={onPublic}
+                className="hidden text-sm font-semibold text-secondary transition hover:underline sm:block"
+              >
+                Ver todos →
+              </button>
+            }
+          >
+            Torneos en juego
+          </SectionTitle>
           <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {showcased.map((t, i) => {
               const sp = sportOf(t.sport_type)
@@ -240,7 +266,7 @@ export default function LandingView({
                   transition={{ duration: 0.4, delay: 0.05 * i }}
                   className="group text-left"
                 >
-                  <Card className="h-full overflow-hidden transition duration-200 group-hover:-translate-y-1 group-hover:border-secondary/60">
+                  <Card hover className="h-full overflow-hidden">
                     <div className={`relative h-24 overflow-hidden bg-gradient-to-br ${sp.grad}`}>
                       {t.banner_url ? (
                         <>
@@ -255,17 +281,22 @@ export default function LandingView({
                           <LiveChip />
                         </div>
                       )}
-                      <span className="absolute -bottom-6 left-4 grid h-12 w-12 place-items-center overflow-hidden rounded-xl border-2 border-surface bg-surface-container-high text-secondary shadow-lg">
-                        {t.logo_url ? (
-                          <img src={t.logo_url} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <Icon name="emoji_events" />
-                        )}
+                      <span className="absolute -bottom-6 left-4 grid h-14 w-14 place-items-center">
+                        <span className="clip-hex absolute inset-0 bg-volt" />
+                        <span className="clip-hex absolute inset-[2px] grid place-items-center overflow-hidden bg-surface-container-high text-secondary">
+                          {t.logo_url ? (
+                            <img src={t.logo_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <Icon name={sp.icon} />
+                          )}
+                        </span>
                       </span>
                     </div>
-                    <div className="px-4 pb-4 pt-8">
-                      <h3 className="truncate font-display font-semibold">{t.name}</h3>
-                      <p className="text-xs uppercase tracking-wide text-on-surface-variant">{sp.label}</p>
+                    <div className="px-4 pb-4 pt-9">
+                      <h3 className="truncate font-display text-lg font-bold">{t.name}</h3>
+                      <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${sp.accent}`}>
+                        {sp.label}
+                      </p>
                       <div className="mt-3 flex items-center gap-1.5 text-xs text-on-surface-variant">
                         <Icon name="visibility" className="text-sm" /> Posiciones · bracket · calendario
                       </div>
@@ -283,7 +314,7 @@ export default function LandingView({
         <div className="mx-auto max-w-6xl px-4 py-20">
           <div className="mx-auto max-w-2xl text-center">
             <Eyebrow>Diseñado para ganar</Eyebrow>
-            <h2 className="mt-2 font-display text-3xl font-bold md:text-4xl">
+            <h2 className="headline mt-3 text-3xl md:text-4xl">
               Todo lo que un torneo necesita
             </h2>
             <p className="mt-3 text-on-surface-variant">Desde la inscripción hasta el campeón, en una sola herramienta.</p>
@@ -322,13 +353,36 @@ export default function LandingView({
                     {f.desc}
                   </p>
                   {hot && (
-                    <div className="mt-auto flex flex-wrap gap-2 pt-6">
-                      {['Goles', 'Tarjetas', 'Cambios', 'Marcador', 'Acta'].map((tag) => (
-                        <span key={tag} className="rounded-full bg-on-secondary/15 px-2.5 py-1 text-xs font-semibold">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+                    <>
+                      <div className="mt-6 space-y-2">
+                        {FEED.map((e, k) => (
+                          <motion.div
+                            key={e.text}
+                            initial={{ opacity: 0, x: -10 }}
+                            whileInView={{ opacity: 1, x: 0 }}
+                            viewport={{ once: true }}
+                            transition={{ duration: 0.35, delay: 0.25 + k * 0.12 }}
+                            className="flex items-center gap-2.5 rounded-lg bg-on-secondary/10 px-3 py-2 backdrop-blur-sm"
+                          >
+                            <span className="tnum w-8 shrink-0 font-display text-sm font-extrabold opacity-70">
+                              {e.min}
+                            </span>
+                            <Icon name={e.icon} className="text-lg" />
+                            <span className="truncate text-sm font-semibold">{e.text}</span>
+                            <span className="tnum ml-auto font-display text-sm font-extrabold">
+                              {e.score}
+                            </span>
+                          </motion.div>
+                        ))}
+                      </div>
+                      <div className="mt-auto flex flex-wrap gap-2 pt-6">
+                        {['Goles', 'Tarjetas', 'Cambios', 'Marcador', 'Acta'].map((tag) => (
+                          <span key={tag} className="rounded-full bg-on-secondary/15 px-2.5 py-1 text-xs font-bold">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </motion.div>
               )
@@ -341,7 +395,7 @@ export default function LandingView({
       <section id="como" className="mx-auto max-w-6xl px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
           <Eyebrow>Cómo funciona</Eyebrow>
-          <h2 className="mt-2 font-display text-3xl font-bold md:text-4xl">En 4 pasos</h2>
+          <h2 className="headline mt-3 text-3xl md:text-4xl">En 4 pasos</h2>
           <p className="mt-3 text-on-surface-variant">Del primer equipo al campeón, sin hojas de cálculo.</p>
         </div>
         <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -352,13 +406,14 @@ export default function LandingView({
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.4, delay: 0.08 * i }}
-              className="relative rounded-2xl border border-outline-variant/40 bg-surface-container p-6"
+              className="hover-lift relative rounded-2xl border border-outline-variant/70 bg-surface-container p-6 hover:border-secondary/40"
             >
-              <span className="absolute right-4 top-4 font-display text-4xl font-extrabold text-on-surface-variant/15">
+              <span className="headline absolute right-4 top-3 text-5xl text-on-surface-variant/10">
                 {i + 1}
               </span>
-              <span className="grid h-11 w-11 place-items-center rounded-xl bg-secondary/15 text-secondary">
-                <Icon name={s.icon} />
+              <span className="relative grid h-12 w-12 place-items-center">
+                <span className="clip-hex absolute inset-0 bg-secondary/15" />
+                <Icon name={s.icon} className="relative text-secondary" />
               </span>
               <h3 className="mt-4 font-display font-semibold">{s.title}</h3>
               <p className="mt-1 text-sm text-on-surface-variant">{s.desc}</p>
@@ -372,7 +427,7 @@ export default function LandingView({
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 lg:grid-cols-2">
           <motion.div initial={{ opacity: 0, x: -24 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }}>
             <Eyebrow>Bracket estilo Champions</Eyebrow>
-            <h2 className="mt-2 font-display text-3xl font-bold md:text-4xl">Eliminatorias que se ven de campeonato</h2>
+            <h2 className="headline mt-3 text-3xl md:text-4xl">Eliminatorias que se ven de campeonato</h2>
             <p className="mt-4 text-on-surface-variant">
               Cuadros con conectores, ganadores que avanzan solos, partido por el 3er puesto y el trofeo
               del campeón. Más un <span className="text-on-surface">dashboard profesional</span> con
@@ -414,7 +469,7 @@ export default function LandingView({
         <div className="relative overflow-hidden rounded-3xl border border-secondary/30 bg-gradient-to-br from-secondary/15 via-surface-container to-surface-container p-10 text-center sm:p-14">
           <div className="pointer-events-none absolute -top-20 left-1/2 h-60 w-60 -translate-x-1/2 rounded-full bg-secondary/20 blur-[100px]" />
           <Eyebrow className="relative">Entra a la colmena</Eyebrow>
-          <h2 className="relative mt-2 font-display text-3xl font-extrabold md:text-4xl">¿Listo para tu próximo campeonato?</h2>
+          <h2 className="headline relative mt-3 text-3xl md:text-5xl">¿Listo para tu próximo campeonato?</h2>
           <p className="relative mx-auto mt-3 max-w-xl text-on-surface-variant">
             Crea tu torneo, invita a tus árbitros y comparte el marcador. Gratis para empezar.
           </p>
@@ -435,7 +490,7 @@ export default function LandingView({
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             <div className="sm:col-span-2 lg:col-span-1">
               <span className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-secondary text-on-secondary"><Icon name="emoji_events" className="text-base" /></span>
+                <HiveMark className="h-8 w-8" />
                 <Brand className="text-lg" />
               </span>
               <p className="mt-3 max-w-xs text-sm text-on-surface-variant">

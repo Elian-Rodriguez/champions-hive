@@ -3,7 +3,7 @@ import { useAppDispatch, useAppSelector } from '../hooks'
 import { logout, passwordChanged } from '../store/authSlice'
 import { api } from '../services/api'
 import type { View } from '../App'
-import { Badge, Button, Card, Icon, Input } from './ui'
+import { Badge, Brand, Button, Card, HiveMark, Icon, Input } from './ui'
 import NotificationsBell from './NotificationsBell'
 
 const ROL_LABEL: Record<string, string> = {
@@ -49,32 +49,36 @@ export default function Layout({
 
   return (
     <div className="min-h-screen bg-surface text-on-surface">
-      <header className="sticky top-0 z-20 border-b border-outline-variant/40 bg-surface-container-low/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <button onClick={() => onNavigate('landing')} className="flex items-center gap-2">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-secondary text-on-secondary">
-              <Icon name="emoji_events" />
-            </span>
-            <span className="font-display text-lg font-bold tracking-tight">Champion Hive</span>
+      <header className="edge-glow glass sticky top-0 z-20">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5">
+          <button
+            onClick={() => onNavigate('landing')}
+            className="group flex items-center gap-2.5"
+            title="Inicio"
+          >
+            <HiveMark className="h-9 w-9 transition duration-300 ease-snap group-hover:rotate-[20deg]" />
+            <Brand className="text-lg" />
           </button>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => onNavigate('public')}
-              className="hidden items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface sm:flex"
+              className="hidden items-center gap-1.5 rounded-full border border-outline-variant/70 px-3 py-1.5 text-sm text-on-surface-variant transition hover:border-secondary/60 hover:text-secondary sm:flex"
             >
               <Icon name="scoreboard" className="text-base" /> Marcador público
             </button>
-            <Badge className="bg-primary-container text-on-primary-container">
+            <Badge className="border border-primary/25 bg-primary-container text-on-primary-container">
               {ROL_LABEL[role || ''] || 'Admin'}
             </Badge>
-            <span className="hidden text-sm text-on-surface-variant md:block">{username}</span>
+            <span className="hidden max-w-[14rem] truncate text-sm text-on-surface-variant md:block">
+              {username}
+            </span>
             <NotificationsBell />
             <button
               onClick={() => {
                 setMsg(null)
                 setPwOpen(true)
               }}
-              className="flex items-center gap-1 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm hover:bg-surface-bright"
+              className="grid h-9 w-9 place-items-center rounded-lg bg-surface-container-high text-on-surface-variant transition hover:bg-surface-bright hover:text-secondary"
               title="Cambiar contraseña"
             >
               <Icon name="key" className="text-base" />
@@ -84,7 +88,7 @@ export default function Layout({
                 dispatch(logout())
                 onNavigate('landing')
               }}
-              className="flex items-center gap-1 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm hover:bg-surface-bright"
+              className="flex items-center gap-1 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm transition hover:bg-error-container/40 hover:text-on-error-container"
             >
               <Icon name="logout" className="text-base" /> Salir
             </button>
@@ -95,13 +99,13 @@ export default function Layout({
 
       {abierto && (
         <div
-          className="fixed inset-0 z-30 grid place-items-center bg-black/60 p-4"
+          className="fixed inset-0 z-30 grid place-items-center bg-black/75 p-4 backdrop-blur-sm"
           onClick={() => !forzado && setPwOpen(false)}
         >
           <Card className="w-full max-w-sm p-6">
             <div onClick={(e) => e.stopPropagation()}>
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 font-display text-lg font-bold">
+                <h3 className="headline flex items-center gap-2 text-lg">
                   <Icon name="key" className="text-secondary" /> Cambiar contraseña
                 </h3>
                 {!forzado && (

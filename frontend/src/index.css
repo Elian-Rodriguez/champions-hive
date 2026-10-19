@@ -4,11 +4,18 @@
 
 :root {
   color-scheme: dark;
+  /* Acentos en crudo, para los degradados y sombras escritos a mano. */
+  --volt: #c7ff3f;
+  --volt-deep: #9be000;
+  --ice: #35e7ff;
+  --flare: #ff6a3d;
+  --ember: #ffb03a;
+  --line: #272e3d;
 }
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 72px;
+  scroll-padding-top: 76px;
 }
 
 html,
@@ -19,10 +26,45 @@ body,
 
 body {
   @apply bg-surface text-on-surface font-sans antialiased;
+  /* Dos focos de arena fijos al fondo: la pantalla deja de ser un plano gris. */
+  background-image:
+    radial-gradient(70% 45% at 8% -5%, rgba(199, 255, 63, 0.07), transparent 70%),
+    radial-gradient(55% 40% at 100% 0%, rgba(53, 231, 255, 0.05), transparent 72%);
+  background-attachment: fixed;
 }
 
+::selection {
+  background: rgba(199, 255, 63, 0.3);
+  color: #fff;
+}
+
+/* Un solo anillo de foco en toda la plataforma, del color del acento. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid rgba(199, 255, 63, 0.75);
+  outline-offset: 2px;
+  border-radius: 0.4rem;
+}
+
+/* Titulares: Archivo es variable y se ensancha, como una gráfica de TV. */
 .font-display {
-  font-family: 'Lexend', sans-serif;
+  font-family: 'Archivo', 'Lexend', sans-serif;
+  font-variation-settings: 'wdth' 106;
+}
+
+/* Titular de sección: ancho, en versalitas y con el interletrado cerrado. */
+.headline {
+  font-family: 'Archivo', 'Lexend', sans-serif;
+  font-variation-settings: 'wdth' 120;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: -0.015em;
+  line-height: 0.95;
+}
+
+/* Cifras de marcador: ancho fijo para que un 11 no empuje al 1. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
 .material-symbols-outlined {
@@ -45,8 +87,14 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a3548;
+  background: #232936;
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #39415a;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -66,11 +114,11 @@ body {
 }
 .bk-round-head {
   text-align: center;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #c6c6cd;
+  letter-spacing: 0.16em;
+  color: #99a4b8;
   padding-bottom: 0.85rem;
 }
 .bk-pairs {
@@ -98,7 +146,7 @@ body {
   top: 25%;
   bottom: 25%;
   width: 1.4rem;
-  border: 2px solid #45464d;
+  border: 2px solid var(--line);
   border-left: 0;
   border-radius: 0 12px 12px 0;
 }
@@ -110,19 +158,39 @@ body {
   top: 50%;
   width: 1.4rem;
   height: 2px;
-  background: #45464d;
+  background: var(--line);
 }
 .bk-round:not(.bk-final) .bk-pair.bk-solo::before {
   left: 100%;
 }
+/* La última ronda tira del acento: el camino termina en algo que brilla. */
+.bk-round.bk-final .bk-cell {
+  filter: drop-shadow(0 0 22px rgba(199, 255, 63, 0.18));
+}
 
-/* ---- Marca y acentos (sistema Apex Arena / Stitch) ---- */
+/* ---- Marca ---- */
 .brand-wordmark {
-  font-family: 'Lexend', sans-serif;
+  font-family: 'Archivo', 'Lexend', sans-serif;
+  font-variation-settings: 'wdth' 118;
   font-style: italic;
   font-weight: 800;
-  letter-spacing: -0.02em;
-  background: linear-gradient(100deg, #6bff8f 0%, #4ae176 45%, #00b954 100%);
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  background: linear-gradient(100deg, #e4ff9a 0%, var(--volt) 40%, var(--volt-deep) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Texto con el degradado de la casa (titulares destacados, cifras grandes) */
+.text-volt-gradient {
+  background: linear-gradient(100deg, #e4ff9a 0%, var(--volt) 45%, var(--volt-deep) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.text-arena-gradient {
+  background: linear-gradient(100deg, var(--volt) 0%, var(--ice) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -136,15 +204,51 @@ body {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
-  height: 3px;
-  border-radius: 12px 12px 0 0;
-  background: linear-gradient(90deg, #4ae176, #00b954 55%, transparent);
+  height: 2px;
+  background: linear-gradient(90deg, var(--volt), var(--volt-deep) 45%, transparent);
 }
 .card-accent-orange::before {
-  background: linear-gradient(90deg, #ffb690, #d45d00 55%, transparent);
+  background: linear-gradient(90deg, var(--flare), #ff3d00 45%, transparent);
 }
 
-/* Indicador "en vivo" pulsante, estilo panel de instrumentos */
+/* Levantar al pasar por encima: la tarjeta responde, no se queda quieta. */
+.hover-lift {
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.22s;
+}
+.hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 24px 50px -28px rgba(0, 0, 0, 0.95);
+}
+
+/* Destello diagonal al pasar por un botón de acción. */
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.btn-sheen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+  pointer-events: none;
+}
+.btn-sheen:hover::after {
+  animation: sheen 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes sheen {
+  to {
+    transform: translateX(230%) skewX(-18deg);
+  }
+}
+
+/* Indicador "en vivo": punto que late dentro de un anillo que se expande. */
 @keyframes live-pulse {
   0%,
   100% {
@@ -152,40 +256,97 @@ body {
     transform: scale(1);
   }
   50% {
-    opacity: 0.4;
-    transform: scale(0.8);
+    opacity: 0.35;
+    transform: scale(0.78);
   }
 }
 .live-dot {
-  animation: live-pulse 1.7s ease-in-out infinite;
+  animation: live-pulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(255, 106, 61, 0.55);
+}
+@keyframes live-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 106, 61, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(255, 106, 61, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 106, 61, 0);
+  }
+}
+.live-ring {
+  animation: live-ring 1.9s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
 }
 
 /* Glow ambiental para secciones hero (foco de estadio) */
 .hero-glow {
   background:
-    radial-gradient(58% 50% at 12% 0%, rgba(74, 225, 118, 0.1), transparent 70%),
-    radial-gradient(48% 42% at 100% 100%, rgba(255, 182, 144, 0.07), transparent 70%);
+    radial-gradient(58% 50% at 12% 0%, rgba(199, 255, 63, 0.12), transparent 70%),
+    radial-gradient(48% 42% at 100% 100%, rgba(53, 231, 255, 0.08), transparent 70%);
 }
 
-/* Marquee continuo de capacidades */
-@keyframes marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-.animate-marquee {
-  animation: marquee 30s linear infinite;
-}
-
-/* Rejilla técnica de fondo (sutil, se desvanece hacia abajo) */
+/* ---- La colmena: el hexágono es la forma de la marca ---- */
+.bg-hive,
 .bg-grid-faint {
-  background-image:
-    linear-gradient(to right, rgba(216, 227, 251, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(216, 227, 251, 0.04) 1px, transparent 1px);
-  background-size: 46px 46px;
-  -webkit-mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 25%, transparent 78%);
-  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 25%, transparent 78%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23c7ff3f' fill-opacity='0.14'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-size: 56px 98px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 80%);
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 80%);
+}
+/* Recorte hexagonal para escudos, emblemas y avatares. */
+.clip-hex {
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* Grano fino encima de las superficies grandes: le quita el plano digital. */
+.noise {
+  position: relative;
+}
+.noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.055'/%3E%3C/svg%3E");
+}
+
+/* Vidrio: barras fijas y paneles flotantes. */
+.glass {
+  background: rgba(12, 15, 24, 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Filo inferior luminoso para la barra superior. */
+.edge-glow {
+  position: relative;
+}
+.edge-glow::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(199, 255, 63, 0.45) 22%,
+    rgba(53, 231, 255, 0.3) 62%,
+    transparent
+  );
+}
+
+/* Marquee continuo de capacidades (la animación la genera Tailwind). */
+
+/* Respeta a quien pidió menos movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
