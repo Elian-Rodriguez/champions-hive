@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../services/api'
-import { Badge, Icon, Spinner } from './ui'
+import { Badge, Card, Icon, Spinner } from './ui'
 
 /** Icono y color por tipo de aviso; el tipo lo fija services/notifications.py. */
 const ESTILO: Record<string, { icon: string; color: string }> = {
@@ -86,27 +86,38 @@ export default function NotificationsBell() {
       <button
         onClick={abrir}
         title="Avisos"
-        className="relative flex items-center gap-1 rounded-lg bg-surface-container-high px-3 py-1.5 text-sm hover:bg-surface-bright"
+        className={`relative flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm transition duration-200 ease-snap ${
+          open
+            ? 'bg-secondary/15 text-secondary'
+            : 'bg-surface-container-high text-on-surface hover:bg-surface-bright'
+        }`}
       >
         <Icon name="notifications" className="text-base" />
         {unread > 0 && (
-          <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-error px-1 text-[10px] font-bold text-on-error">
+          <span className="tnum absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-tertiary px-1 text-[10px] font-bold text-on-tertiary">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
       </button>
 
+      {/* El panel va opaco a propósito: el vidrio es para las barras fijas,
+          donde el contenido pasa por debajo; un desplegable que cae sobre
+          cualquier pantalla tiene que leerse, y con vidrio el botón de acción
+          que queda detrás se transparentaba encima del texto del aviso. */}
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-[min(92vw,26rem)] overflow-hidden rounded-xl border border-outline-variant/40 bg-surface-container shadow-2xl">
-          <div className="flex items-center justify-between border-b border-outline-variant/30 px-4 py-2.5">
-            <span className="flex items-center gap-2 font-display text-sm font-semibold">
+        <Card className="absolute right-0 z-40 mt-2 w-[min(92vw,26rem)] overflow-hidden shadow-lift">
+          <div className="flex items-center justify-between gap-2 border-b border-outline-variant/30 px-4 py-2.5">
+            <span className="headline flex items-center gap-2 text-sm tracking-[0.08em]">
               <Icon name="notifications" className="text-base text-secondary" /> Avisos
               {unread > 0 && (
-                <Badge className="bg-error-container text-on-error-container">{unread}</Badge>
+                <Badge className="tnum bg-tertiary/20 text-tertiary">{unread}</Badge>
               )}
             </span>
             {items.some((x) => !x.read_at) && (
-              <button onClick={marcarTodos} className="text-xs text-secondary hover:underline">
+              <button
+                onClick={marcarTodos}
+                className="shrink-0 text-xs font-semibold text-secondary transition hover:underline"
+              >
                 Marcar todo leído
               </button>
             )}
@@ -129,11 +140,16 @@ export default function NotificationsBell() {
                     <li
                       key={n.id}
                       onClick={() => !n.read_at && marcarUno(n.id)}
-                      className={`flex cursor-pointer gap-3 px-4 py-3 transition hover:bg-surface-container-high ${
+                      className={`flex cursor-pointer gap-3 px-4 py-3 transition hover:bg-secondary/[0.06] ${
                         n.read_at ? 'opacity-60' : ''
                       }`}
                     >
-                      <Icon name={est.icon} className={`mt-0.5 text-lg ${est.color}`} />
+                      <span
+                        className={`relative mt-0.5 grid h-7 w-7 shrink-0 place-items-center ${est.color}`}
+                      >
+                        <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+                        <Icon name={est.icon} className="relative text-base" />
+                      </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold leading-snug">{n.title}</p>
                         {n.body && (
@@ -144,7 +160,7 @@ export default function NotificationsBell() {
                         </p>
                       </div>
                       {!n.read_at && (
-                        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-secondary" />
+                        <span className="clip-hex mt-2 h-2.5 w-2.5 shrink-0 bg-volt" />
                       )}
                     </li>
                   )
@@ -152,7 +168,7 @@ export default function NotificationsBell() {
               </ul>
             )}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   )

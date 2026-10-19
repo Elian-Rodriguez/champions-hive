@@ -51,6 +51,15 @@ const COLOR_ROL: Record<string, string> = {
   captain: 'bg-tertiary/20 text-tertiary',
 }
 
+// El mismo color, solo la tinta: el emblema hexagonal se pinta con bg-current
+// sobre el tono del rol, así que necesita la clase de texto por separado.
+const TONO_ROL: Record<string, string> = {
+  superadmin: 'text-error',
+  admin: 'text-secondary',
+  referee: 'text-primary',
+  captain: 'text-tertiary',
+}
+
 function fecha(iso?: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso.endsWith('Z') ? iso : `${iso}Z`)
@@ -124,11 +133,12 @@ function FilaUsuario({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-              COLOR_ROL[u.role] || 'bg-surface-container-high'
+            className={`relative grid h-9 w-9 shrink-0 place-items-center ${
+              TONO_ROL[u.role] || 'text-on-surface-variant'
             }`}
           >
-            <Icon name={meta?.icon || 'account_circle'} className="text-lg" />
+            <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+            <Icon name={meta?.icon || 'account_circle'} className="relative text-lg" />
           </span>
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2 font-medium">
@@ -351,7 +361,7 @@ export default function UsersPanel() {
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[340px_1fr]">
       <div className="space-y-4">
         <Card className="h-fit p-4">
-          <h2 className="mb-3 flex items-center gap-2 font-display font-semibold">
+          <h2 className="headline mb-3 flex items-center gap-2 text-base tracking-[0.08em]">
             <Icon name="person_add" className="text-secondary" /> Nueva cuenta
           </h2>
           <form onSubmit={crear} className="space-y-2">
@@ -398,14 +408,22 @@ export default function UsersPanel() {
         </Card>
 
         <Card className="p-4">
-          <h3 className="mb-2 font-display text-sm font-semibold">Roles de la plataforma</h3>
+          <h3 className="headline mb-2 text-sm tracking-[0.08em]">Roles de la plataforma</h3>
           <ul className="space-y-2 text-xs text-on-surface-variant">
             {ROLES.map((r) => (
               <li key={r.value} className="flex gap-2">
-                <Icon name={r.icon} className="text-base text-secondary" />
+                <span
+                  className={`relative grid h-6 w-6 shrink-0 place-items-center ${
+                    TONO_ROL[r.value] || 'text-secondary'
+                  }`}
+                >
+                  <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+                  <Icon name={r.icon} className="relative text-sm" />
+                </span>
                 <span>
                   <b className="text-on-surface">{r.label}</b>
-                  {totales[r.value] ? ` (${totales[r.value]})` : ''} — {r.hint}
+                  {totales[r.value] ? <span className="tnum"> ({totales[r.value]})</span> : ''} —{' '}
+                  {r.hint}
                 </span>
               </li>
             ))}
@@ -440,7 +458,8 @@ export default function UsersPanel() {
             ))}
           </Select>
           <span className="ml-auto text-sm text-on-surface-variant">
-            {visibles.length} cuenta(s)
+            <span className="tnum font-semibold text-on-surface">{visibles.length}</span>{' '}
+            cuenta(s)
           </span>
         </div>
         {error && <p className="px-3 py-2 text-sm text-error">{error}</p>}
@@ -497,7 +516,7 @@ function ActividadDeCuentas() {
     <div className="border-t border-outline-variant/30">
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-semibold text-on-surface-variant transition hover:text-on-surface"
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant transition hover:text-on-surface"
       >
         <Icon name="history" className="text-base" />
         Actividad de cuentas

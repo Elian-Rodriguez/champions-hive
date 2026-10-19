@@ -29,7 +29,9 @@ export default function VenuesPanel() {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
       <Card className="h-fit p-4">
-        <h2 className="mb-3 font-display font-semibold">Nueva sede</h2>
+        <h2 className="headline mb-3 flex items-center gap-2 text-base tracking-[0.08em]">
+          <Icon name="stadium" className="text-secondary" /> Nueva sede
+        </h2>
         <form
           onSubmit={async (e) => {
             e.preventDefault()
@@ -79,19 +81,29 @@ export default function VenuesPanel() {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-display font-semibold">{v.name}</h3>
-                    {v.location && <p className="text-sm text-on-surface-variant">{v.location}</p>}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="relative grid h-8 w-8 shrink-0 place-items-center text-secondary">
+                      <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+                      <Icon name="stadium" className="relative text-base" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="truncate font-display font-semibold">{v.name}</h3>
+                      {v.location && (
+                        <p className="truncate text-sm text-on-surface-variant">{v.location}</p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-surface-container-highest text-on-surface-variant">{(v.courts || []).length} cancha(s)</Badge>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge className="bg-surface-container-highest text-on-surface-variant">
+                      <span className="tnum">{(v.courts || []).length}</span>&nbsp;cancha(s)
+                    </Badge>
                     <button
                       onClick={() => {
                         setEditing(v.id)
                         setEdit({ name: v.name, location: v.location || '' })
                       }}
-                      className="text-on-surface-variant hover:text-on-surface"
+                      className="text-on-surface-variant transition hover:text-secondary"
                     >
                       <Icon name="edit" className="text-lg" />
                     </button>
@@ -102,7 +114,7 @@ export default function VenuesPanel() {
                           load()
                         }
                       }}
-                      className="text-error/80 hover:text-error"
+                      className="text-error/80 transition hover:text-error"
                     >
                       <Icon name="delete" className="text-lg" />
                     </button>
@@ -112,14 +124,17 @@ export default function VenuesPanel() {
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {(v.courts || []).map((c: any) => (
-                  <span key={c.id} className="inline-flex items-center gap-1 rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-xs font-semibold text-secondary">
+                  <span
+                    key={c.id}
+                    className="inline-flex items-center gap-1 rounded-full border border-secondary/30 bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary transition hover:border-secondary/60"
+                  >
                     <Icon name="sports_soccer" className="text-sm" /> {c.name}
                     <button
                       onClick={async () => {
                         await api.deleteCourt(c.id)
                         load()
                       }}
-                      className="ml-1 text-secondary/70 hover:text-error"
+                      className="ml-1 text-secondary/70 transition hover:text-error"
                     >
                       <Icon name="close" className="text-sm" />
                     </button>
