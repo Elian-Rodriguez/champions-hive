@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../services/api'
-import { Badge, Button, Card, EmptyState, Icon, Input, Select, Spinner } from './ui'
+import { Badge, Button, Card, EmptyState, Icon, Input, Select, Spinner, Stat } from './ui'
 import { AsaArrastre, ListaOrdenable, useArrastreEntreZonas } from './dnd'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
@@ -9,9 +9,25 @@ import UsersPanel from './UsersPanel'
 import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { escudoDesdeArchivo } from '../utils/imagen'
-import { ESTADO_LABEL, woDetalle, woLabel } from '../utils/partido'
+import {
+  ESTADO_LABEL,
+  legLabel,
+  penalesLabel,
+  woDetalle,
+  woLabel,
+} from '../utils/partido'
 import { hasBlueCard, sportLabel, sportOf, SPORT_LIST } from '../sports'
+import { SIN_UNIFORME, UNIFORME_POR_DEFECTO } from '../theme'
 import { useAppSelector } from '../hooks'
+
+// Grupo de píldoras: el patrón de toda barra de pestañas de la plataforma.
+// La activa es voltaje —lo que se está mirando— y el resto queda en tinta.
+const PILDORAS = 'flex flex-wrap gap-1.5 rounded-xl border border-outline-variant/60 bg-surface-container-low p-1.5'
+const PILDORA_ON = 'bg-volt text-on-secondary shadow-volt-sm'
+const PILDORA_OFF =
+  'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+const PILDORA =
+  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-display text-sm font-bold tracking-tight transition duration-200 ease-snap'
 
 const SPORTS = SPORT_LIST
 const STAGE_TYPES = [
@@ -115,9 +131,9 @@ export default function AdminView() {
           <button
             key={s.key}
             onClick={() => setSection(s.key)}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 font-display text-sm font-bold tracking-tight transition duration-200 ease-snap ${
               section === s.key
-                ? 'bg-secondary text-on-secondary'
+                ? 'bg-volt text-on-secondary shadow-volt-sm'
                 : 'bg-surface-container-high text-on-surface hover:bg-surface-bright'
             }`}
           >
@@ -225,7 +241,11 @@ export default function AdminView() {
             </Card>
           </div>
 
-          <div>
+          {/* min-w-0: una pista de grilla mide `auto` por defecto y crece con
+              su contenido, así que el cuadro ancho estiraba la columna y el
+              scroll horizontal se lo comía la página entera en vez del propio
+              bracket, que ya trae su `overflow-x-auto`. */}
+          <div className="min-w-0">
             {error && (
               <div className="mb-4 flex items-center gap-2 rounded-lg bg-error-container/40 px-3 py-2 text-sm text-error">
                 <Icon name="error" className="text-base" /> {error}
@@ -242,16 +262,12 @@ export default function AdminView() {
                   <h2 className="headline text-2xl">{selected.name}</h2>
                   <Badge className="bg-secondary-container/40 text-secondary">{sportLabel(selected.sport_type)}</Badge>
                 </div>
-                <div className="mb-5 flex flex-wrap gap-1.5 rounded-xl border border-outline-variant/60 bg-surface-container-low p-1.5">
+                <div className={`mb-5 ${PILDORAS}`}>
                   {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'marca', 'historial'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
-                      className={`rounded-lg px-3 py-1.5 font-display text-sm font-bold capitalize transition duration-200 ease-snap ${
-                        tab === t
-                          ? 'bg-volt text-on-secondary shadow-volt-sm'
-                          : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-                      }`}
+                      className={`${PILDORA} capitalize ${tab === t ? PILDORA_ON : PILDORA_OFF}`}
                     >
                       {t}
                     </button>
@@ -338,12 +354,12 @@ function HelpModal({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-outline-variant/40 bg-surface-container p-6 shadow-2xl"
+        className="glass max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-outline-variant/40 p-6 shadow-lift"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 font-display text-2xl font-bold">
+            <h2 className="headline flex items-center gap-2 text-2xl">
               <Icon name="help" className="text-secondary" /> Cómo configurar un torneo
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
@@ -360,8 +376,9 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         <ol className="space-y-3">
           {HELP_STEPS.map((s) => (
             <li key={s.title} className="flex gap-3 rounded-xl bg-surface-container-high p-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary/15 text-secondary">
-                <Icon name={s.icon} />
+              <span className="relative grid h-9 w-9 shrink-0 place-items-center text-secondary">
+                <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+                <Icon name={s.icon} className="relative" />
               </span>
               <div>
                 <p className="font-display font-semibold">{s.title}</p>
@@ -396,7 +413,7 @@ function AvisoEquipos({ tournament }: { tournament: any }) {
   const [enviando, setEnviando] = useState(false)
   return (
     <Card className="p-4">
-      <h3 className="mb-1 flex items-center gap-2 font-display font-semibold">
+      <h3 className="headline mb-1 flex items-center gap-2 text-base tracking-[0.08em]">
         <Icon name="campaign" className="text-secondary" /> Avisar a los equipos
       </h3>
       <p className="mb-3 text-xs text-on-surface-variant">
@@ -452,20 +469,29 @@ function ResumenTab({ tournament, onChanged }: { tournament: any; onChanged: () 
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { k: 'teams', label: 'Equipos', icon: 'groups' },
-          { k: 'stages', label: 'Fases', icon: 'account_tree' },
-          { k: 'matches', label: 'Partidos', icon: 'sports_soccer' },
-          { k: 'finished_matches', label: 'Jugados', icon: 'check_circle' },
+          { k: 'teams', label: 'Equipos', icon: 'groups', tone: 'text-secondary' },
+          { k: 'stages', label: 'Fases', icon: 'account_tree', tone: 'text-primary' },
+          { k: 'matches', label: 'Partidos', icon: 'sports_soccer', tone: 'text-secondary' },
+          {
+            k: 'finished_matches',
+            label: 'Jugados',
+            icon: 'check_circle',
+            tone: 'text-tertiary',
+          },
         ].map((s) => (
-          <div key={s.k} className="rounded-xl bg-surface-container-high p-4">
-            <Icon name={s.icon} className="text-secondary" />
-            <p className="mt-1 font-display text-2xl font-bold">{stats ? stats[s.k] : '—'}</p>
-            <p className="text-xs text-on-surface-variant">{s.label}</p>
-          </div>
+          <Stat
+            key={s.k}
+            label={s.label}
+            icon={s.icon}
+            tone={s.tone}
+            value={stats ? stats[s.k] : '—'}
+          />
         ))}
       </div>
       <div>
-        <p className="mb-2 text-sm text-on-surface-variant">Estado del torneo</p>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
+          Estado del torneo
+        </p>
         <div className="flex flex-wrap gap-2">
           {['draft', 'active', 'finished'].map((s) => (
             <Button
@@ -526,7 +552,7 @@ function CaptainsBlock({ teamId, teamName }: { teamId: string; teamName: string 
 
   return (
     <div className="mt-2 rounded-lg bg-surface-container-low p-3">
-      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+      <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
         <Icon name="shield_person" className="text-base text-secondary" /> Capitanes de{' '}
         {teamName}
       </p>
@@ -695,7 +721,7 @@ function TeamColors({
 }) {
   const colors: string[] =
     team.colors && team.colors.length ? team.colors : team.color ? [team.color] : []
-  const [pick, setPick] = useState('#39d353')
+  const [pick, setPick] = useState(UNIFORME_POR_DEFECTO)
   return (
     <span className="flex items-center gap-1">
       {colors.map((col, i) => (
@@ -717,7 +743,7 @@ function TeamColors({
       <button
         type="button"
         onClick={() => onChange([...colors, pick])}
-        className="grid h-5 w-5 place-items-center rounded bg-surface-bright text-on-surface"
+        className="grid h-5 w-5 place-items-center rounded bg-surface-bright text-on-surface transition hover:bg-secondary hover:text-on-secondary"
         title="Agregar uniforme"
       >
         <Icon name="add" className="text-xs" />
@@ -767,19 +793,25 @@ function TeamLogo({
         className="hidden"
         onChange={(e) => elegir(e.target.files?.[0])}
       />
+      {/* El escudo se recorta en hexágono como en el resto de la plataforma;
+          el filo es una capa debajo porque clip-path se come los bordes. */}
       <button
         type="button"
         onClick={() => archivo.current?.click()}
         disabled={ocupado}
         title={team.logo_url ? 'Cambiar escudo' : 'Subir escudo'}
-        className="grid h-7 w-7 place-items-center overflow-hidden rounded-full border border-outline-variant bg-surface-container-low text-[10px] font-bold text-on-surface-variant transition hover:border-secondary disabled:opacity-50"
+        className="group relative grid h-7 w-7 shrink-0 place-items-center text-on-surface-variant transition disabled:opacity-50"
       >
+        <span className="clip-hex absolute inset-0 bg-outline-variant transition group-hover:bg-volt" />
+        <span className="clip-hex absolute inset-[1.5px] overflow-hidden bg-surface-container-low">
+          {!ocupado && team.logo_url && (
+            <img src={team.logo_url} alt="" className="h-full w-full object-cover" />
+          )}
+        </span>
         {ocupado ? (
-          <Icon name="progress_activity" className="animate-spin text-sm" />
-        ) : team.logo_url ? (
-          <img src={team.logo_url} alt="" className="h-full w-full object-cover" />
+          <Icon name="progress_activity" className="relative animate-spin text-sm" />
         ) : (
-          <Icon name="add_photo_alternate" className="text-sm" />
+          !team.logo_url && <Icon name="add_photo_alternate" className="relative text-sm" />
         )}
       </button>
       {team.logo_url && !ocupado && (
@@ -873,9 +905,11 @@ function TableroGrupos({
                     : 'border-transparent bg-surface-container-high'
               }`}
             >
-              <p className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              <p className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
                 <span>{z.titulo}</span>
-                <span className="font-normal normal-case">{z.equipos.length}</span>
+                <span className="tnum font-bold normal-case tracking-normal">
+                  {z.equipos.length}
+                </span>
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {z.equipos.map((t) => (
@@ -903,8 +937,8 @@ function TableroGrupos({
                       <Icon name="drag_indicator" className="text-sm" />
                     </button>
                     <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full border border-outline-variant"
-                      style={{ background: t.color || '#64748b' }}
+                      className="clip-hex h-2.5 w-2.5 shrink-0"
+                      style={{ background: t.color || SIN_UNIFORME }}
                     />
                     {t.name}
                   </span>
@@ -924,12 +958,157 @@ function TableroGrupos({
   )
 }
 
+/** Los bombos, del mapa que edita la pantalla a las listas que espera la API. */
+function bombosComoListas(bombos: Record<string, number>): string[][] {
+  const maximo = Math.max(0, ...Object.values(bombos))
+  const listas: string[][] = []
+  for (let n = 1; n <= maximo; n++) {
+    const ids = Object.entries(bombos)
+      .filter(([, b]) => b === n)
+      .map(([id]) => id)
+    if (ids.length) listas.push(ids)
+  }
+  return listas
+}
+
+/**
+ * Bombos y separaciones del sorteo.
+ *
+ * Un bombo se reparte uno por grupo, así que poner a los cuatro candidatos en
+ * el bombo 1 garantiza que caigan separados y lo que se sortea es en cuál cae
+ * cada uno. Los equipos sin bombo van a una bolsa final, de modo que se puede
+ * sembrar solo a los cabezas de serie y dejar el resto al azar —que es como
+ * se sortea de verdad—. Las separaciones son para el mismo club o el mismo
+ * barrio: se respetan si se puede y se avisa si no.
+ */
+function SorteoAvanzado({
+  teams,
+  bombos,
+  setBombos,
+  separados,
+  setSeparados,
+}: {
+  teams: any[]
+  bombos: Record<string, number>
+  setBombos: (b: Record<string, number>) => void
+  separados: string[][]
+  setSeparados: (s: string[][]) => void
+}) {
+  const [a, setA] = useState('')
+  const [b, setB] = useState('')
+  const nombre = (id: string) => teams.find((t) => t.id === id)?.name || id
+  const usados = Math.max(0, ...Object.values(bombos))
+
+  return (
+    <div className="space-y-4 rounded-lg border border-outline-variant/40 bg-surface-container p-3">
+      <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
+          Bombos
+        </p>
+        <p className="mb-2 text-xs text-on-surface-variant">
+          Cada bombo se reparte uno por grupo. Los que dejes sin bombo se sortean al
+          final, así que alcanza con sembrar los cabezas de serie.
+        </p>
+        <ul className="grid gap-1 sm:grid-cols-2">
+          {teams.map((t) => (
+            <li
+              key={t.id}
+              className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1.5 text-sm"
+            >
+              <span className="flex-1 truncate">{t.name}</span>
+              <Select
+                value={String(bombos[t.id] || 0)}
+                onChange={(e) =>
+                  setBombos({ ...bombos, [t.id]: Number(e.target.value) })
+                }
+                className="w-24"
+              >
+                <option value="0">Sin bombo</option>
+                {Array.from({ length: Math.max(usados + 1, 4) }, (_, i) => i + 1).map(
+                  (n) => (
+                    <option key={n} value={String(n)}>
+                      Bombo {n}
+                    </option>
+                  ),
+                )}
+              </Select>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
+          No pueden compartir grupo
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={a} onChange={(e) => setA(e.target.value)} className="w-40">
+            <option value="">equipo</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+          <span className="text-sm text-on-surface-variant">y</span>
+          <Select value={b} onChange={(e) => setB(e.target.value)} className="w-40">
+            <option value="">equipo</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (!a || !b || a === b) return
+              setSeparados([...separados, [a, b]])
+              setA('')
+              setB('')
+            }}
+          >
+            <Icon name="add" /> Separar
+          </Button>
+        </div>
+        {separados.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {separados.map((par, i) => (
+              <li
+                key={i}
+                className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1.5 text-sm"
+              >
+                <span className="flex-1 truncate">
+                  {par.map(nombre).join(' · ')}
+                </span>
+                <button
+                  onClick={() => setSeparados(separados.filter((_, j) => j !== i))}
+                  className="text-error/80 transition hover:text-error"
+                >
+                  <Icon name="close" className="text-base" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function EquiposTab({ tournament }: { tournament: any }) {
   const [teams, setTeams] = useState<any[]>([])
   const [name, setName] = useState('')
   const [group, setGroup] = useState('')
-  const [color, setColor] = useState('#39d353')
+  const [color, setColor] = useState(UNIFORME_POR_DEFECTO)
   const [numGroups, setNumGroups] = useState(2)
+  // Bombos y separaciones. El azar puro sobre la lista entera deja a los
+  // cuatro candidatos en el mismo grupo con total naturalidad, que es lo que
+  // rompe el torneo antes de empezar.
+  const [sorteoAvanzado, setSorteoAvanzado] = useState(false)
+  const [bombos, setBombos] = useState<Record<string, number>>({})
+  const [separados, setSeparados] = useState<string[][]>([])
+  const [avisosSorteo, setAvisosSorteo] = useState<string[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
   // Grupos creados a mano que todavía no tienen equipos.
   const [gruposExtra, setGruposExtra] = useState<string[]>([])
@@ -1003,20 +1182,52 @@ function EquiposTab({ tournament }: { tournament: any }) {
         </Button>
       </form>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-on-surface-variant">Sortear en</span>
         <Input type="number" min={1} value={numGroups} onChange={(e) => setNumGroups(parseInt(e.target.value) || 1)} className="w-20" />
         <span className="text-sm text-on-surface-variant">grupos</span>
         <Button
           variant="outline"
           onClick={async () => {
-            await api.shuffleGroups(tournament.id, numGroups)
+            const r = await api.shuffleGroups(
+              tournament.id,
+              numGroups,
+              bombosComoListas(bombos),
+              separados,
+            )
+            setAvisosSorteo(r.avisos || [])
             load()
           }}
         >
           <Icon name="shuffle" /> Sortear
         </Button>
+        <Button
+          variant={sorteoAvanzado ? 'outline' : 'ghost'}
+          onClick={() => setSorteoAvanzado((v) => !v)}
+        >
+          <Icon name="inventory_2" /> Bombos
+        </Button>
       </div>
+
+      {sorteoAvanzado && (
+        <SorteoAvanzado
+          teams={teams}
+          bombos={bombos}
+          setBombos={setBombos}
+          separados={separados}
+          setSeparados={setSeparados}
+        />
+      )}
+
+      {avisosSorteo.length > 0 && (
+        <ul className="space-y-1">
+          {avisosSorteo.map((a, i) => (
+            <li key={i} className="rounded-lg bg-tertiary/10 px-2 py-1.5 text-xs text-tertiary">
+              ⚠ {a}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {msg && <p className="text-sm text-error">{msg}</p>}
 
@@ -1040,17 +1251,18 @@ function EquiposTab({ tournament }: { tournament: any }) {
                   onClick={() => setExpanded(expanded === t.id ? null : t.id)}
                   className="flex items-center gap-2 font-medium"
                 >
-                  <Icon name={expanded === t.id ? 'expand_more' : 'chevron_right'} className="text-base text-on-surface-variant" />
+                  <Icon
+                    name={expanded === t.id ? 'expand_more' : 'chevron_right'}
+                    className="text-base text-on-surface-variant transition"
+                  />
                   {t.logo_url ? (
-                    <img
-                      src={t.logo_url}
-                      alt=""
-                      className="h-5 w-5 shrink-0 rounded-full object-cover"
-                    />
+                    <span className="clip-hex grid h-6 w-6 shrink-0 place-items-center overflow-hidden bg-surface-container-highest">
+                      <img src={t.logo_url} alt="" className="h-full w-full object-cover" />
+                    </span>
                   ) : (
                     <span
-                      className="h-3 w-3 shrink-0 rounded-full border border-outline-variant"
-                      style={{ background: t.color || '#64748b' }}
+                      className="clip-hex h-3 w-3 shrink-0"
+                      style={{ background: t.color || SIN_UNIFORME }}
                     />
                   )}
                   {t.name}
@@ -1059,7 +1271,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
                       title={`Sanción de puntos: ${t.points_adjustment > 0 ? '+' : ''}${
                         t.points_adjustment
                       }${t.points_adjustment_reason ? ` · ${t.points_adjustment_reason}` : ''}`}
-                      className={`rounded px-1 py-0.5 text-[10px] font-bold tabular-nums ${
+                      className={`tnum rounded px-1 py-0.5 text-[10px] font-bold ${
                         t.points_adjustment < 0
                           ? 'bg-error-container text-on-error-container'
                           : 'bg-secondary/20 text-secondary'
@@ -1142,8 +1354,8 @@ function EquiposTab({ tournament }: { tournament: any }) {
                     }
                     className={
                       t.points_adjustment
-                        ? 'text-error hover:brightness-125'
-                        : 'text-on-surface-variant hover:text-on-surface'
+                        ? 'text-error transition hover:brightness-125'
+                        : 'text-on-surface-variant transition hover:text-tertiary'
                     }
                   >
                     <Icon name="gavel" className="text-lg" />
@@ -1156,7 +1368,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
                         load()
                       }
                     }}
-                    className="text-on-surface-variant hover:text-on-surface"
+                    className="text-on-surface-variant transition hover:text-secondary"
                   >
                     <Icon name="edit" className="text-lg" />
                   </button>
@@ -1165,7 +1377,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
                       await api.removeTeam(tournament.id, t.id)
                       load()
                     }}
-                    className="text-error/80 hover:text-error"
+                    className="text-error/80 transition hover:text-error"
                   >
                     <Icon name="delete" className="text-lg" />
                   </button>
@@ -1200,6 +1412,10 @@ function StageConfig({
   const [name, setName] = useState(stage.name)
   const [type, setType] = useState(stage.type)
   const [doubleRound, setDoubleRound] = useState(!!cfg.double_round)
+  // Llaves a dos partidos: el global decide, no el último marcador. Es otra
+  // cosa que `double_round`, que repite las jornadas de un todos contra todos.
+  const [twoLegged, setTwoLegged] = useState(!!cfg.two_legged)
+  const [awayGoals, setAwayGoals] = useState(!!cfg.away_goals)
   const [perGroup, setPerGroup] = useState(String(cfg.qualifiers_per_group ?? 2))
   const [extras, setExtras] = useState(
     cfg.best_thirds_count === undefined || cfg.best_thirds_count === null
@@ -1232,6 +1448,8 @@ function StageConfig({
         config: {
           ...cfg,
           double_round: doubleRound,
+          two_legged: twoLegged,
+          away_goals: awayGoals,
           preset: preset || null,
           qualifiers_per_group: Number(perGroup) || 2,
           best_thirds_count: extras === 'auto' ? 'auto' : Number(extras),
@@ -1277,8 +1495,43 @@ function StageConfig({
         Ida y vuelta (todos contra todos dos veces)
       </label>
 
+      {/* En eliminación directa «ida y vuelta» es otra cosa: no son más
+          jornadas sino una llave de dos partidos que se decide por el global,
+          que es como se juega casi cualquier final de barrio. */}
+      {type === 'knockout' && (
+        <div className="space-y-2 rounded-lg border border-outline-variant/40 bg-surface-container-high p-2.5">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={twoLegged}
+              onChange={(e) => setTwoLegged(e.target.checked)}
+              className="h-4 w-4 accent-secondary"
+            />
+            Llaves a ida y vuelta (decide el global)
+          </label>
+          {twoLegged && (
+            <label className="flex items-center gap-2 pl-6 text-sm">
+              <input
+                type="checkbox"
+                checked={awayGoals}
+                onChange={(e) => setAwayGoals(e.target.checked)}
+                className="h-4 w-4 accent-secondary"
+              />
+              El gol de visitante desempata el global
+            </label>
+          )}
+          <p className="text-xs text-on-surface-variant">
+            Cada cruce se juega dos veces con la localía invertida. Si el global queda
+            empatado decide
+            {awayGoals ? ' el gol de visitante, después ' : ' '}
+            la tanda de penales que cargue el árbitro. El tercer puesto se juega a un
+            solo partido.
+          </p>
+        </div>
+      )}
+
       <div>
-        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
           Sistema de clasificación
         </p>
         <Select
@@ -1332,7 +1585,7 @@ function StageConfig({
       </div>
 
       <div>
-        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
           Desempate entre grupos
         </p>
         <p className="mb-1.5 text-xs text-on-surface-variant">
@@ -1350,14 +1603,14 @@ function StageConfig({
             {(k, i) => (
               <>
                 <AsaArrastre />
-                <span className="text-xs text-on-surface-variant">{i + 1}.</span>
+                <span className="tnum text-xs text-on-surface-variant">{i + 1}.</span>
                 <span className="flex-1">
                   {(presets?.cross_tiebreaker_options || []).find((o: any) => o.value === k)
                     ?.label || k}
                 </span>
                 <button
                   onClick={() => setCrossTb(crossTb.filter((x) => x !== k))}
-                  className="text-error/80 hover:text-error"
+                  className="text-error/80 transition hover:text-error"
                 >
                   <Icon name="close" className="text-base" />
                 </button>
@@ -1373,7 +1626,7 @@ function StageConfig({
                 key={o.value}
                 type="button"
                 onClick={() => setCrossTb([...crossTb, o.value])}
-                className="rounded-full border border-outline-variant px-2.5 py-1 text-xs text-on-surface-variant transition hover:border-outline"
+                className="rounded-full border border-outline-variant px-2.5 py-1 text-xs text-on-surface-variant transition hover:border-secondary/60 hover:text-secondary"
               >
                 + {o.label}
               </button>
@@ -1383,33 +1636,60 @@ function StageConfig({
 
       {preview && preview.pairings?.length > 0 && (
         <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
             Vista previa del cuadro
           </p>
           <p className="mb-2 text-xs text-on-surface-variant">
-            {preview.bracket_size} equipos ·{' '}
-            {preview.es_potencia_de_dos
-              ? 'cuadro completo'
-              : '⚠ no es potencia de 2, faltarían o sobrarían cruces'}
-            . Se siembra por mérito: mejor contra peor. Guardar la fase actualiza esto.
+            <span className="tnum">{preview.bracket_size}</span> equipos ·{' '}
+            {preview.byes?.length
+              ? `${preview.byes.length} pasa(n) directo a la segunda ronda`
+              : 'cuadro completo'}
+            . Se siembra por mérito —mejor contra peor— y el 1 y el 2 quedan en mitades
+            distintas, así que solo pueden encontrarse en la final. Guardar la fase
+            actualiza esto.
           </p>
+          {preview.byes?.length > 0 && (
+            <ul className="mb-2 space-y-1 text-sm">
+              {preview.byes.map((b: any) => (
+                <li
+                  key={b.seed}
+                  className="flex items-center gap-2 rounded-lg bg-secondary/10 px-2 py-1.5"
+                >
+                  <span className="tnum w-5 shrink-0 text-xs text-on-surface-variant">
+                    {b.seed}º
+                  </span>
+                  <span className="flex-1 truncate">{b.team_name}</span>
+                  <Badge className="bg-secondary/20 text-secondary">Pasa directo</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+          {preview.avisos?.length > 0 && (
+            <ul className="mb-2 space-y-1">
+              {preview.avisos.map((a: string, i: number) => (
+                <li key={i} className="rounded-lg bg-tertiary/10 px-2 py-1.5 text-xs text-tertiary">
+                  ⚠ {a}
+                </li>
+              ))}
+            </ul>
+          )}
           <ul className="space-y-1 text-sm">
             {preview.pairings.map((p: any) => (
               <li
                 key={p.match}
                 className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1.5"
               >
-                <span className="w-6 text-xs text-on-surface-variant">#{p.match}</span>
+                <span className="tnum w-6 text-xs text-on-surface-variant">#{p.match}</span>
                 <span className="flex-1 truncate text-right">
                   {p.home_team_name}
-                  <span className="ml-1 text-xs text-on-surface-variant">
+                  <span className="tnum ml-1 text-xs text-on-surface-variant">
                     ({p.home_seed}º{p.home_group ? ` · ${p.home_group}` : ''})
                   </span>
                 </span>
                 <span className="text-xs text-on-surface-variant">vs</span>
                 <span className="flex-1 truncate">
                   {p.away_team_name}
-                  <span className="ml-1 text-xs text-on-surface-variant">
+                  <span className="tnum ml-1 text-xs text-on-surface-variant">
                     ({p.away_seed}º{p.away_group ? ` · ${p.away_group}` : ''})
                   </span>
                 </span>
@@ -1420,7 +1700,7 @@ function StageConfig({
       )}
 
       <div>
-        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
           Equipos de la fase
         </p>
         {teams.length === 0 ? (
@@ -1435,10 +1715,10 @@ function StageConfig({
                     key={t.id}
                     type="button"
                     onClick={() => toggleTeam(t.id)}
-                    className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                    className={`rounded-full border px-2.5 py-1 text-xs transition duration-200 ease-snap ${
                       on
-                        ? 'border-secondary bg-secondary/15 text-secondary'
-                        : 'border-outline-variant text-on-surface-variant hover:border-outline'
+                        ? 'border-secondary bg-secondary/15 font-semibold text-secondary'
+                        : 'border-outline-variant text-on-surface-variant hover:border-secondary/60 hover:text-secondary'
                     }`}
                   >
                     {t.name}
@@ -1553,8 +1833,8 @@ function FasesTab({ tournament }: { tournament: any }) {
               <span className="flex min-w-0 items-center gap-1">
                 <AsaArrastre className="mr-1" titulo="Arrastra para reordenar la fase (o usa ↑ ↓)" />
                 <span className="truncate">
-                  <span className="mr-1 text-xs text-on-surface-variant">{i + 1}.</span>
-                  <span className="font-medium">{s.name}</span>{' '}
+                  <span className="tnum mr-1 text-xs text-on-surface-variant">{i + 1}.</span>
+                  <span className="font-display font-semibold">{s.name}</span>{' '}
                   <Badge className="ml-1 bg-surface-container-highest text-on-surface-variant">{s.type}</Badge>
                   {s.config?.double_round && (
                     <Badge className="ml-1 bg-secondary/15 text-secondary">ida y vuelta</Badge>
@@ -1604,7 +1884,7 @@ function FasesTab({ tournament }: { tournament: any }) {
                     setOpenId(null)
                     load()
                   }}
-                  className="text-error/80 hover:text-error"
+                  className="text-error/80 transition hover:text-error"
                 >
                   <Icon name="delete" className="text-lg" />
                 </button>
@@ -1650,12 +1930,21 @@ function PosicionesTab({ tournament }: { tournament: any }) {
   }
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        {stages.map((s) => (
-          <Button key={s.id} variant={active?.id === s.id ? 'primary' : 'ghost'} onClick={() => select(s)}>
-            {s.name}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Sin fases el grupo de píldoras sería una caja vacía con borde. */}
+        {stages.length > 0 && (
+          <div className={PILDORAS}>
+            {stages.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => select(s)}
+                className={`${PILDORA} ${active?.id === s.id ? PILDORA_ON : PILDORA_OFF}`}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
         {Object.keys(standings).length > 0 && (
           <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(tournament.name, standings)}>
             <Icon name="picture_as_pdf" /> PDF
@@ -1670,7 +1959,9 @@ function PosicionesTab({ tournament }: { tournament: any }) {
         <div className="space-y-5">
           {Object.entries(standings).map(([group, rows]) => (
             <div key={group}>
-              <h3 className="mb-2 font-display font-semibold">{group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}</h3>
+              <h3 className="headline mb-2 text-base tracking-[0.08em]">
+                {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
+              </h3>
               <StandingsTable rows={rows} sport={tournament?.sport_type} />
             </div>
           ))}
@@ -1680,6 +1971,11 @@ function PosicionesTab({ tournament }: { tournament: any }) {
   )
 }
 
+// Valor del selector de grupo que significa «aquí juega el ganador de un
+// partido de otra fase». Es lo que hace de un repechaje un partido de
+// verdad en vez de un ranking en papel.
+const GANADOR_DE = '__winner_of__'
+
 function AvanceTab({ tournament }: { tournament: any }) {
   const [stages, setStages] = useState<any[]>([])
   const [sourceId, setSourceId] = useState('')
@@ -1688,11 +1984,34 @@ function AvanceTab({ tournament }: { tournament: any }) {
   const [standings, setStandings] = useState<Record<string, any[]>>({})
   const [thirds, setThirds] = useState<any[]>([])
   const [rows, setRows] = useState<any[]>([{ hg: '', hp: 1, ag: '', ap: 2 }])
+  // Los que pasan directo a la segunda ronda, cuando los clasificados no son
+  // una potencia de 2. Sin esto un cuadro de 6 no se puede armar a mano.
+  const [byeRows, setByeRows] = useState<any[]>([])
+  // Los partidos de las fases eliminatorias ya creadas: cualquiera de ellos
+  // puede alimentar un cruce («juega el ganador de…»), que es lo que hace de
+  // un repechaje un partido de verdad y no un ranking en papel.
+  const [partidosFuente, setPartidosFuente] = useState<any[]>([])
   const [thirdPlace, setThirdPlace] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   useEffect(() => {
-    api.getStages(tournament.id).then(setStages)
+    api.getStages(tournament.id).then(async (st: any[]) => {
+      setStages(st)
+      const llaves = st.filter((s) => s.type === 'knockout')
+      const listas = await Promise.all(
+        llaves.map((s) =>
+          api
+            .stageMatches(s.id)
+            .then((ms: any[]) => ms.map((m) => ({ ...m, stage_name: s.name })))
+            .catch(() => []),
+        ),
+      )
+      setPartidosFuente(listas.flat())
+    })
   }, [tournament.id])
+  const rotuloPartido = (m: any) =>
+    `${m.stage_name}: ${m.home_team_name || 'Por definir'} vs ${
+      m.away_team_name || 'Por definir'
+    }`
   async function onSource(id: string) {
     setSourceId(id)
     setStandings({})
@@ -1717,11 +2036,20 @@ function AvanceTab({ tournament }: { tournament: any }) {
           source_stage_id: sourceId,
           third_place: thirdPlace,
           round1: rows.map((c) => ({
-            home_group: c.hg,
-            home_position: Number(c.hp),
-            away_group: c.ag,
-            away_position: Number(c.ap),
+            ...(c.hg === GANADOR_DE
+              ? { home_winner_of: c.hw }
+              : { home_group: c.hg, home_position: Number(c.hp) }),
+            ...(c.ag === GANADOR_DE
+              ? { away_winner_of: c.aw }
+              : { away_group: c.ag, away_position: Number(c.ap) }),
           })),
+          byes: byeRows
+            .filter((b) => b.g)
+            .map((b) =>
+              b.g === GANADOR_DE
+                ? { winner_of: b.w }
+                : { group: b.g, position: Number(b.p) },
+            ),
         })
         setMsg(r.message)
       } else {
@@ -1780,21 +2108,17 @@ function AvanceTab({ tournament }: { tournament: any }) {
         while (p < x) p *= 2
         return p
       }
-      const prevPow2 = (x: number) => {
-        let p = 1
-        while (p * 2 <= x) p *= 2
-        return p
-      }
-      let size = nextPow2(base)
-      if (!(size <= base + thirdsAvail && size <= total)) {
-        size = prevPow2(Math.min(total, base + thirdsAvail))
-      }
-      size = Math.max(2, size)
-      if (total < size || size < 2) {
+      const size = Math.max(2, nextPow2(base))
+      // Los clasificados son los directos más los repescados que haya. Antes,
+      // cuando no alcanzaban para llegar a la potencia de 2, el cuadro se
+      // achicaba y los últimos clasificados desaparecían; ahora se quedan
+      // todos y los mejores sembrados entran con bye.
+      const clasificados = Math.min(size, base + thirdsAvail, total)
+      if (clasificados < 2) {
         setMsg('No hay suficientes equipos clasificados para armar las eliminatorias.')
         return
       }
-      seeds = seeds.slice(0, size)
+      seeds = seeds.slice(0, clasificados)
       // Orden de siembra estándar (1 vs N, …) para que el 1.º y 2.º solo se crucen en la final.
       let order = [1, 2]
       while (order.length < size) {
@@ -1807,9 +2131,17 @@ function AvanceTab({ tournament }: { tournament: any }) {
         order = out
       }
       const round1: any[] = []
+      const byes: any[] = []
       for (let i = 0; i < size; i += 2) {
-        const a = seeds[order[i] - 1]
-        const b = seeds[order[i + 1] - 1]
+        const mejor = Math.min(order[i], order[i + 1])
+        const peor = Math.max(order[i], order[i + 1])
+        const a = seeds[mejor - 1]
+        // La casilla de enfrente quedó vacía: ese sembrado pasa directo.
+        if (peor > clasificados) {
+          byes.push({ group: a.group, position: a.position })
+          continue
+        }
+        const b = seeds[peor - 1]
         round1.push({
           home_group: a.group,
           home_position: a.position,
@@ -1820,13 +2152,19 @@ function AvanceTab({ tournament }: { tournament: any }) {
       const gm = await api.stageMatches(groupStage.id)
       const allDone = gm.length > 0 && gm.every((m: any) => m.status === 'finished')
       const ko = await api.createStage(tournament.id, { name: 'Eliminatorias', type: 'knockout' })
-      await api.seedBracket(ko.id, { source_stage_id: groupStage.id, third_place: true, round1 })
+      await api.seedBracket(ko.id, {
+        source_stage_id: groupStage.id,
+        third_place: true,
+        round1,
+        byes,
+      })
       if (allDone) await api.resolveSlots(ko.id)
       setStages(await api.getStages(tournament.id))
+      const conBye = byes.length ? ` · ${byes.length} pasa(n) directo` : ''
       setMsg(
         allDone
-          ? `🎯 Eliminatorias generadas (${size} equipos) y cruces resueltos.`
-          : `🎯 Estructura de eliminatorias creada (${size} equipos). Se llenará al terminar los grupos.`,
+          ? `🎯 Eliminatorias generadas (${clasificados} equipos${conBye}) y cruces resueltos.`
+          : `🎯 Estructura de eliminatorias creada (${clasificados} equipos${conBye}). Se llenará al terminar los grupos.`,
       )
     } catch (e: any) {
       setMsg(e.message)
@@ -1835,9 +2173,9 @@ function AvanceTab({ tournament }: { tournament: any }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-secondary/30 bg-secondary/10 p-4">
+      <div className="card-accent flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-xl border border-secondary/30 bg-secondary/10 p-4">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 font-display font-semibold text-secondary">
+          <p className="headline flex items-center gap-2 text-base tracking-[0.08em] text-secondary">
             <Icon name="auto_awesome" /> Generar eliminatorias automáticamente
           </p>
           <p className="mt-0.5 text-xs text-on-surface-variant">
@@ -1878,12 +2216,12 @@ function AvanceTab({ tournament }: { tournament: any }) {
 
       {Object.keys(standings).length > 0 && (
         <div className="space-y-3 rounded-lg bg-surface-container-low p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
             Posiciones de la fase origen
           </p>
           {Object.entries(standings).map(([group, rws]) => (
             <div key={group}>
-              <h4 className="mb-1 text-sm font-medium">
+              <h4 className="mb-1 font-display text-sm font-bold">
                 {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
               </h4>
               <StandingsTable rows={rws} sport={tournament?.sport_type} />
@@ -1908,9 +2246,25 @@ function AvanceTab({ tournament }: { tournament: any }) {
                   {g === '__best_thirds__' ? 'Mej. terceros' : g}
                 </option>
               ))}
+              {partidosFuente.length > 0 && <option value={GANADOR_DE}>Ganador de…</option>}
             </Select>
-            <Input type="number" min={1} value={c.hp} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, hp: e.target.value } : r)))} className="w-16" />
-            <span className="text-on-surface-variant">vs</span>
+            {c.hg === GANADOR_DE ? (
+              <Select
+                value={c.hw || ''}
+                onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, hw: e.target.value } : r)))}
+                className="w-56"
+              >
+                <option value="">partido</option>
+                {partidosFuente.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {rotuloPartido(m)}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Input type="number" min={1} value={c.hp} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, hp: e.target.value } : r)))} className="tnum w-16" />
+            )}
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-on-surface-variant">vs</span>
             <Select value={c.ag} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, ag: e.target.value } : r)))} className="w-32">
               <option value="">grupo</option>
               {groupOpts.map((g) => (
@@ -1918,15 +2272,96 @@ function AvanceTab({ tournament }: { tournament: any }) {
                   {g === '__best_thirds__' ? 'Mej. terceros' : g}
                 </option>
               ))}
+              {partidosFuente.length > 0 && <option value={GANADOR_DE}>Ganador de…</option>}
             </Select>
-            <Input type="number" min={1} value={c.ap} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, ap: e.target.value } : r)))} className="w-16" />
-            <button onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-error/80 hover:text-error">
+            {c.ag === GANADOR_DE ? (
+              <Select
+                value={c.aw || ''}
+                onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, aw: e.target.value } : r)))}
+                className="w-56"
+              >
+                <option value="">partido</option>
+                {partidosFuente.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {rotuloPartido(m)}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Input type="number" min={1} value={c.ap} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, ap: e.target.value } : r)))} className="tnum w-16" />
+            )}
+            <button onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-error/80 transition hover:text-error">
               <Icon name="close" />
             </button>
           </div>
         ))}
         <Button variant="ghost" onClick={() => setRows([...rows, { hg: '', hp: 1, ag: '', ap: 2 }])}>
           <Icon name="add" /> Cruce
+        </Button>
+      </div>
+
+      {/* Byes: con 6 clasificados juegan 4 y los dos mejores esperan. El
+          servidor dice cuántos faltan si las cuentas no cierran. */}
+      <div className="space-y-2">
+        {byeRows.map((b, i) => (
+          <div
+            key={i}
+            className="flex flex-wrap items-center gap-2 rounded-lg bg-secondary/10 p-2"
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary">
+              Pasa directo
+            </span>
+            <Select
+              value={b.g}
+              onChange={(e) =>
+                setByeRows(byeRows.map((r, j) => (j === i ? { ...r, g: e.target.value } : r)))
+              }
+              className="w-32"
+            >
+              <option value="">grupo</option>
+              {groupOpts.map((g) => (
+                <option key={g} value={g}>
+                  {g === '__best_thirds__' ? 'Mej. terceros' : g}
+                </option>
+              ))}
+              {partidosFuente.length > 0 && <option value={GANADOR_DE}>Ganador de…</option>}
+            </Select>
+            {b.g === GANADOR_DE ? (
+              <Select
+                value={b.w || ''}
+                onChange={(e) =>
+                  setByeRows(byeRows.map((r, j) => (j === i ? { ...r, w: e.target.value } : r)))
+                }
+                className="w-56"
+              >
+                <option value="">partido</option>
+                {partidosFuente.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {rotuloPartido(m)}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Input
+                type="number"
+                min={1}
+                value={b.p}
+                onChange={(e) =>
+                  setByeRows(byeRows.map((r, j) => (j === i ? { ...r, p: e.target.value } : r)))
+                }
+                className="tnum w-16"
+              />
+            )}
+            <button
+              onClick={() => setByeRows(byeRows.filter((_, j) => j !== i))}
+              className="text-error/80 transition hover:text-error"
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+        ))}
+        <Button variant="ghost" onClick={() => setByeRows([...byeRows, { g: '', p: 1 }])}>
+          <Icon name="add" /> Bye (pasa directo a 2ª ronda)
         </Button>
       </div>
 
@@ -2058,7 +2493,9 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="mb-1 font-display font-semibold">Qué se ve en el marcador público</h3>
+        <h3 className="headline mb-1 text-base tracking-[0.08em]">
+          Qué se ve en el marcador público
+        </h3>
         <p className="mb-2 text-xs text-on-surface-variant">
           Posiciones, calendario, {sportOf(tournament.sport_type).scorersLabel.toLowerCase()} y{' '}
           {sportOf(tournament.sport_type).defenseLabel.toLowerCase()} son siempre públicos.
@@ -2068,7 +2505,7 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
           {SECCIONES_PUBLICAS.map((s) => (
             <label
               key={s.key}
-              className="flex items-start gap-2 rounded-lg bg-surface-container-high px-3 py-2"
+              className="flex cursor-pointer items-start gap-2 rounded-lg bg-surface-container-high px-3 py-2 transition hover:bg-surface-container-highest"
             >
               <input
                 type="checkbox"
@@ -2129,7 +2566,7 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
       {/* Suspensiones automáticas: OPCIONAL. Apagado, nada de esto existe para
           el torneo y la plataforma se comporta como siempre. */}
       <div>
-        <label className="flex items-start gap-2 rounded-lg bg-surface-container-high px-3 py-2">
+        <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-surface-container-high px-3 py-2 transition hover:bg-surface-container-highest">
           <input
             type="checkbox"
             checked={disciplina.enabled}
@@ -2269,7 +2706,9 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
       </div>
 
       <div>
-        <h3 className="mb-1 font-display font-semibold">Criterios de desempate (en orden)</h3>
+        <h3 className="headline mb-1 text-base tracking-[0.08em]">
+          Criterios de desempate (en orden)
+        </h3>
         <p className="mb-2 text-xs text-on-surface-variant">
           Define cómo se clasifican los equipos empatados. El primero tiene mayor
           prioridad: arrastra los criterios para cambiar el orden.
@@ -2284,10 +2723,10 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
           {(r, i) => (
             <>
               <AsaArrastre />
-              <span className="w-5 text-on-surface-variant">{i + 1}.</span>
+              <span className="tnum w-5 text-on-surface-variant">{i + 1}.</span>
               <span className="flex-1">{labelOf(r)}</span>
               <span className="text-xs text-on-surface-variant/60">{r}</span>
-              <button onClick={() => setRules(rules.filter((x) => x !== r))} className="text-error/80 hover:text-error">
+              <button onClick={() => setRules(rules.filter((x) => x !== r))} className="text-error/80 transition hover:text-error">
                 <Icon name="close" className="text-base" />
               </button>
             </>
@@ -2366,7 +2805,7 @@ function ValidacionCalendario({ data }: { data: any }) {
           name={errores ? 'error' : 'warning'}
           className={`text-base ${errores ? 'text-error' : 'text-tertiary'}`}
         />
-        <span className={errores ? 'text-error' : 'text-tertiary'}>
+        <span className={`tnum ${errores ? 'text-error' : 'text-tertiary'}`}>
           {errores > 0 && `${errores} cruce(s) que impiden jugar`}
           {errores > 0 && avisos > 0 && ' · '}
           {avisos > 0 && `${avisos} aviso(s)`}
@@ -2377,12 +2816,17 @@ function ValidacionCalendario({ data }: { data: any }) {
         <ul className="space-y-1.5 px-3 pb-3">
           {data.conflicts.map((c: any, i: number) => (
             <li key={i} className="flex gap-2 rounded-lg bg-surface-container-low px-3 py-2">
-              <Icon
-                name={CONFLICTO_ICONO[c.type] || 'help'}
-                className={`mt-0.5 text-base ${
+              <span
+                className={`relative mt-0.5 grid h-6 w-6 shrink-0 place-items-center ${
                   c.severity === 'error' ? 'text-error' : 'text-tertiary'
                 }`}
-              />
+              >
+                <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+                <Icon
+                  name={CONFLICTO_ICONO[c.type] || 'help'}
+                  className="relative text-sm"
+                />
+              </span>
               <div className="min-w-0">
                 <p className="text-sm font-semibold">{c.title}</p>
                 <p className="text-xs text-on-surface-variant">{c.detail}</p>
@@ -2582,7 +3026,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
             type="datetime-local"
             value={start}
             onChange={(e) => setStart(e.target.value)}
-            className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface"
+            className="tnum rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface transition focus:border-secondary/70"
           />
         </div>
         <div>
@@ -2593,7 +3037,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
             value={maxPerDay}
             onChange={(e) => setMaxPerDay(e.target.value)}
             placeholder="—"
-            className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface"
+            className="tnum w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface transition focus:border-secondary/70"
           />
         </div>
         <div>
@@ -2604,8 +3048,10 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                 key={i}
                 type="button"
                 onClick={() => setDows(dows.includes(i) ? dows.filter((x) => x !== i) : [...dows, i])}
-                className={`h-9 w-9 rounded-lg text-xs font-semibold transition ${
-                  dows.includes(i) ? 'bg-secondary text-on-secondary' : 'bg-surface-container-low text-on-surface-variant'
+                className={`h-9 w-9 rounded-lg font-display text-xs font-bold transition duration-200 ease-snap ${
+                  dows.includes(i)
+                    ? 'bg-volt text-on-secondary shadow-volt-sm'
+                    : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
                 }`}
               >
                 {d}
@@ -2621,7 +3067,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
             value={interval}
             onChange={(e) => setIntervalDays(e.target.value)}
             placeholder="—"
-            className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface"
+            className="tnum w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-2 text-center text-on-surface transition focus:border-secondary/70"
           />
         </div>
         <div>
@@ -2629,7 +3075,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
           <select
             value={parallel ? '1' : '0'}
             onChange={(e) => setParallel(e.target.value === '1')}
-            className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface"
+            className="rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-on-surface transition focus:border-secondary/70"
           >
             <option value="0">1 a la vez (en secuencia)</option>
             <option value="1">Varias en paralelo</option>
@@ -2646,13 +3092,19 @@ function CalendarioTab({ tournament }: { tournament: any }) {
 
       <ValidacionCalendario data={validacion} />
 
-      <div className="flex flex-wrap gap-2">
-        {stages.map((s) => (
-          <Button key={s.id} variant={active?.id === s.id ? 'primary' : 'ghost'} onClick={() => pick(s)}>
-            {s.name}
-          </Button>
-        ))}
-      </div>
+      {stages.length > 0 && (
+        <div className={PILDORAS}>
+          {stages.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => pick(s)}
+              className={`${PILDORA} ${active?.id === s.id ? PILDORA_ON : PILDORA_OFF}`}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!active ? (
         <EmptyState icon="calendar_month" title="Elige una fase para ver/editar fechas" />
@@ -2663,7 +3115,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
           {matches.map((m) => (
             <li
               key={m.id}
-              className={`flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm ${
+              className={`flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm transition hover:bg-surface-container-highest ${
                 marcados[m.id]
                   ? marcados[m.id].severity === 'error'
                     ? 'border-l-4 border-error'
@@ -2681,12 +3133,27 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                     title={marcados[m.id].titles.join(' · ')}
                   />
                 )}
-                {m.home_team_name || 'Por definir'} <span className="text-on-surface-variant">vs</span> {m.away_team_name || 'Por definir'}
+                <span className="font-display font-semibold">
+                  {m.home_team_name || 'Por definir'}
+                </span>{' '}
+                <span className="text-xs uppercase tracking-[0.14em] text-on-surface-variant">
+                  vs
+                </span>{' '}
+                <span className="font-display font-semibold">
+                  {m.away_team_name || 'Por definir'}
+                </span>
               </span>
               {m.group_name && (
-                <span className="rounded bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary">
-                  Grupo {m.group_name}
-                </span>
+                <Badge className="bg-secondary/15 text-secondary">Grupo {m.group_name}</Badge>
+              )}
+              {/* Ida y vuelta: sin esto las dos filas de una llave son
+                  indistinguibles y el organizador puede ponerle a la vuelta
+                  una fecha anterior a la de la ida sin darse cuenta. */}
+              {legLabel(m.leg) && (
+                <Badge className="bg-primary/15 text-primary">{legLabel(m.leg)}</Badge>
+              )}
+              {penalesLabel(m) && (
+                <Badge className="bg-secondary/15 text-secondary">{penalesLabel(m)}</Badge>
               )}
               {(m.status === 'postponed' || m.walkover) && (
                 <span
@@ -2695,7 +3162,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                       ? woDetalle(m.walkover, m.home_team_name, m.away_team_name) || ''
                       : 'No se juega en su fecha; ponle una nueva y vuelve al calendario'
                   }
-                  className="rounded bg-tertiary/15 px-2 py-0.5 text-xs font-medium text-tertiary"
+                  className="inline-flex items-center rounded-full border border-tertiary/40 bg-tertiary/15 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-[0.1em] text-tertiary"
                 >
                   {m.walkover ? woLabel(m.walkover) : ESTADO_LABEL.postponed}
                 </span>
@@ -2704,12 +3171,12 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                 type="datetime-local"
                 value={m.scheduled_start ? String(m.scheduled_start).slice(0, 16) : ''}
                 onChange={(e) => patch(m, 'scheduled_start', e.target.value)}
-                className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface"
+                className="tnum rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface transition focus:border-secondary/70"
               />
               <select
                 value={m.court_id || ''}
                 onChange={(e) => patch(m, 'court_id', e.target.value)}
-                className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface"
+                className="rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface transition focus:border-secondary/70"
               >
                 <option value="">Cancha…</option>
                 {courts.map((c) => (
@@ -2721,7 +3188,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
               <select
                 value={m.referee_id || ''}
                 onChange={(e) => patch(m, 'referee_id', e.target.value)}
-                className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface"
+                className="rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-on-surface transition focus:border-secondary/70"
                 title="Árbitro asignado"
               >
                 <option value="">Árbitro…</option>
@@ -2738,7 +3205,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                     ? 'Devolver al calendario'
                     : 'Aplazar (no se juega en su fecha ni cuenta para la tabla)'
                 }
-                className={`rounded-lg border border-outline-variant px-2 py-1.5 transition hover:border-tertiary/60 ${
+                className={`rounded-lg border border-outline-variant px-2 py-1.5 transition duration-200 ease-snap hover:border-tertiary/60 ${
                   m.status === 'postponed'
                     ? 'text-tertiary'
                     : 'text-on-surface-variant hover:text-tertiary'
@@ -2753,7 +3220,7 @@ function CalendarioTab({ tournament }: { tournament: any }) {
                 onClick={() => descargarActa(m)}
                 disabled={acta === m.id}
                 title="Descargar el acta del partido en PDF"
-                className="rounded-lg border border-outline-variant px-2 py-1.5 text-on-surface-variant transition hover:border-secondary/60 hover:text-secondary disabled:opacity-50"
+                className="rounded-lg border border-outline-variant px-2 py-1.5 text-on-surface-variant transition duration-200 ease-snap hover:border-secondary/60 hover:text-secondary disabled:opacity-50"
               >
                 <Icon
                   name={acta === m.id ? 'hourglass_top' : 'picture_as_pdf'}
@@ -2896,22 +3363,18 @@ function HistorialTab({ tournament }: { tournament: any }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="font-display font-semibold">Historial del campeonato</h3>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="headline text-base tracking-[0.08em]">Historial del campeonato</h3>
         <span className="text-xs text-on-surface-variant">
           Quién cambió qué y qué decía antes. Lo ves tú, no el árbitro ni el público.
         </span>
       </div>
 
       {(accion || tipos.length > 1) && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className={PILDORAS}>
           <button
             onClick={() => setAccion(null)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-              accion === null
-                ? 'bg-secondary text-on-secondary'
-                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-bright'
-            }`}
+            className={`${PILDORA} ${accion === null ? PILDORA_ON : PILDORA_OFF}`}
           >
             Todo
           </button>
@@ -2919,11 +3382,7 @@ function HistorialTab({ tournament }: { tournament: any }) {
             <button
               key={valor}
               onClick={() => setAccion(valor)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                accion === valor
-                  ? 'bg-secondary text-on-secondary'
-                  : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-bright'
-              }`}
+              className={`${PILDORA} ${accion === valor ? PILDORA_ON : PILDORA_OFF}`}
             >
               {etiqueta}
             </button>
@@ -2952,17 +3411,25 @@ function HistorialTab({ tournament }: { tournament: any }) {
             const abierto = abierta === f.id
             const tieneDetalle = Object.keys(f.data || {}).length > 0
             return (
-              <li key={f.id} className="rounded-lg bg-surface-container-high px-3 py-2">
+              <li
+                key={f.id}
+                className="rounded-lg bg-surface-container-high px-3 py-2 transition hover:bg-surface-container-highest"
+              >
                 <button
                   onClick={() => setAbierta(abierto ? null : f.id)}
                   className="flex w-full items-start gap-2 text-left"
                   disabled={!tieneDetalle}
                 >
-                  <Icon name={estilo.icon} className={`mt-0.5 text-base ${estilo.tone}`} />
+                  <span
+                    className={`relative mt-0.5 grid h-6 w-6 shrink-0 place-items-center ${estilo.tone}`}
+                  >
+                    <span className="clip-hex absolute inset-0 bg-current opacity-20" />
+                    <Icon name={estilo.icon} className="relative text-sm" />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm">{f.summary}</span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-on-surface-variant">
-                      <span>{fechaHistorial(f.created_at)}</span>
+                      <span className="tnum">{fechaHistorial(f.created_at)}</span>
                       <span>·</span>
                       <span className="font-medium">{f.user_email || 'sistema'}</span>
                     </span>
@@ -3002,7 +3469,9 @@ function MarcaTab({ tournament }: { tournament: any }) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h3 className="font-display font-semibold">Branding</h3>
+        <h3 className="headline flex items-center gap-2 text-base tracking-[0.08em]">
+          <Icon name="palette" className="text-secondary" /> Branding
+        </h3>
         <label className="block text-xs text-on-surface-variant">URL del logo</label>
         <div className="flex gap-2">
           <Input value={logo} onChange={(e) => setLogo(e.target.value)} placeholder="https://…" />
@@ -3020,7 +3489,9 @@ function MarcaTab({ tournament }: { tournament: any }) {
       </div>
 
       <div className="space-y-2">
-        <h3 className="font-display font-semibold">Patrocinadores</h3>
+        <h3 className="headline flex items-center gap-2 text-base tracking-[0.08em]">
+          <Icon name="handshake" className="text-secondary" /> Patrocinadores
+        </h3>
         <form
           onSubmit={async (e) => {
             e.preventDefault()
@@ -3039,9 +3510,9 @@ function MarcaTab({ tournament }: { tournament: any }) {
         </form>
         <ul className="space-y-1">
           {sponsors.map((s) => (
-            <li key={s.id} className="flex items-center justify-between rounded bg-surface-container-high px-3 py-1.5 text-sm">
+            <li key={s.id} className="flex items-center justify-between rounded-lg bg-surface-container-high px-3 py-1.5 text-sm transition hover:bg-surface-container-highest">
               {s.name}
-              <button onClick={async () => { await api.deleteSponsor(tournament.id, s.id); load() }} className="text-error/80 hover:text-error">
+              <button onClick={async () => { await api.deleteSponsor(tournament.id, s.id); load() }} className="text-error/80 transition hover:text-error">
                 <Icon name="close" className="text-base" />
               </button>
             </li>
@@ -3050,7 +3521,9 @@ function MarcaTab({ tournament }: { tournament: any }) {
       </div>
 
       <div className="space-y-2">
-        <h3 className="font-display font-semibold">Galería de fotos</h3>
+        <h3 className="headline flex items-center gap-2 text-base tracking-[0.08em]">
+          <Icon name="photo_library" className="text-secondary" /> Galería de fotos
+        </h3>
         <form
           onSubmit={async (e) => {
             e.preventDefault()
@@ -3069,11 +3542,11 @@ function MarcaTab({ tournament }: { tournament: any }) {
         </form>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {photos.map((p) => (
-            <div key={p.id} className="group relative">
-              <img src={p.url} alt={p.caption || ''} className="h-24 w-full rounded-lg object-cover" />
+            <div key={p.id} className="hover-lift group relative overflow-hidden rounded-lg border border-outline-variant/60">
+              <img src={p.url} alt={p.caption || ''} className="h-24 w-full object-cover" />
               <button
                 onClick={async () => { await api.deletePhoto(tournament.id, p.id); load() }}
-                className="absolute right-1 top-1 rounded-full bg-surface/80 p-0.5 text-error opacity-0 group-hover:opacity-100"
+                className="absolute right-1 top-1 rounded-full bg-surface-container-lowest/80 p-0.5 text-error opacity-0 transition group-hover:opacity-100"
               >
                 <Icon name="close" className="text-base" />
               </button>

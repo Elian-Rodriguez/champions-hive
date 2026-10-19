@@ -1,5 +1,5 @@
 import { Icon } from './ui'
-import { woLabel } from '../utils/partido'
+import { legLabel, penalesLabel, resumenLlave, woLabel } from '../utils/partido'
 
 function roundLabel(count: number): string {
   return count === 1
@@ -23,7 +23,7 @@ function Crest({ name }: { name: string | null }) {
     .join('')
     .toUpperCase()
   return (
-    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-surface-bright text-[9px] font-bold text-on-surface">
+    <span className="clip-hex grid h-5 w-5 shrink-0 place-items-center bg-surface-container-highest text-[9px] font-bold text-on-surface">
       {initials}
     </span>
   )
@@ -44,7 +44,7 @@ function TeamRow({
       <span className={`flex-1 truncate text-sm ${win ? 'font-bold' : ''}`}>
         {name || 'Por definir'}
       </span>
-      <span className={`tabular-nums text-sm ${win ? 'font-bold' : ''}`}>{score ?? '-'}</span>
+      <span className={`tnum text-sm ${win ? 'font-bold' : ''}`}>{score ?? '-'}</span>
     </div>
   )
 }
@@ -52,37 +52,68 @@ function TeamRow({
 function MatchCard({ m }: { m: any }) {
   const finished = m.status === 'finished'
   const live = m.status === 'live'
-  const homeWin = finished && (m.home_score ?? 0) >= (m.away_score ?? 0)
-  const awayWin = finished && (m.away_score ?? 0) > (m.home_score ?? 0)
+  // Quién pasó lo dice el servidor, no el marcador: con una tanda de penales
+  // o una llave a ida y vuelta, el que tiene el número más alto en ESTE
+  // partido puede ser perfectamente el que quedó eliminado.
+  const ganador = m.llave?.ganador_id ? String(m.llave.ganador_id) : null
+  const homeWin = ganador
+    ? ganador === String(m.home_team_id)
+    : finished && (m.home_score ?? 0) >= (m.away_score ?? 0)
+  const awayWin = ganador
+    ? ganador === String(m.away_team_id)
+    : finished && (m.away_score ?? 0) > (m.home_score ?? 0)
   // Un W.O. en una llave se dice: el equipo pasó sin jugar y la gente pregunta.
   const wo = woLabel(m.walkover)
+  const leg = legLabel(m.leg)
   const statusText = m.is_third_place
     ? '3er puesto'
     : finished
-      ? wo || 'Final'
-      : live
-        ? 'En vivo'
-        : m.status === 'postponed'
-          ? 'Aplazado'
-          : 'Programado'
-  const winnerName = homeWin ? m.home_team_name : awayWin ? m.away_team_name : null
+      ? wo || leg || 'Final'
+      : leg || (live ? 'En vivo' : m.status === 'postponed' ? 'Aplazado' : 'Programado')
+  const resumen = resumenLlave(
+    m.llave,
+    m.home_team_name,
+    m.away_team_name,
+    m.home_team_id,
+  )
   return (
-    <div className="rounded-xl border border-outline-variant/50 bg-surface-container-high p-2.5 shadow-sm">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
+    <div
+      className={`rounded-xl border bg-surface-container-high p-2.5 transition duration-200 ease-snap ${
+        live
+          ? 'border-tertiary/50 shadow-flare'
+          : 'border-outline-variant/50 hover:border-secondary/40'
+      }`}
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span
+          className={`truncate text-[10px] font-semibold uppercase tracking-[0.14em] ${
+            live ? 'text-tertiary' : 'text-on-surface-variant'
+          }`}
+        >
           {statusText}
         </span>
         <span
-          className={`grid h-4 w-4 place-items-center rounded-full ${
-            live ? 'bg-secondary text-on-secondary' : 'bg-surface-bright text-on-surface-variant'
+          className={`relative grid h-4 w-4 shrink-0 place-items-center ${
+            live ? 'text-tertiary' : 'text-on-surface-variant'
           }`}
         >
-          <Icon name={live ? 'play_arrow' : 'sports_soccer'} className="text-[11px]" />
+          <span
+            className={`clip-hex absolute inset-0 ${
+              live ? 'live-dot bg-current' : 'bg-current opacity-25'
+            }`}
+          />
+          <Icon
+            name={live ? 'play_arrow' : 'sports_soccer'}
+            className={`relative text-[11px] ${live ? 'text-on-tertiary' : ''}`}
+          />
         </span>
       </div>
-      {finished && winnerName && (
+      {finished && resumen && (
         <p className="mb-1 truncate text-[11px] text-on-surface-variant">
-          {m.home_score}-{m.away_score} · Gana {winnerName}
+          <span className="tnum">
+            {m.home_score}-{m.away_score}
+          </span>
+          {penalesLabel(m) ? ` (${penalesLabel(m)})` : ''} · {resumen}
         </p>
       )}
       <div className="space-y-1">
@@ -151,11 +182,16 @@ export default function TournamentBracket({ tree }: { tree: any }) {
 
         {champion && (
           <div className="bk-round bk-final flex flex-col items-center justify-center px-6">
-            <Icon name="emoji_events" className="text-7xl text-amber-300" />
-            <p className="mt-2 max-w-[180px] text-center font-display text-lg font-bold text-secondary">
+            <span className="relative grid h-20 w-20 place-items-center">
+              <span className="clip-hex absolute inset-0 bg-volt-soft" />
+              <Icon name="emoji_events" className="relative text-6xl text-ember" />
+            </span>
+            <p className="headline mt-2 max-w-[180px] text-center text-lg text-volt-gradient">
               {champion}
             </p>
-            <p className="text-xs uppercase tracking-wide text-on-surface-variant">Campeón</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
+              Campeón
+            </p>
           </div>
         )}
       </div>
