@@ -4,6 +4,8 @@
 // Dibuja en un canvas (1080×1080; el bracket en 1920×1080) y devuelve un PNG
 // (Blob) para descargar/compartir.
 
+import { penalesLabel } from './partido'
+
 const W = 1080
 const H = 1080
 const GREEN = '#c7ff3f'
@@ -293,7 +295,16 @@ export async function makeMatchImage(t: any, m: any, sponsors: any[]): Promise<B
   const finished = m.status === 'finished'
   await drawBase(ctx, t, finished ? 'Resultado' : 'Próximo partido')
 
-  pill(ctx, finished ? 'Final' : 'Próximo', W / 2, 300, finished ? GREEN : ORANGE)
+  // Un 2-2 compartido sin decir que se definió 4-3 es exactamente la imagen
+  // que genera la discusión que todo esto viene a evitar.
+  const tanda = penalesLabel(m)
+  pill(
+    ctx,
+    finished ? (tanda ? `Final · ${tanda}` : 'Final') : 'Próximo',
+    W / 2,
+    300,
+    finished ? GREEN : ORANGE,
+  )
 
   const hs = finished ? String(m.home_score ?? 0) : null
   const as = finished ? String(m.away_score ?? 0) : null
@@ -783,8 +794,15 @@ function roundLabel(count: number): string {
 function drawKoMatch(ctx: Ctx, m: any, x: number, yC: number, w: number, h: number) {
   const finished = m.status === 'finished'
   const live = m.status === 'live'
-  const homeWin = finished && (m.home_score ?? 0) >= (m.away_score ?? 0)
-  const awayWin = finished && (m.away_score ?? 0) > (m.home_score ?? 0)
+  // Quién pasó no se deduce del marcador: con penales o con una llave a ida y
+  // vuelta, el que tiene el número más alto acá puede ser el eliminado.
+  const ganador = m.llave?.ganador_id ? String(m.llave.ganador_id) : null
+  const homeWin = ganador
+    ? ganador === String(m.home_team_id)
+    : finished && (m.home_score ?? 0) >= (m.away_score ?? 0)
+  const awayWin = ganador
+    ? ganador === String(m.away_team_id)
+    : finished && (m.away_score ?? 0) > (m.home_score ?? 0)
   const y = yC - h / 2
 
   ctx.fillStyle = 'rgba(234,240,250,0.06)'
@@ -838,13 +856,15 @@ export async function makeBracketImage(
   }
 
   const finalRound = rounds[rounds.length - 1]
-  const finalMatch = (finalRound?.matches || []).find((m: any) => !m.is_third_place)
-  const champion =
-    finalMatch && finalMatch.status === 'finished'
-      ? (finalMatch.home_score ?? 0) >= (finalMatch.away_score ?? 0)
-        ? finalMatch.home_team_name
-        : finalMatch.away_team_name
-      : null
+  const finales = (finalRound?.matches || []).filter((m: any) => !m.is_third_place)
+  // Con una final a ida y vuelta hay dos partidos: el campeón sale del que ya
+  // tiene la llave resuelta, nunca de comparar el marcador de uno solo.
+  const finalMatch = finales.find((m: any) => m.llave?.ganador_id) || finales[0]
+  const champion = finalMatch?.llave?.ganador_id
+    ? String(finalMatch.llave.ganador_id) === String(finalMatch.home_team_id)
+      ? finalMatch.home_team_name
+      : finalMatch.away_team_name
+    : null
 
   const x0 = 64
   const rightPad = champion ? 360 : 64

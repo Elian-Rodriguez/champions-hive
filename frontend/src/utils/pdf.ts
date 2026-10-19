@@ -498,13 +498,18 @@ export async function exportMatchReportPDF(
   const HERO = 50
   caja(doc, M, y, CW, HERO, { r: 3.5, fill: SOFT, border: LINE, lw: 0.25 })
   const pill = ESTADO[estado] || ESTADO.scheduled
-  caja(doc, W / 2 - 18, y - 3.5, 36, 7, { r: 3.5, fill: pill.bg })
-  texto(doc, pill.label.toUpperCase(), W / 2, y + 0.9, {
+  // En una llave a ida y vuelta el acta tiene que decir cuál de los dos es:
+  // el marcador de la vuelta no se entiende sin saber que hubo una ida.
+  const tramo = match.leg === 1 ? ' · IDA' : match.leg === 2 ? ' · VUELTA' : ''
+  const anchoPill = tramo ? 48 : 36
+  caja(doc, W / 2 - anchoPill / 2, y - 3.5, anchoPill, 7, { r: 3.5, fill: pill.bg })
+  texto(doc, pill.label.toUpperCase() + tramo, W / 2, y + 0.9, {
     size: 7,
     bold: true,
     color: pill.fg,
     align: 'center',
     space: 0.5,
+    max: anchoPill - 4,
   })
 
   const bs = 14
@@ -535,6 +540,14 @@ export async function exportMatchReportPDF(
   // W.O.: el marcador existe pero el partido no se jugó, y el acta tiene que
   // decirlo — es lo que justifica el 3-0 ante quien la lee semanas después.
   const wo = match.walkover || null
+  // La tanda de penales: antes se resolvía escribiendo al ganador arriba en
+  // el marcador, así que el acta imprimía un 3-2 que nunca ocurrió. Ahora el
+  // marcador queda como terminó y la tanda se explica en esta línea, que es
+  // justo lo que necesita quien lee el acta semanas después.
+  const pl = match.home_penalties
+  const pv = match.away_penalties
+  const hayTanda = pl != null && pv != null && pl !== pv
+  const ganaTanda = hayTanda ? (pl > pv ? home : away) : null
   const desenlace =
     estado === 'postponed'
       ? 'PARTIDO APLAZADO'
@@ -547,7 +560,9 @@ export async function exportMatchReportPDF(
               ? `GANA ${home}`
               : as > hs
                 ? `GANA ${away}`
-                : 'EMPATE'
+                : ganaTanda
+                  ? `GANA ${ganaTanda} EN PENALES ${pl}-${pv}`
+                  : 'EMPATE'
         : estado === 'live'
           ? 'MARCADOR PARCIAL'
           : 'RESULTADO PENDIENTE'

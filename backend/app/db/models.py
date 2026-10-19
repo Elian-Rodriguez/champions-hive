@@ -248,6 +248,19 @@ class Match(Base):
     # siendo `finished` y con marcador —cuenta para la tabla— pero queda dicho
     # que no se jugó, que es lo que hoy se perdía al escribir 3-0 a mano.
     walkover = Column(String)
+    # Tanda de penales. Va en columnas propias y NO en el marcador porque un
+    # penal de la tanda no es un gol: no cuenta para la tabla, no va a
+    # goleadores y no entra en el global de la llave. Antes la única forma de
+    # dejar constancia era escribir el ganador arriba en el marcador —un 2-2
+    # definido 4-3 se guardaba como 3-2—, así que el acta imprimía un
+    # resultado que no ocurrió (ver services/bracket.py).
+    home_penalties = Column(Integer, nullable=True)
+    away_penalties = Column(Integer, nullable=True)
+    # Llave a ida y vuelta: los dos partidos comparten `tie_id` y se
+    # distinguen por `leg` (1 = ida, 2 = vuelta). NULL en los dos = partido
+    # único, que es como queda todo lo que ya estaba creado.
+    tie_id = Column(GUID(), nullable=True)
+    leg = Column(Integer, nullable=True)
 
     stage = relationship("Stage", back_populates="matches")
     home_team = relationship("Team", foreign_keys=[home_team_id])

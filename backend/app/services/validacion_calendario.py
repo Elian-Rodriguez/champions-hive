@@ -350,6 +350,33 @@ def detectar_conflictos(
             )
         )
 
+    # --- 5b. La vuelta antes que la ida -------------------------------------
+    # Los dos partidos de una llave no dependen uno del otro por `StageSlot`
+    # —los dos salen del mismo origen— así que el control de arriba no los ve,
+    # y una vuelta programada antes que su ida es tan injugable como el resto.
+    llaves: Dict[str, List[Match]] = {}
+    for m in partidos:
+        if getattr(m, "tie_id", None):
+            llaves.setdefault(str(m.tie_id), []).append(m)
+    for legs in llaves.values():
+        legs.sort(key=lambda m: m.leg or 0)
+        for anterior, siguiente in zip(legs, legs[1:]):
+            va = ventanas.get(str(anterior.id))
+            vs = ventanas.get(str(siguiente.id))
+            if not va or not vs or vs[0] >= va[1]:
+                continue
+            conflictos.append(
+                _conflicto(
+                    TIPO_ORDEN_DE_LLAVE,
+                    SEVERIDAD_ERROR,
+                    "La vuelta se juega antes que la ida",
+                    f"«{rotulo(siguiente)}» empieza el {_hhmm(vs[0])}, antes de que "
+                    f"termine la ida ({_hhmm(va[1])}). El global se calcula con los "
+                    f"dos partidos, así que el orden importa.",
+                    [siguiente.id, anterior.id],
+                )
+            )
+
     # --- 6. Lo que falta por programar --------------------------------------
     sin_fecha = [m for m in partidos if not m.scheduled_start]
     if sin_fecha:

@@ -83,13 +83,15 @@ def _torneo_id(db: Session, match: Match):
 
 
 def _foto_marcador(match: Match) -> dict:
-    """Lo que puede terminar en discusión: marcador, estado y W.O."""
+    """Lo que puede terminar en discusión: marcador, estado, W.O. y penales."""
     estado = getattr(match.status, "value", match.status)
     return {
         "estado": str(estado),
         "local": match.home_score,
         "visitante": match.away_score,
         "walkover": match.walkover,
+        "penales_local": match.home_penalties,
+        "penales_visitante": match.away_penalties,
     }
 
 
@@ -109,6 +111,13 @@ def _resumen_marcador(rotulo: str, antes: dict, despues: dict, detalle: dict) ->
         partes.append(
             "se marcó W.O." if despues["walkover"] else "se quitó el W.O."
         )
+    if "penales_local" in detalle or "penales_visitante" in detalle:
+        if despues["penales_local"] is None and despues["penales_visitante"] is None:
+            partes.append("se quitó la tanda de penales")
+        else:
+            partes.append(
+                f"penales {despues['penales_local']}-{despues['penales_visitante']}"
+            )
     return f"{rotulo}: " + (", ".join(partes) if partes else "sin cambios")
 
 
@@ -288,6 +297,13 @@ def update_match_status(
         match.home_score = payload_in.home_score
     if payload_in.away_score is not None:
         match.away_score = payload_in.away_score
+    # Penales: se mandan juntos y mandar null los borra, igual que el W.O. El
+    # marcador del partido no se toca —la tanda no es un gol— y quién pasa lo
+    # decide `resolver_llave`, no un ganador escrito a mano arriba.
+    if "home_penalties" in enviado:
+        match.home_penalties = payload_in.home_penalties
+    if "away_penalties" in enviado:
+        match.away_penalties = payload_in.away_penalties
 
     # W.O. sin marcador: lo pone el reglamento de la disciplina (3-0 en fútbol,
     # 20-0 en baloncesto). Si el árbitro manda uno, manda el suyo.

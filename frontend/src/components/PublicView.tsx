@@ -29,7 +29,13 @@ import { hasBlueCard, sportLabel, sportOf } from '../sports'
 import { CHART_SERIES, THEME } from '../theme'
 import type { StatScope } from '../services/api'
 
-import { ESTADO_LABEL as STATUS_LABEL, woDetalle, woLabel } from '../utils/partido'
+import {
+  ESTADO_LABEL as STATUS_LABEL,
+  legLabel,
+  penalesLabel,
+  woDetalle,
+  woLabel,
+} from '../utils/partido'
 
 type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
 
@@ -917,6 +923,16 @@ export default function PublicView({
                                     }
                                   >
                                     {woLabel(m.walkover)}
+                                  </Badge>
+                                )}
+                                {penalesLabel(m) && (
+                                  <Badge className="bg-secondary/15 text-secondary">
+                                    {penalesLabel(m)}
+                                  </Badge>
+                                )}
+                                {legLabel(m.leg) && (
+                                  <Badge className="bg-primary/15 text-primary">
+                                    {legLabel(m.leg)}
                                   </Badge>
                                 )}
                                 <button

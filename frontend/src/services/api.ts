@@ -413,10 +413,23 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ group_name }),
     }),
-  shuffleGroups: (tid: string, num_groups: number) =>
+  /** Sorteo de grupos. `pots` son los bombos (el primero, los cabezas de
+   *  serie): cada bombo se reparte uno por grupo, que es lo que impide que
+   *  los candidatos caigan juntos. `keep_apart` son los que no pueden
+   *  compartir grupo; si no hay forma, el servidor avisa y no bloquea. */
+  shuffleGroups: (
+    tid: string,
+    num_groups: number,
+    pots?: string[][] | null,
+    keep_apart?: string[][] | null,
+  ) =>
     req(`/tournaments/${tid}/teams/shuffle_groups`, {
       method: 'POST',
-      body: JSON.stringify({ num_groups }),
+      body: JSON.stringify({
+        num_groups,
+        ...(pots?.length ? { pots } : {}),
+        ...(keep_apart?.length ? { keep_apart } : {}),
+      }),
     }),
   removeTeam: (tid: string, teamId: string) =>
     req(`/tournaments/${tid}/teams/${teamId}`, { method: 'DELETE' }),

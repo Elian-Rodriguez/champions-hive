@@ -75,13 +75,23 @@ def test_cada_admin_ve_solo_sus_torneos(client, admin, otro_admin, torneo):
 
 
 def test_superadmin_ve_todos_los_torneos(client, superadmin, torneo):
-    ids = [t["id"] for t in client.get(f"{API}/tournaments", headers=superadmin).json()]
+    # `limit` alto: el listado pagina de a 100 y la suite deja un torneo por
+    # test, así que sin esto se cae por paginación y no por permisos.
+    ids = [
+        t["id"]
+        for t in client.get(f"{API}/tournaments?limit=1000", headers=superadmin).json()
+    ]
     assert torneo["id"] in ids
 
 
 def test_publico_ve_todos_los_torneos(client, torneo):
-    """El marcador público no tiene sesión y debe poder listar cualquier torneo."""
-    ids = [t["id"] for t in client.get(f"{API}/tournaments").json()]
+    """El marcador público no tiene sesión y debe poder listar cualquier torneo.
+
+    Con `limit` alto a propósito: el listado pagina de a 100 y cada test de la
+    suite deja su torneo, así que sin esto la prueba se cae por paginación y
+    no por permisos, que es lo que está mirando.
+    """
+    ids = [t["id"] for t in client.get(f"{API}/tournaments?limit=1000").json()]
     assert torneo["id"] in ids
 
 

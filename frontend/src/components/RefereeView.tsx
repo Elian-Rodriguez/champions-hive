@@ -12,7 +12,13 @@ import {
   type DisciplineEvent,
   type ScoreEvent,
 } from '../sports'
-import { ESTADO_LABEL as STATUS_LABEL, woDetalle, woLabel } from '../utils/partido'
+import {
+  ESTADO_LABEL as STATUS_LABEL,
+  legLabel,
+  penalesLabel,
+  woDetalle,
+  woLabel,
+} from '../utils/partido'
 
 /** Un jugador dentro de la planilla del partido. Estar en el mapa es haber
  *  jugado; `starter` distingue titular de suplente. */
@@ -84,6 +90,12 @@ export default function RefereeView() {
   const [guardandoLineup, setGuardandoLineup] = useState<string | null>(null)
   // Panel de "no se jugó" (aplazar / W.O.), cerrado por defecto.
   const [noJugado, setNoJugado] = useState(false)
+  // La tanda de penales: aparte del marcador, porque un penal de la tanda no
+  // es un gol. Antes el árbitro la resolvía poniendo al ganador arriba y el
+  // acta terminaba imprimiendo un resultado que no ocurrió.
+  const [tanda, setTanda] = useState(false)
+  const [penHome, setPenHome] = useState<string>('')
+  const [penAway, setPenAway] = useState<string>('')
   // Jugadores suspendidos por tarjetas, si el torneo tiene encendido el
   // reglamento disciplinario. La planilla avisa antes de que entren a la
   // cancha, que es donde se atrapa una alineación indebida.
@@ -167,6 +179,9 @@ export default function RefereeView() {
     setSelHome('')
     setSelAway('')
     setNoJugado(false)
+    setTanda(m.home_penalties != null || m.away_penalties != null)
+    setPenHome(m.home_penalties == null ? '' : String(m.home_penalties))
+    setPenAway(m.away_penalties == null ? '' : String(m.away_penalties))
     setLineupSucia({})
     setHomePlayers(m.home_team_id ? await api.getPlayers(m.home_team_id) : [])
     setAwayPlayers(m.away_team_id ? await api.getPlayers(m.away_team_id) : [])
@@ -206,6 +221,53 @@ export default function RefereeView() {
     setMatch((m: any) => ({ ...m, status, home_score: home, away_score: away }))
     aviso(`Marcador guardado (${STATUS_LABEL[status]})`)
     if (stage) setMatches(await api.stageMatches(stage.id))
+  }
+
+  /** Guarda la tanda sin tocar el marcador del partido.
+   *
+   *  Quién pasa lo decide el servidor (`resolver_llave`): acá solo se anota
+   *  cuántos convirtió cada uno, que es lo que se firma en el acta. */
+  async function guardarPenales() {
+    const local = penHome === '' ? null : Number(penHome)
+    const visitante = penAway === '' ? null : Number(penAway)
+    try {
+      await api.updateMatchStatus(match.id, {
+        status: match.status,
+        home_penalties: local,
+        away_penalties: visitante,
+      })
+      setMatch((m: any) => ({
+        ...m,
+        home_penalties: local,
+        away_penalties: visitante,
+      }))
+      aviso(
+        local == null && visitante == null
+          ? 'Tanda borrada'
+          : `Penales ${local ?? 0}-${visitante ?? 0} guardados`,
+      )
+      if (stage) setMatches(await api.stageMatches(stage.id))
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo guardar la tanda', true)
+    }
+  }
+
+  async function quitarPenales() {
+    setPenHome('')
+    setPenAway('')
+    try {
+      await api.updateMatchStatus(match.id, {
+        status: match.status,
+        home_penalties: null,
+        away_penalties: null,
+      })
+      setMatch((m: any) => ({ ...m, home_penalties: null, away_penalties: null }))
+      setTanda(false)
+      aviso('Tanda borrada')
+      if (stage) setMatches(await api.stageMatches(stage.id))
+    } catch (e: any) {
+      aviso(e?.message || 'No se pudo borrar la tanda', true)
+    }
   }
 
   /** Aplazado: no se juega y todavía no hay fecha nueva. No cuenta para la
@@ -540,6 +602,19 @@ export default function RefereeView() {
                     {puedeCorregir ? ' ×' : ''}
                   </button>
                 )}
+                {penalesLabel(match) && (
+                  <span
+                    title="La tanda no toca el marcador del partido"
+                    className="shrink-0 rounded-full bg-secondary/15 px-2 py-0.5 font-display text-xs font-bold text-secondary"
+                  >
+                    {penalesLabel(match)}
+                  </span>
+                )}
+                {legLabel(match.leg) && (
+                  <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 font-display text-xs font-bold text-primary">
+                    {legLabel(match.leg)}
+                  </span>
+                )}
                 {meta && (
                   <span className="hidden truncate text-xs uppercase tracking-wide text-on-surface-variant sm:inline">
                     {meta}
@@ -662,6 +737,9 @@ export default function RefereeView() {
               >
                 <Icon name="event_busy" /> No se jugó
               </Button>
+              <Button variant={tanda ? 'outline' : 'ghost'} onClick={() => setTanda((v) => !v)}>
+                <Icon name="sports_soccer" /> Penales
+              </Button>
               <Button variant="ghost" onClick={descargarActa} disabled={acta}>
                 <Icon name="picture_as_pdf" /> {acta ? 'Generando…' : 'Acta'}
               </Button>
@@ -691,6 +769,60 @@ export default function RefereeView() {
                   Aplazado sale del calendario y no cuenta para la tabla. El W.O. deja el
                   partido finalizado {sportOf(tournament?.sport_type).walkoverScore[0]}-
                   {sportOf(tournament?.sport_type).walkoverScore[1]} y anotado como no jugado.
+                </p>
+              </div>
+            )}
+
+            {/* La tanda de penales. Va aparte del marcador a propósito: un
+                penal de la tanda no es un gol, no cuenta para la tabla ni para
+                goleadores, y el marcador del partido tiene que quedar como
+                terminó. Quién pasa lo recalcula el servidor. */}
+            {tanda && (
+              <div className="mt-4 rounded-xl border border-secondary/40 bg-secondary/5 p-3">
+                <div className="flex flex-wrap items-end justify-center gap-3">
+                  <label className="text-center">
+                    <span className="mb-1 block max-w-[9rem] truncate text-xs text-on-surface-variant">
+                      {match.home_team_name || 'Local'}
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={penHome}
+                      disabled={!puedeCorregir}
+                      onChange={(e) => setPenHome(e.target.value)}
+                      className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-center font-display text-lg tabular-nums"
+                    />
+                  </label>
+                  <span className="pb-2 text-on-surface-variant">-</span>
+                  <label className="text-center">
+                    <span className="mb-1 block max-w-[9rem] truncate text-xs text-on-surface-variant">
+                      {match.away_team_name || 'Visitante'}
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={penAway}
+                      disabled={!puedeCorregir}
+                      onChange={(e) => setPenAway(e.target.value)}
+                      className="w-20 rounded-lg border border-outline-variant bg-surface-container-low px-2 py-1 text-center font-display text-lg tabular-nums"
+                    />
+                  </label>
+                  {puedeCorregir && (
+                    <>
+                      <Button onClick={guardarPenales}>
+                        <Icon name="save" /> Guardar tanda
+                      </Button>
+                      <Button variant="ghost" onClick={quitarPenales}>
+                        <Icon name="delete" /> Quitar
+                      </Button>
+                    </>
+                  )}
+                </div>
+                <p className="mt-2 text-center text-xs text-on-surface-variant">
+                  La tanda no cambia el marcador del partido: un 2-2 sigue siendo 2-2 y
+                  los penales se anotan al lado. El cuadro se actualiza solo.
                 </p>
               </div>
             )}
@@ -915,6 +1047,12 @@ export default function RefereeView() {
                         )}
                         {m.walkover && (
                           <Badge className="bg-tertiary/15 text-tertiary">{woLabel(m.walkover)}</Badge>
+                        )}
+                        {penalesLabel(m) && (
+                          <Badge className="bg-secondary/15 text-secondary">{penalesLabel(m)}</Badge>
+                        )}
+                        {legLabel(m.leg) && (
+                          <Badge className="bg-primary/15 text-primary">{legLabel(m.leg)}</Badge>
                         )}
                       </div>
                       {m.referee_name && (

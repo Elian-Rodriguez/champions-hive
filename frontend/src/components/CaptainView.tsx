@@ -110,6 +110,13 @@ function ProximoPartido({ m }: { m: any }) {
 function FilaPartido({ m, jugado }: { m: any; jugado?: boolean }) {
   const gano = (m.my_score ?? 0) > (m.rival_score ?? 0)
   const empate = (m.my_score ?? 0) === (m.rival_score ?? 0)
+  // La tanda: un empate que terminó en penales no es un empate para el
+  // capitán, es la razón por la que su equipo sigue o se quedó afuera.
+  const tanda =
+    m.my_penalties != null && m.rival_penalties != null && m.my_penalties !== m.rival_penalties
+      ? `${m.my_penalties}-${m.rival_penalties} en penales`
+      : null
+  const ganoLaTanda = tanda ? (m.my_penalties ?? 0) > (m.rival_penalties ?? 0) : null
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div className="min-w-0">
@@ -144,11 +151,25 @@ function FilaPartido({ m, jugado }: { m: any; jugado?: boolean }) {
               {woLabel(m.walkover)}
             </Badge>
           )}
+          {m.leg && (
+            <Badge className="bg-primary/15 text-primary">
+              {m.leg === 1 ? 'Ida' : 'Vuelta'}
+            </Badge>
+          )}
+          {tanda && (
+            <Badge
+              className={
+                ganoLaTanda ? 'bg-secondary/15 text-secondary' : 'bg-error-container/40 text-error'
+              }
+            >
+              {tanda}
+            </Badge>
+          )}
           <span
             className={`rounded-lg px-3 py-1 font-display text-lg font-bold ${
-              empate
+              empate && !tanda
                 ? 'bg-surface-container-high'
-                : gano
+                : (tanda ? ganoLaTanda : gano)
                   ? 'bg-secondary/15 text-secondary'
                   : 'bg-error-container/40 text-error'
             }`}

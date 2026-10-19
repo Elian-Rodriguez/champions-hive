@@ -73,16 +73,30 @@ def test_vista_previa_del_cuadro(client, admin, fase_jugada):
     assert bp["bracket_size"] == 8
     assert len(bp["pairings"]) == 4
     assert bp["es_potencia_de_dos"] is True
-    # Siembra por mérito: el mejor contra el peor.
-    assert (bp["pairings"][0]["home_seed"], bp["pairings"][0]["away_seed"]) == (1, 8)
-    assert (bp["pairings"][-1]["home_seed"], bp["pairings"][-1]["away_seed"]) == (4, 5)
+    assert bp["byes"] == []
+    # Siembra por mérito y en el ORDEN DEL CUADRO: los locales salen 1, 4, 2, 3,
+    # que es lo que deja al 1 y al 2 en mitades distintas —solo pueden cruzarse
+    # en la final—. Los visitantes pueden haberse intercambiado entre llaves
+    # para evitar que dos del mismo grupo se reencuentren.
+    assert [c["home_seed"] for c in bp["pairings"]] == [1, 4, 2, 3]
+    assert sorted(c["away_seed"] for c in bp["pairings"]) == [5, 6, 7, 8]
+    for c in bp["pairings"]:
+        assert c["home_group"] != c["away_group"] or bp["avisos"]
 
 
-def test_vista_previa_avisa_si_el_cuadro_no_cierra(client, admin, fase_jugada):
+def test_el_cuadro_que_no_cierra_se_completa_con_byes(client, admin, fase_jugada):
+    """Tres campeones de grupo no son potencia de 2, y eso ya no es un problema.
+
+    Antes el tamaño se achicaba a la potencia anterior y el tercer clasificado
+    simplemente desaparecía del cuadro; ahora clasifican los tres y el mejor
+    sembrado espera en la ronda siguiente.
+    """
     _configurar(client, admin, fase_jugada["id"], preset="campeones_de_grupo")
     bp = client.get(f"{API}/tournaments/stages/{fase_jugada['id']}/bracket_preview").json()
     assert bp["bracket_size"] == 3
     assert bp["es_potencia_de_dos"] is False
+    assert len(bp["byes"]) == 1 and bp["byes"][0]["seed"] == 1
+    assert len(bp["pairings"]) == 1
 
 
 def test_repescados_siguen_al_corte(client, admin, fase_jugada):

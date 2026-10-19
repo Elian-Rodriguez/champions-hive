@@ -304,7 +304,19 @@ class PointsAdjustment(BaseModel):
 
 
 class ShuffleGroupsRequest(BaseModel):
+    """Sorteo de grupos. Sin `pots` es el azar puro de siempre.
+
+    `pots` son los bombos, del 1 al último: cada bombo se reparte uno por
+    grupo, que es lo que impide que los cuatro candidatos caigan juntos. Los
+    equipos que no estén en ningún bombo van a un bombo final implícito, así
+    que el organizador puede sembrar solo a los cabezas de serie y dejar el
+    resto al azar. `keep_apart` son los que no pueden compartir grupo (mismo
+    club, mismo barrio): se respeta si se puede y se avisa si no.
+    """
+
     num_groups: int = 2
+    pots: Optional[List[List[UUID]]] = None
+    keep_apart: Optional[List[List[UUID]]] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -522,6 +534,20 @@ class MatchStatusUpdate(BaseModel):
     # Si no se manda marcador, el endpoint pone el que fija el reglamento de la
     # disciplina (3-0 en fútbol, 20-0 en baloncesto, 21-0 en tejo).
     walkover: Optional[str] = None
+    # Tanda de penales: el marcador de la tanda, aparte del del partido. Un
+    # 2-2 que se definió 4-3 se carga como home_score 2, away_score 2,
+    # home_penalties 4, away_penalties 3. Mandar null borra la tanda.
+    home_penalties: Optional[int] = None
+    away_penalties: Optional[int] = None
+
+    @field_validator("home_penalties", "away_penalties")
+    @classmethod
+    def _rango_penales(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return None
+        if v < 0 or v > 50:
+            raise ValueError("Los penales deben estar entre 0 y 50")
+        return v
 
     @field_validator("walkover")
     @classmethod
@@ -549,6 +575,12 @@ class MatchResponse(BaseModel):
     scheduled_end: Optional[datetime] = None
     referee_id: Optional[UUID] = None
     walkover: Optional[str] = None
+    home_penalties: Optional[int] = None
+    away_penalties: Optional[int] = None
+    # Llave a ida y vuelta: `tie_id` comparten los dos partidos, `leg` dice
+    # cuál es cuál. Ambos null = partido único.
+    tie_id: Optional[UUID] = None
+    leg: Optional[int] = None
 
     class Config:
         from_attributes = True

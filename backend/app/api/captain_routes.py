@@ -186,6 +186,13 @@ def _partidos_de_equipos(
                 # W.O.: al capitán le importa por qué figura un 3-0 que su
                 # equipo no jugó, o por qué el rival no llegó.
                 "walkover": m.walkover,
+                # Y la tanda, por la misma razón: un 2-2 que lo dejó afuera
+                # necesita decir 4-3 al lado para que se entienda.
+                "home_penalties": m.home_penalties,
+                "away_penalties": m.away_penalties,
+                "my_penalties": m.home_penalties if es_local else m.away_penalties,
+                "rival_penalties": m.away_penalties if es_local else m.home_penalties,
+                "leg": m.leg,
                 "scheduled_start": m.scheduled_start,
                 "scheduled_end": m.scheduled_end,
                 "stage_id": str(fase.id) if fase else None,

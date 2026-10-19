@@ -1,6 +1,6 @@
 import random
 from datetime import datetime
-from typing import List
+from typing import Dict, List, Set
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -140,6 +140,47 @@ def get_teams_in_tournament(tournament_id: UUID, db: Session = Depends(get_db)):
     return result
 
 
+def _mapa_de_separaciones(parejas) -> Dict[str, Set[str]]:
+    """De las parejas que no pueden compartir grupo a «de quién huye cada uno».
+
+    Se guarda en las dos direcciones porque el sorteo pregunta por el equipo
+    que está colocando, no por el que ya está en el grupo.
+    """
+    mapa: Dict[str, Set[str]] = {}
+    for grupo in parejas or []:
+        ids = [str(t) for t in grupo]
+        for uno in ids:
+            mapa.setdefault(uno, set()).update(o for o in ids if o != uno)
+    return mapa
+
+
+def _armar_bombos(links, pots) -> List[list]:
+    """Los equipos repartidos en bombos, del 1 al último.
+
+    Los que el organizador no puso en ningún bombo van a un bombo final: así
+    se pueden sembrar solo los cuatro cabezas de serie y dejar el resto al
+    azar, que es como se sortea de verdad. Sin bombos es una sola bolsa, que
+    es el sorteo de siempre.
+    """
+    por_id = {str(link.team_id): link for link in links}
+    if not pots:
+        return [list(links)]
+    bombos, usados = [], set()
+    for pot in pots:
+        bombo = []
+        for team_id in pot:
+            link = por_id.get(str(team_id))
+            if link is not None and str(team_id) not in usados:
+                bombo.append(link)
+                usados.add(str(team_id))
+        if bombo:
+            bombos.append(bombo)
+    resto = [l for tid, l in por_id.items() if tid not in usados]
+    if resto:
+        bombos.append(resto)
+    return bombos
+
+
 @router.post("/tournaments/{tournament_id}/teams/shuffle_groups")
 def shuffle_teams_into_groups(
     tournament_id: UUID,
@@ -147,6 +188,17 @@ def shuffle_teams_into_groups(
     db: Session = Depends(get_db),
     current: User = Depends(require_staff),
 ):
+    """Sorteo de grupos, con bombos y separaciones si se piden.
+
+    El azar puro sobre la lista entera deja a los cuatro candidatos en el
+    mismo grupo con total naturalidad, y eso rompe el torneo antes de empezar.
+    Los bombos son la respuesta de siempre: cada bombo se reparte uno por
+    grupo, así que los cabezas de serie quedan separados y lo que se sortea es
+    en qué grupo cae cada uno. `keep_apart` resuelve la otra mitad —dos
+    equipos del mismo club o del mismo barrio que no deben compartir grupo— y
+    si el reparto no da, se avisa en vez de bloquear: con doce equipos de
+    cinco clubes puede no haber solución y el organizador sabrá qué hacer.
+    """
     _torneo_administrable(db, tournament_id, current)
     links = (
         db.query(TournamentTeam)
@@ -156,14 +208,49 @@ def shuffle_teams_into_groups(
     if not links:
         raise HTTPException(status_code=400, detail="No hay equipos en el torneo")
     num_groups = max(1, payload_in.num_groups)
-    random.shuffle(links)
     labels = [chr(ord("A") + i) for i in range(num_groups)]
-    for idx, link in enumerate(links):
-        link.group_name = labels[idx % num_groups]
+
+    nombres = {
+        str(t.id): t.name
+        for t in db.query(Team)
+        .filter(Team.id.in_([l.team_id for l in links]))
+        .all()
+    }
+    separaciones = _mapa_de_separaciones(payload_in.keep_apart)
+    grupos: Dict[str, List[str]] = {g: [] for g in labels}
+    avisos: List[str] = []
+
+    for bombo in _armar_bombos(links, payload_in.pots):
+        random.shuffle(bombo)
+        # Dentro de un bombo se reparte uno por grupo antes de repetir: esa es
+        # toda la gracia del bombo. El tamaño total desempata para que los
+        # grupos queden parejos cuando el bombo no alcanza para todos.
+        desde_el_bombo = {g: 0 for g in labels}
+        for link in bombo:
+            team_id = str(link.team_id)
+            orden = sorted(labels, key=lambda g: (desde_el_bombo[g], len(grupos[g])))
+            enemigos = separaciones.get(team_id, set())
+            elegido = next(
+                (g for g in orden if not enemigos.intersection(grupos[g])), None
+            )
+            if elegido is None:
+                elegido = orden[0]
+                avisos.append(
+                    f"«{nombres.get(team_id, 'Equipo')}» quedó en el grupo "
+                    f"{elegido} junto a un equipo del que debía separarse"
+                )
+            grupos[elegido].append(team_id)
+            desde_el_bombo[elegido] += 1
+            link.group_name = elegido
+
     db.commit()
+    mensaje = f"{len(links)} equipo(s) repartidos en {num_groups} grupo(s)"
+    if payload_in.pots:
+        mensaje += f" desde {len(payload_in.pots)} bombo(s)"
     return {
-        "message": f"{len(links)} equipo(s) repartidos en {num_groups} grupo(s)",
+        "message": mensaje,
         "groups": labels,
+        "avisos": avisos,
     }
 
 

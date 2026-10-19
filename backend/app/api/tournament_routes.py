@@ -2,7 +2,7 @@ import random
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -56,7 +56,7 @@ from app.schemas import (
     TournamentUpdate,
 )
 from app.services import auditoria, disciplina
-from app.services.bracket import equipo_del_slot
+from app.services.bracket import equipo_del_slot, resolver_llave
 from app.services.notifications import (
     notificar_cambio_de_partido,
     snapshot_partido,
@@ -472,11 +472,54 @@ def _next_pow2(x: int) -> int:
     return p
 
 
-def _prev_pow2(x: int) -> int:
-    p = 1
-    while p * 2 <= x:
-        p *= 2
-    return p
+def _orden_siembra(size: int) -> List[int]:
+    """Números de siembra en el orden en que se colocan en el cuadro.
+
+    Para 8 da [1, 8, 4, 5, 2, 7, 3, 6]: el 1 contra el 8, el 4 contra el 5, y
+    —lo que importa— el 1 y el 2 en mitades distintas, de modo que solo puedan
+    encontrarse en la final.
+
+    Hacía falta porque el árbol se armaba emparejando el primer cruce con el
+    segundo: con 1-8, 2-7, 3-6 y 4-5, el ganador de 1-8 jugaba contra el de
+    2-7 en semifinales. Sembrar por mérito y después cruzar así no sirve de
+    nada: el premio por salir primero desaparecía en la ronda siguiente.
+    """
+    orden = [1]
+    while len(orden) < size:
+        espejo = len(orden) * 2 + 1
+        orden = [x for s in orden for x in (s, espejo - s)]
+    return orden
+
+
+def _plan_de_cuadro(clasificados: int) -> List[str]:
+    """Cómo se entra a la ronda siguiente: un "bye" o un "match" por llave.
+
+    Con 6 clasificados el cuadro es de 8 y el plan queda
+    ["bye", "match", "bye", "match"]: los sembrados 1 y 2 esperan y los otros
+    cuatro juegan. El orden importa, es el del cuadro.
+    """
+    if clasificados < 2:
+        return []
+    size = _next_pow2(clasificados)
+    siembra = _orden_siembra(size)
+    plan = []
+    for i in range(0, size, 2):
+        peor = max(siembra[i], siembra[i + 1])
+        plan.append("bye" if peor > clasificados else "match")
+    return plan
+
+
+def _byes_necesarios(clasificados: int) -> int:
+    """Cuántos sembrados pasan directo a segunda ronda.
+
+    Un cuadro necesita una potencia de 2 para cerrar, pero la cantidad de
+    clasificados casi nunca lo es. La salida no es dejar equipos afuera sino
+    darle bye a los mejores: con 6 clasificados juegan los sembrados 3 a 6 y
+    los dos primeros esperan en cuartos.
+    """
+    if clasificados < 2:
+        return 0
+    return _next_pow2(clasificados) - clasificados
 
 
 def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
@@ -511,13 +554,15 @@ def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
 
     raw = reglas["best_thirds_count"]
     if raw is None or raw == "auto":
-        base = len(direct)
-        total = base + len(extras)
-        size = _next_pow2(base)
-        if size > total:
-            size = _prev_pow2(total)
-        size = max(2, size)
-        needed = max(0, size - base)
+        # Completar el cuadro a la potencia de 2 más cercana con repescados.
+        # Antes, cuando los repescados NO alcanzaban, el tamaño se achicaba a
+        # la potencia de 2 anterior: eso no completaba nada, dejaba equipos
+        # afuera —seis campeones de grupo sin repesca posible se convertían en
+        # un cuadro de cuatro— y el organizador no se enteraba. Ahora clasifican
+        # todos los que ganaron su lugar y el cuadro se completa con byes para
+        # los mejores sembrados, que es lo que hace cualquier reglamento.
+        size = max(2, _next_pow2(len(direct)))
+        needed = max(0, size - len(direct))
     else:
         needed = max(0, int(raw))
     needed = min(needed, len(extras))
@@ -526,24 +571,67 @@ def _compute_qualifiers(db: Session, stage: Stage) -> Optional[Dict[str, Any]]:
         r["qualifies"] = i < needed
 
     preset = QUALIFICATION_PRESETS.get(reglas["preset"] or "")
+    bracket_size = len(direct) + needed
     return {
         "preset": reglas["preset"],
         "preset_label": preset["label"] if preset else None,
         "cross_tiebreakers": reglas["cross_tiebreakers"] or DEFAULT_CROSS_TIEBREAKERS,
         "qualifiers_per_group": per_group,
         "extras_needed": needed,
-        "bracket_size": len(direct) + needed,
+        "bracket_size": bracket_size,
+        # Cuántos sembrados arrancan en segunda ronda porque el cuadro no da
+        # una potencia de 2 exacta: con 6 clasificados juegan 4 y pasan 2.
+        "byes": _byes_necesarios(bracket_size),
         "groups": sorted(groups),
         "direct": direct,
         "extras": extras,
     }
 
 
-def _preview_cruces(qualifiers: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Cruces que quedarían armados con los clasificados actuales.
+def _evitar_reencuentros(cruces: List[Dict[str, Any]]) -> List[str]:
+    """Deshace los cruces de primera ronda entre equipos del mismo grupo.
+
+    Dos que acaban de enfrentarse en la fase de grupos no deberían reencontrarse
+    en la primera llave: es regla estándar en cualquier copa y es lo que la
+    siembra por mérito sola no garantiza. Se arregla intercambiando visitantes
+    entre llaves, que mantiene intacta la jerarquía de locales.
+
+    Cuando no hay intercambio posible —casi todos los clasificados salen del
+    mismo grupo— se deja como está y se avisa, igual que el validador de
+    calendario: avisa y el organizador decide, nunca bloquea.
+    """
+    avisos: List[str] = []
+    for i, cruce in enumerate(cruces):
+        g_local, g_visita = cruce.get("home_group"), cruce.get("away_group")
+        if not g_local or g_local != g_visita:
+            continue
+        for j, otro in enumerate(cruces):
+            if j == i:
+                continue
+            # El intercambio solo sirve si deja limpias a las dos llaves.
+            if (
+                cruce["home_group"] != otro["away_group"]
+                and otro["home_group"] != cruce["away_group"]
+            ):
+                for clave in ("away_seed", "away_team_id", "away_team_name", "away_group"):
+                    cruce[clave], otro[clave] = otro[clave], cruce[clave]
+                break
+        else:
+            avisos.append(
+                f"El cruce {cruce['match']} enfrenta a dos equipos del grupo "
+                f"{g_local} y no hay forma de evitarlo con estos clasificados"
+            )
+    return avisos
+
+
+def _preview_cruces(qualifiers: Dict[str, Any]) -> Dict[str, Any]:
+    """Cruces y byes que quedarían armados con los clasificados actuales.
 
     Se siembran todos los clasificados por mérito (criterios entre grupos) y se
-    cruza el mejor contra el peor: 1 vs N, 2 vs N-1, etc.
+    los coloca en el orden del cuadro (`_orden_siembra`): el mejor contra el
+    peor, y los dos primeros en mitades distintas. Cuando los clasificados no
+    son una potencia de 2, las casillas que sobran quedan vacías y el sembrado
+    que las enfrenta pasa con bye, que es el premio por haber salido primero.
     """
     clasificados = list(qualifiers["direct"]) + [
         e for e in qualifiers["extras"] if e.get("qualifies")
@@ -553,15 +641,32 @@ def _preview_cruces(qualifiers: Dict[str, Any]) -> List[Dict[str, Any]]:
         key=lambda r: cross_group_sort_key(r, qualifiers.get("cross_tiebreakers")),
         reverse=True,
     )
-    cruces = []
-    izq, der = 0, len(orden) - 1
-    while izq < der:
-        local, visita = orden[izq], orden[der]
+    n = len(orden)
+    if n < 2:
+        return {"pairings": [], "byes": [], "avisos": []}
+
+    siembra = _orden_siembra(_next_pow2(n))
+    cruces: List[Dict[str, Any]] = []
+    byes: List[Dict[str, Any]] = []
+    for i in range(0, len(siembra), 2):
+        mejor, peor = sorted((siembra[i], siembra[i + 1]))
+        if peor > n:
+            r = orden[mejor - 1]
+            byes.append(
+                {
+                    "seed": mejor,
+                    "team_id": r.get("team_id"),
+                    "team_name": r.get("team_name"),
+                    "group": r.get("from_group"),
+                }
+            )
+            continue
+        local, visita = orden[mejor - 1], orden[peor - 1]
         cruces.append(
             {
                 "match": len(cruces) + 1,
-                "home_seed": izq + 1,
-                "away_seed": der + 1,
+                "home_seed": mejor,
+                "away_seed": peor,
                 "home_team_id": local.get("team_id"),
                 "home_team_name": local.get("team_name"),
                 "home_group": local.get("from_group"),
@@ -570,9 +675,9 @@ def _preview_cruces(qualifiers: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "away_group": visita.get("from_group"),
             }
         )
-        izq += 1
-        der -= 1
-    return cruces
+
+    avisos = _evitar_reencuentros(cruces)
+    return {"pairings": cruces, "byes": byes, "avisos": avisos}
 
 
 def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
@@ -598,7 +703,7 @@ def _auto_resolve_winner_slots(db: Session, stage_id) -> int:
         match = db.query(Match).filter(Match.id == slot.match_id).first()
         if not src or not match:
             continue
-        team = equipo_del_slot(src, slot.slot_type)
+        team = equipo_del_slot(db, src, slot.slot_type)
         actual = match.home_team_id if slot.is_home else match.away_team_id
         slot.resolved = team is not None
         if str(actual) == str(team):
@@ -995,6 +1100,12 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
             # Lo pintan el calendario del organizador, la pantalla arbitral y
             # el marcador público.
             "walkover": m.walkover,
+            # Penales y llave a ida y vuelta: el marcador no alcanza para
+            # contar el partido, y estas tres pantallas lo pintan.
+            "home_penalties": m.home_penalties,
+            "away_penalties": m.away_penalties,
+            "tie_id": str(m.tie_id) if m.tie_id else None,
+            "leg": m.leg,
             "court_id": str(m.court_id) if m.court_id else None,
             "court_name": court_info.get(str(m.court_id), {}).get("name"),
             "venue_name": court_info.get(str(m.court_id), {}).get("venue"),
@@ -1252,13 +1363,17 @@ def get_bracket_preview(stage_id: UUID, db: Session = Depends(get_db)):
     qualifiers = _compute_qualifiers(db, stage)
     if not qualifiers:
         return None
-    cruces = _preview_cruces(qualifiers)
+    previo = _preview_cruces(qualifiers)
     return {
         "bracket_size": qualifiers["bracket_size"],
         "preset_label": qualifiers["preset_label"],
         "es_potencia_de_dos": qualifiers["bracket_size"] > 0
         and _next_pow2(qualifiers["bracket_size"]) == qualifiers["bracket_size"],
-        "pairings": cruces,
+        # Un cuadro que no es potencia de 2 ya no es un problema: se arma con
+        # byes para los mejores sembrados y estos son los que los reciben.
+        "byes": previo["byes"],
+        "avisos": previo["avisos"],
+        "pairings": previo["pairings"],
     }
 
 
@@ -1340,21 +1455,62 @@ def seed_bracket(
     primera ronda:
         {"source_stage_id": "<uuid>",
          "round1": [{"home_group": "A", "home_position": 1,
-                     "away_group": "B", "away_position": 2}, ...]}
+                     "away_group": "B", "away_position": 2}, ...],
+         "byes": [{"group": "A", "position": 1}],
+         "third_place": true,
+         "two_legged": true}
+
+    Tres cosas que antes no se podían armar:
+
+    - **Byes.** El cuadro exigía una cantidad par de cruces y un árbol
+      perfecto, así que seis clasificados no tenían cuadro posible y la única
+      salida era dejar dos equipos afuera. Ahora los mejores sembrados entran
+      en segunda ronda: lo que tiene que cerrar es la cantidad de equipos, no
+      la de cruces, y dónde va cada bye lo decide `_plan_de_cuadro`, el mismo
+      orden que muestra la vista previa.
+    - **Repechaje.** Cualquier lado de un cruce —y cualquier bye— puede ser
+      `{"home_winner_of": "<match_id>"}` en vez de una posición de grupo: el
+      ganador de un partido de otra fase entra al cuadro como un clasificado
+      más, que es lo que convierte una repesca en papel en un partido jugado.
+    - **Ida y vuelta.** Con `two_legged` (en el payload o en el config de la
+      fase) cada llave son dos partidos que comparten `tie_id`, con la localía
+      invertida en la vuelta y una casilla por partido, de modo que corregir
+      cualquiera de los dos reescribe el cuadro. Quién pasa lo decide el
+      global (ver services/bracket.py). El tercer puesto se queda a partido
+      único: nadie lo juega dos veces.
     """
     source_stage_id = payload.get("source_stage_id")
     round1 = payload.get("round1", [])
+    byes_in = payload.get("byes") or []
     if not source_stage_id:
         raise HTTPException(status_code=400, detail="Falta source_stage_id")
     if not round1:
         raise HTTPException(status_code=400, detail="round1 no puede estar vacío")
-    if len(round1) > 1 and len(round1) % 2 != 0:
+
+    # El cuadro se define por cuántos EQUIPOS entran, no por cuántos cruces:
+    # cada cruce trae dos y cada bye uno.
+    equipos = 2 * len(round1) + len(byes_in)
+    plan = _plan_de_cuadro(equipos)
+    cruces_esperados = plan.count("match")
+    byes_esperados = plan.count("bye")
+    if cruces_esperados != len(round1) or byes_esperados != len(byes_in):
         raise HTTPException(
-            status_code=400, detail="round1 debe tener cantidad par de cruces"
+            status_code=400,
+            detail=(
+                f"Con {equipos} equipos el cuadro es de {_next_pow2(equipos)} y "
+                f"necesita {cruces_esperados} cruce(s) y {byes_esperados} bye(s); "
+                f"llegaron {len(round1)} y {len(byes_in)}."
+            ),
         )
+
     dst = _fase_administrable(db, stage_id, current)
     if not db.query(Stage).filter(Stage.id == source_stage_id).first():
         raise HTTPException(status_code=404, detail="Fase origen no encontrada")
+
+    dos_partidos = payload.get("two_legged")
+    if dos_partidos is None:
+        dos_partidos = _stage_config(dst).get("two_legged")
+    dos_partidos = bool(dos_partidos)
 
     for m in db.query(Match).filter(Match.stage_id == stage_id).all():
         db.delete(m)
@@ -1369,90 +1525,135 @@ def seed_bracket(
         ci += 1
         return c
 
-    current = []
-    for cross in round1:
-        match = Match(
-            stage_id=stage_id,
-            bracket_round=1,
-            court_id=next_court(),
-            status=MatchStatus.SCHEDULED,
-            home_score=0,
-            away_score=0,
-        )
-        db.add(match)
-        db.flush()
-        db.add(
-            StageSlot(
-                stage_id=stage_id,
-                match_id=match.id,
-                is_home=True,
-                slot_type=SlotType.POSITION,
-                source_stage_id=source_stage_id,
-                source_group=cross.get("home_group"),
-                source_position=cross.get("home_position"),
-                resolved=False,
-            )
-        )
-        db.add(
-            StageSlot(
-                stage_id=stage_id,
-                match_id=match.id,
-                is_home=False,
-                slot_type=SlotType.POSITION,
-                source_stage_id=source_stage_id,
-                source_group=cross.get("away_group"),
-                source_position=cross.get("away_position"),
-                resolved=False,
-            )
-        )
-        current.append(match)
+    def origen_de(datos: Dict[str, Any], lado: str = "") -> Dict[str, Any]:
+        """De dónde sale un equipo: el ganador de un partido o una posición.
 
-    semifinals: List[Match] = []
-    final_round_num = 1
-    rnd = 2
-    while len(current) > 1:
-        if len(current) == 2:
-            semifinals = list(current)
-            final_round_num = rnd
-        nxt = []
-        for i in range(0, len(current), 2):
-            match = Match(
-                stage_id=stage_id,
-                bracket_round=rnd,
-                court_id=next_court(),
-                status=MatchStatus.SCHEDULED,
-                home_score=0,
-                away_score=0,
-            )
-            db.add(match)
-            db.flush()
+        Acepta la forma de siempre (`home_group`/`home_position`) y la nueva
+        `home_winner_of`, que es la que hace posible el repechaje.
+        """
+        prefijo = f"{lado}_" if lado else ""
+        ganador = datos.get(f"{prefijo}winner_of")
+        if ganador:
+            return {"winner_of": ganador}
+        return {
+            "group": datos.get(f"{prefijo}group"),
+            "position": datos.get(f"{prefijo}position"),
+        }
+
+    def casilla(match: Match, is_home: bool, origen: Dict[str, Any]) -> None:
+        """Escribe la casilla de la que sale uno de los equipos del partido."""
+        if not origen:
+            return
+        if origen.get("winner_of"):
             db.add(
                 StageSlot(
                     stage_id=stage_id,
                     match_id=match.id,
-                    is_home=True,
+                    is_home=is_home,
                     slot_type=SlotType.WINNER_OF,
-                    source_match_id=current[i].id,
+                    source_match_id=origen["winner_of"],
                     resolved=False,
                 )
             )
-            if i + 1 < len(current):
-                db.add(
-                    StageSlot(
-                        stage_id=stage_id,
-                        match_id=match.id,
-                        is_home=False,
-                        slot_type=SlotType.WINNER_OF,
-                        source_match_id=current[i + 1].id,
-                        resolved=False,
-                    )
+        else:
+            db.add(
+                StageSlot(
+                    stage_id=stage_id,
+                    match_id=match.id,
+                    is_home=is_home,
+                    slot_type=SlotType.POSITION,
+                    source_stage_id=source_stage_id,
+                    source_group=origen.get("group"),
+                    source_position=origen.get("position"),
+                    resolved=False,
                 )
-            nxt.append(match)
-        current = nxt
+            )
+
+    def crear_llave(rnd: int, local: Dict[str, Any], visita: Dict[str, Any]) -> Match:
+        """Crea la llave (uno o dos partidos) y devuelve el decisivo.
+
+        A ida y vuelta los dos comparten `tie_id` y la vuelta invierte la
+        localía; cada partido lleva sus propias casillas, así que el cuadro se
+        rehace igual se corrija la ida o la vuelta. Lo que apunta hacia
+        adelante es la vuelta, que es donde se cierra la llave.
+        """
+        tie = uuid4() if dos_partidos else None
+        ida = Match(
+            stage_id=stage_id,
+            bracket_round=rnd,
+            court_id=next_court(),
+            status=MatchStatus.SCHEDULED,
+            home_score=0,
+            away_score=0,
+            tie_id=tie,
+            leg=1 if tie else None,
+        )
+        db.add(ida)
+        db.flush()
+        casilla(ida, True, local)
+        casilla(ida, False, visita)
+        if not tie:
+            return ida
+        vuelta = Match(
+            stage_id=stage_id,
+            bracket_round=rnd,
+            court_id=next_court(),
+            status=MatchStatus.SCHEDULED,
+            home_score=0,
+            away_score=0,
+            tie_id=tie,
+            leg=2,
+        )
+        db.add(vuelta)
+        db.flush()
+        casilla(vuelta, True, visita)
+        casilla(vuelta, False, local)
+        return vuelta
+
+    # Ronda 1: solo los cruces que se juegan. Los byes todavía no son partido.
+    jugados = [
+        crear_llave(1, origen_de(cross, "home"), origen_de(cross, "away"))
+        for cross in round1
+    ]
+
+    # Capa de entrada a la ronda 2, en el orden del cuadro: cada posición es
+    # un bye (una posición de la fase origen) o el ganador de un cruce.
+    pendientes_bye = [origen_de(b) for b in byes_in]
+    pendientes_cruce = list(jugados)
+    capa: List[Dict[str, Any]] = []
+    for entrada in plan:
+        if entrada == "bye":
+            capa.append(pendientes_bye.pop(0))
+        else:
+            capa.append({"winner_of": pendientes_cruce.pop(0).id})
+
+    semifinales: List[Match] = []
+    final_round_num = 1
+    rnd = 2
+    while len(capa) > 1:
+        if len(capa) == 2:
+            final_round_num = rnd
+        nueva: List[Dict[str, Any]] = []
+        for i in range(0, len(capa), 2):
+            decisivo = crear_llave(
+                rnd, capa[i], capa[i + 1] if i + 1 < len(capa) else {}
+            )
+            nueva.append({"winner_of": decisivo.id})
+        if len(capa) == 2:
+            # Las "semifinales" son las llaves que alimentan la final; si una
+            # de las dos fue un bye no hay partido que perder, y por eso el
+            # tercer puesto solo se crea cuando las dos existen.
+            semifinales = [
+                db.query(Match).filter(Match.id == e["winner_of"]).first()
+                for e in capa
+                if e.get("winner_of")
+            ]
+        capa = nueva
         rnd += 1
 
     # Partido por el tercer puesto (perdedores de las semifinales)
-    if payload.get("third_place") and len(semifinals) == 2:
+    semifinales = [m for m in semifinales if m is not None]
+    if payload.get("third_place") and len(semifinales) == 2:
         tp = Match(
             stage_id=stage_id,
             bracket_round=final_round_num,
@@ -1464,29 +1665,46 @@ def seed_bracket(
         )
         db.add(tp)
         db.flush()
-        db.add(
-            StageSlot(
-                stage_id=stage_id,
-                match_id=tp.id,
-                is_home=True,
-                slot_type=SlotType.LOSER_OF,
-                source_match_id=semifinals[0].id,
-                resolved=False,
+        for pos, semi in enumerate(semifinales):
+            db.add(
+                StageSlot(
+                    stage_id=stage_id,
+                    match_id=tp.id,
+                    is_home=pos == 0,
+                    slot_type=SlotType.LOSER_OF,
+                    source_match_id=semi.id,
+                    resolved=False,
+                )
             )
-        )
-        db.add(
-            StageSlot(
-                stage_id=stage_id,
-                match_id=tp.id,
-                is_home=False,
-                slot_type=SlotType.LOSER_OF,
-                source_match_id=semifinals[1].id,
-                resolved=False,
-            )
-        )
 
     db.commit()
-    return {"message": f"Bracket generado en «{dst.name}»", "rounds": rnd - 1}
+    detalle = " a ida y vuelta" if dos_partidos else ""
+    if byes_esperados:
+        detalle += f", con {byes_esperados} bye(s)"
+    return {
+        "message": f"Bracket generado en «{dst.name}»{detalle}",
+        "rounds": rnd - 1,
+        "byes": byes_esperados,
+        "two_legged": dos_partidos,
+    }
+
+
+def _resumen_llave(db: Session, match: Match) -> Optional[Dict[str, Any]]:
+    """Cómo quedó definida la llave de este partido, o None si sigue abierta.
+
+    Es lo que convierte «2-2» en «pasa X 4-3 en penales» o en «global 3-2»:
+    sin esto el cuadro muestra un empate y un equipo que subió sin explicación.
+    """
+    resultado = resolver_llave(db, match)
+    if not resultado:
+        return None
+    return {
+        "ganador_id": str(resultado["ganador"]) if resultado["ganador"] else None,
+        "motivo": resultado["motivo"],
+        "global_local": resultado["global_local"],
+        "global_visitante": resultado["global_visitante"],
+        "legs": resultado["legs"],
+    }
 
 
 @router.get("/stages/{stage_id}/bracket_tree")
@@ -1517,6 +1735,14 @@ def get_bracket_tree(stage_id: UUID, db: Session = Depends(get_db)):
                 "away_score": m.away_score,
                 "status": _status_str(m),
                 "walkover": m.walkover,
+                "home_penalties": m.home_penalties,
+                "away_penalties": m.away_penalties,
+                "tie_id": str(m.tie_id) if m.tie_id else None,
+                "leg": m.leg,
+                # Cómo quedó definida la llave: con el global cuando son dos
+                # partidos y con el motivo (global, gol de visitante, penales)
+                # cuando el marcador solo no lo explica.
+                "llave": _resumen_llave(db, m),
                 "is_third_place": bool(m.is_third_place),
                 "slots": [
                     {
@@ -1737,7 +1963,10 @@ def schedule_tournament_calendar(
     matches = (
         db.query(Match)
         .filter(Match.stage_id.in_(stage_ids))
-        .order_by(Match.bracket_round, Match.id)
+        # `leg` antes que el id: dentro de una ronda las idas se programan
+        # todas antes que las vueltas. Con el id (un UUID al azar) la vuelta
+        # podía caer antes que su propia ida.
+        .order_by(Match.bracket_round, Match.leg, Match.id)
         .all()
         if stage_ids
         else []
