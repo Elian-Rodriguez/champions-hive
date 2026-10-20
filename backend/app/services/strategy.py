@@ -110,6 +110,80 @@ SPORT_DEFAULTS: Dict[str, Dict[str, Any]] = {
 }
 
 
+# Jugadas destacadas de cada disciplina («mejores jugadas»).
+#
+# Va acoplado al deporte por la misma razón que todo lo demás en este archivo:
+# un cajón de tejo no tiene atajada y una cancha de fútbol no tiene moñona. Un
+# catálogo único con «gol, regate, atajada» obligaría al organizador de tejo a
+# etiquetar una moñona como gol, y ahí el filtro del reel deja de servir.
+#
+# La clave viaja al frontend, que elige icono y color (ver highlightPlays en
+# src/sports.ts); la etiqueta de aquí es la que se nombra en el error cuando
+# alguien manda una jugada que esa disciplina no tiene.
+#
+# `OTRA` está en todas a propósito: siempre existe el clip que no es ninguna de
+# las anteriores —la celebración, la hinchada, la premiación— y rechazarlo
+# sería peor que tener un cajón genérico.
+JUGADA_OTRA = "OTRA"
+
+JUGADAS_FUTBOL: Dict[str, str] = {
+    "GOL": "Gol",
+    "ASISTENCIA": "Asistencia",
+    "REGATE": "Regate",
+    "ATAJADA": "Atajada",
+    "TIRO_LIBRE": "Tiro libre",
+    JUGADA_OTRA: "Otra jugada",
+}
+
+JUGADAS_POR_DEPORTE: Dict[str, Dict[str, str]] = {
+    "football": JUGADAS_FUTBOL,
+    "micro": JUGADAS_FUTBOL,
+    "banquitas": JUGADAS_FUTBOL,
+    "basketball": {
+        "CLAVADA": "Clavada",
+        "TRIPLE": "Triple",
+        "ASISTENCIA": "Asistencia",
+        "BLOQUEO": "Bloqueo",
+        "ROBO": "Robo",
+        JUGADA_OTRA: "Otra jugada",
+    },
+    # Las cuatro jugadas del tejo, de la que más vale a la que menos, que es
+    # también el orden en que vale la pena verlas.
+    "tejo": {
+        "MOÑONA": "Moñona",
+        "EMBOCINADA": "Embocinada",
+        "MECHA": "Mecha",
+        "MANO": "Mano",
+        JUGADA_OTRA: "Otra jugada",
+    },
+}
+
+
+def jugadas_de(sport_type: Optional[str]) -> Dict[str, str]:
+    """Jugadas destacadas de la disciplina, con fútbol como respaldo."""
+    return JUGADAS_POR_DEPORTE.get(str(sport_type or ""), JUGADAS_FUTBOL)
+
+
+def validar_jugada(sport_type: Optional[str], play_type: Optional[str]) -> str:
+    """Normaliza el tipo de jugada y comprueba que la disciplina lo tenga.
+
+    Lanza `ValueError` nombrando las jugadas que sí existen: un 400 que dice
+    «no válida» obliga a adivinar, y el organizador está subiendo un video
+    desde el celular en la tribuna.
+    """
+    catalogo = jugadas_de(sport_type)
+    clave = (play_type or "").strip().upper()
+    if not clave:
+        return JUGADA_OTRA
+    if clave not in catalogo:
+        disponibles = ", ".join(catalogo.values())
+        raise ValueError(
+            f"«{play_type}» no es una jugada de esta disciplina. "
+            f"Las disponibles son: {disponibles}"
+        )
+    return clave
+
+
 class SportStrategy(ABC):
     @abstractmethod
     def calculate_points(

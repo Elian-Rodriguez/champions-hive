@@ -6,6 +6,7 @@ import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
+import JugadasPanel from './JugadasPanel'
 import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { escudoDesdeArchivo } from '../utils/imagen'
@@ -44,6 +45,7 @@ type Tab =
   | 'calendario'
   | 'posiciones'
   | 'avance'
+  | 'jugadas'
   | 'marca'
   | 'historial'
 type Section = 'dashboard' | 'torneos' | 'sedes' | 'usuarios'
@@ -263,7 +265,7 @@ export default function AdminView() {
                   <Badge className="bg-secondary-container/40 text-secondary">{sportLabel(selected.sport_type)}</Badge>
                 </div>
                 <div className={`mb-5 ${PILDORAS}`}>
-                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'marca', 'historial'] as Tab[]).map((t) => (
+                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'jugadas', 'marca', 'historial'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
@@ -281,6 +283,7 @@ export default function AdminView() {
                 {tab === 'calendario' && <CalendarioTab tournament={selected} />}
                 {tab === 'posiciones' && <PosicionesTab tournament={selected} />}
                 {tab === 'avance' && <AvanceTab tournament={selected} />}
+                {tab === 'jugadas' && <JugadasPanel tournament={selected} />}
                 {tab === 'marca' && <MarcaTab tournament={selected} />}
                 {tab === 'historial' && <HistorialTab tournament={selected} />}
               </Card>
@@ -2416,6 +2419,7 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
     sanciones: vis.sanciones !== false,
     nominas: vis.nominas !== false,
     metricas: vis.metricas !== false,
+    jugadas: vis.jugadas !== false,
   })
   // Reglamento disciplinario: apagado salvo que el organizador lo encienda.
   // Hay ligas que llevan la disciplina en un comité y no quieren que el
@@ -2487,6 +2491,11 @@ function ConfigTab({ tournament, onChanged }: { tournament: any; onChanged: () =
       key: 'metricas',
       label: 'Métricas del torneo',
       hint: 'Curva de puntos, goles por fecha y panel de métricas.',
+    },
+    {
+      key: 'jugadas',
+      label: 'Mejores jugadas',
+      hint: 'El reel de clips (goles, atajadas) en el marcador público.',
     },
   ]
 

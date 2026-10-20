@@ -27,7 +27,9 @@ import {
 } from './ui'
 import StandingsTable from './StandingsTable'
 import TournamentBracket from './TournamentBracket'
-import { hasBlueCard, sportLabel, sportOf } from '../sports'
+import JugadaPlayer, { ChipJugada, type JugadaLike } from './JugadaPlayer'
+import { duracionLegible } from '../utils/clip'
+import { hasBlueCard, jugadasDestacadas, sportLabel, sportOf } from '../sports'
 import { CHART_SERIES, THEME } from '../theme'
 import type { StatScope } from '../services/api'
 
@@ -39,7 +41,7 @@ import {
   woLabel,
 } from '../utils/partido'
 
-type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
+type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas' | 'jugadas'
 
 // Alcance por defecto de las estadísticas: todas las fases del torneo.
 const TODAS_LAS_FASES: StatScope = { stageId: null, mode: 'from' }
@@ -206,6 +208,11 @@ export default function PublicView({
   // reglamento disciplinario del torneo; si no, la sección no se dibuja.
   const [disciplina, setDisciplina] = useState<any>(null)
   const [valla, setValla] = useState<any[]>([])
+  // Mejores jugadas. Vacío puede significar dos cosas —que no hay o que el
+  // organizador no las publica (403)—, y en las dos la pestaña no se ofrece.
+  const [jugadas, setJugadas] = useState<JugadaLike[]>([])
+  const [jugadaAbierta, setJugadaAbierta] = useState<JugadaLike | null>(null)
+  const [filtroJugada, setFiltroJugada] = useState('')
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
   // El tono elegido manda en las imágenes de redes y en el PNG/PDF que se
   // bajan directo, que son la misma imagen por otra puerta.
@@ -359,6 +366,12 @@ export default function PublicView({
     setCalCourt('todas')
     setTeamLogos({})
     setSanciones({})
+    setJugadas([])
+    setJugadaAbierta(null)
+    setFiltroJugada('')
+    // Si el organizador apagó el interruptor `jugadas` esto responde 403: la
+    // lista queda vacía y la pestaña no se muestra, igual que las sanciones.
+    api.highlights(t.id).then(setJugadas).catch(() => setJugadas([]))
     api
       .getTeams(t.id)
       .then((teams: any[]) => {
@@ -538,6 +551,11 @@ export default function PublicView({
     { key: 'bracket', label: 'Bracket', icon: 'account_tree' },
     { key: 'calendario', label: 'Calendario', icon: 'calendar_month' },
     { key: 'estadisticas', label: 'Estadísticas', icon: 'bar_chart' },
+    // Solo aparece si hay clips publicados: una pestaña vacía en el marcador
+    // público es peor que no tenerla.
+    ...(jugadas.length
+      ? [{ key: 'jugadas' as PubTab, label: 'Mejores jugadas', icon: 'movie' }]
+      : []),
   ]
 
   return (
@@ -1033,6 +1051,118 @@ export default function PublicView({
                     ))}
                   </div>
                 )
+              )}
+
+              {/* ---------------- Mejores jugadas ---------------- */}
+              {tab === 'jugadas' && (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="headline text-xl">Mejores jugadas</h3>
+                    <p className="mt-1 text-sm text-on-surface-variant">
+                      Los clips del campeonato. Cada uno se comparte con el marco:
+                      el nombre, el logo y los patrocinadores van dentro del video.
+                    </p>
+                  </div>
+
+                  {/* Filtros por tipo de jugada, armados con lo que hay: un
+                      campeonato sin atajadas no muestra un filtro vacío. Y lo
+                      que hay depende de la disciplina (moñona en tejo,
+                      clavada en baloncesto). */}
+                  {(() => {
+                    const presentes = jugadasDestacadas(selected?.sport_type).filter((pl) =>
+                      jugadas.some((j) => j.play_type === pl.type),
+                    )
+                    if (presentes.length < 2) return null
+                    return (
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => setFiltroJugada('')}
+                          className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                            !filtroJugada
+                              ? 'bg-volt text-on-secondary'
+                              : 'border border-outline-variant text-on-surface-variant'
+                          }`}
+                        >
+                          Todas ({jugadas.length})
+                        </button>
+                        {presentes.map((pl) => (
+                          <button
+                            key={pl.type}
+                            onClick={() =>
+                              setFiltroJugada(filtroJugada === pl.type ? '' : pl.type)
+                            }
+                          >
+                            <ChipJugada
+                              sport={selected?.sport_type}
+                              type={pl.type}
+                              className={
+                                filtroJugada === pl.type
+                                  ? 'ring-1 ring-secondary'
+                                  : 'opacity-70'
+                              }
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {(filtroJugada
+                      ? jugadas.filter((j) => j.play_type === filtroJugada)
+                      : jugadas
+                    ).map((j) => (
+                      <button
+                        key={j.id}
+                        onClick={() => setJugadaAbierta(j)}
+                        className="group overflow-hidden rounded-xl border border-outline-variant/70 bg-surface-container text-left transition duration-200 ease-snap hover:-translate-y-0.5 hover:border-secondary/50"
+                      >
+                        <span className="relative block aspect-video w-full bg-surface-container-lowest">
+                          {j.poster_url ? (
+                            <img
+                              src={j.poster_url}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                            />
+                          ) : (
+                            <span className="grid h-full place-items-center">
+                              <Icon name="movie" className="text-3xl opacity-25" />
+                            </span>
+                          )}
+                          <span className="absolute inset-0 grid place-items-center bg-surface-container-lowest/25 transition group-hover:bg-surface-container-lowest/5">
+                            <span className="relative grid h-12 w-12 place-items-center transition duration-200 ease-snap group-hover:scale-110">
+                              <span className="clip-hex absolute inset-0 bg-volt/90" />
+                              <Icon
+                                name="play_arrow"
+                                className="relative text-2xl text-on-secondary"
+                              />
+                            </span>
+                          </span>
+                          <span className="absolute left-2 top-2">
+                            <ChipJugada sport={selected?.sport_type} type={j.play_type} />
+                          </span>
+                          {j.duration_seconds ? (
+                            <span className="tnum absolute bottom-2 right-2 rounded bg-surface-container-lowest/85 px-1.5 py-0.5 text-[10px] font-bold">
+                              {duracionLegible(j.duration_seconds)}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="block p-3">
+                          <span className="block truncate font-display text-sm font-bold">
+                            {j.title || j.play_label || 'Jugada'}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px] text-on-surface-variant">
+                            {[j.player_name, j.team_name, j.match_label]
+                              .filter(Boolean)
+                              .join(' · ') || sportLabel(selected?.sport_type)}
+                            {j.minute != null ? ` · ${j.minute}'` : ''}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {tab === 'estadisticas' && (
@@ -1748,6 +1878,34 @@ export default function PublicView({
               )}
             </div>
           </Card>
+        </div>
+      )}
+
+      {jugadaAbierta && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-surface-container-lowest/92 p-4"
+          onClick={() => setJugadaAbierta(null)}
+        >
+          <div className="w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="truncate font-display text-base font-bold">
+                {jugadaAbierta.title || jugadaAbierta.play_label}
+              </p>
+              <button
+                onClick={() => setJugadaAbierta(null)}
+                aria-label="Cerrar"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-container-high transition hover:bg-surface-bright"
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+            <JugadaPlayer
+              jugada={jugadaAbierta}
+              torneo={selected || {}}
+              patrocinadores={sponsors}
+              autoPlay
+            />
+          </div>
         </div>
       )}
 

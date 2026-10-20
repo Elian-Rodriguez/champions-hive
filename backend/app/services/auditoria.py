@@ -33,6 +33,7 @@ ACCION_EVENTO = "evento"
 ACCION_PLANILLA = "planilla"
 ACCION_PROGRAMACION = "programacion"
 ACCION_SANCION = "sancion"
+ACCION_JUGADA = "jugada"
 ACCION_CUENTA = "cuenta"
 ACCION_TORNEO = "torneo"
 
@@ -42,6 +43,7 @@ ACCION_LABELS: Dict[str, str] = {
     ACCION_PLANILLA: "Planilla",
     ACCION_PROGRAMACION: "Programación",
     ACCION_SANCION: "Sanciones",
+    ACCION_JUGADA: "Mejores jugadas",
     ACCION_CUENTA: "Cuentas",
     ACCION_TORNEO: "Torneo",
 }

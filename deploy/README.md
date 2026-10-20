@@ -45,6 +45,10 @@ Solo se publica el **puerto 80**. El frontend llama al backend en el **mismo ori
 | `ADMIN_EMAIL` | backend | `admin@championhive.com` | Admin creado al arrancar (si no existe). |
 | `ADMIN_PASSWORD` | backend | `admin1234` | Clave del admin inicial. **Cámbiala.** |
 | `DATABASE_URL` | backend | `sqlite:////data/champion_hive.db` | Conexión a BD. PostgreSQL: `postgresql+psycopg2://user:pass@db:5432/champion_hive`. |
+| `MEDIA_ROOT` | backend | `/data/media` | Carpeta de los clips de «mejores jugadas». Va en el volumen `/data`: sin eso un redespliegue se lleva los videos. |
+| `MAX_VIDEO_MB` | backend | `40` | Tope por clip. Si lo subes, sube también `client_max_body_size` en `nginx.conf`: el que rechaza primero es nginx. |
+| `CONTENTFUL_ENABLED` | backend | `false` | Espejo de los clips en Contentful. **Apagado por defecto**: sin él los videos se sirven desde disco y todo funciona igual. |
+| `CONTENTFUL_SPACE_ID` / `_ENVIRONMENT` / `_MANAGEMENT_TOKEN` | backend | *(vacío)* | Solo si enciendes el espejo. El token tiene que ser de la **Content Management API** (el de entrega solo lee). |
 | `VITE_API_URL` | frontend (build) | `/api/v1` | Base del API horneada en el frontend. |
 | `APP_PORT` | compose | `8080` | Puerto del host → 80 del contenedor. |
 | `POSTGRES_USER` / `_PASSWORD` / `_DB` | compose (db) | `champion` | Credenciales del PostgreSQL del compose. |
@@ -105,6 +109,7 @@ docker run -d -p 8080:80 \
 
 - **SQLite**: archivo en el volumen `/data` (`DATABASE_URL=sqlite:////data/champion_hive.db`).
 - **PostgreSQL**: datos en el volumen `champion_db` del compose.
+- **Clips de las mejores jugadas**: archivos en `/data/media` (`MEDIA_ROOT`). No van en la base —un escudo pesa 10 KB y un clip pesa megabytes—, así que **un backup de la base no los incluye**: para respaldarlos hay que copiar el volumen.
 
 El backend **crea las tablas automáticamente** al arrancar (`Base.metadata.create_all()` + migraciones ligeras para SQLite); no hay paso de migración manual.
 

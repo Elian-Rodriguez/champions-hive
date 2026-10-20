@@ -13,6 +13,11 @@ __pycache__/
 # Bases de datos
 *.db
 
+# Clips de las mejores jugadas: son archivos subidos, no código. Viven en
+# MEDIA_ROOT (backend/media en desarrollo, el volumen /data en el contenedor).
+backend/media/
+media/
+
 # Node / frontend
 node_modules/
 */node_modules/

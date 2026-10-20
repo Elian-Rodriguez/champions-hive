@@ -32,6 +32,30 @@ class Settings(BaseSettings):
     # llave que llega a un buzón y ahí se queda.
     RESET_TOKEN_MINUTES: int = 60
 
+    # --- Mejores jugadas (video) ------------------------------------------ #
+    # Los clips NO van en la base como los escudos: un escudo pesa 2-10 KB y
+    # una jugada de 20 segundos pesa megabytes. Van a disco, bajo esta carpeta,
+    # y la base guarda solo la ficha. En la imagen combinada apunta a /data,
+    # que es el volumen que ya persiste (ver deploy/docker-compose.yml).
+    MEDIA_ROOT: str = "./media"
+    # Tope por clip. Una jugada son 10-20 segundos grabados con el celular;
+    # más que esto es un partido entero subido por equivocación. nginx tiene
+    # que permitir al menos lo mismo (client_max_body_size).
+    MAX_VIDEO_MB: int = 40
+
+    # --- Contentful (opcional, apagado por defecto) ------------------------ #
+    # Espejo de los clips en un CDN. Apagado, la plataforma funciona completa
+    # sirviendo el video desde disco; encendido, cada jugada se sube además a
+    # Contentful y el reproductor usa la URL del CDN. Igual que el correo: si
+    # no está configurado NO falla, no sube.
+    CONTENTFUL_ENABLED: bool = False
+    CONTENTFUL_SPACE_ID: str = ""
+    CONTENTFUL_ENVIRONMENT: str = "master"
+    # Token de la Content Management API (el que puede escribir assets). El de
+    # entrega (CDA) solo lee y aquí no sirve.
+    CONTENTFUL_MANAGEMENT_TOKEN: str = ""
+    CONTENTFUL_LOCALE: str = "en-US"
+
     # Los horarios se guardan en UTC y el frontend los pasa a la hora del
     # dispositivo. Los textos que arma el servidor (los avisos a los capitanes)
     # no conocen ese dispositivo, así que usan el huso del campeonato: -300 =

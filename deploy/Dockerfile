@@ -53,9 +53,12 @@ RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
 # pydantic-settings los lee del entorno del proceso.
 ENV ALGORITHM=HS256 \
     ACCESS_TOKEN_EXPIRE_MINUTES=60 \
-    DATABASE_URL=sqlite:////data/champion_hive.db
+    DATABASE_URL=sqlite:////data/champion_hive.db \
+    MEDIA_ROOT=/data/media
 
-# Persistencia para SQLite (si no se usa PostgreSQL)
+# Persistencia: la base SQLite (si no se usa PostgreSQL) y los clips de las
+# mejores jugadas, que son archivos y no caben en la base. Sin este volumen un
+# redespliegue se lleva los videos.
 VOLUME ["/data"]
 
 EXPOSE 80

@@ -507,6 +507,115 @@ class PhotoResponse(PhotoBase):
 
 
 # --------------------------------------------------------------------------- #
+#  Mejores jugadas (video)
+# --------------------------------------------------------------------------- #
+# Enlace externo: la liga que ya publica sus goles en YouTube o Instagram no
+# tiene por qué volver a subirlos aquí. Se acepta solo http(s) porque la URL
+# termina en un <video src> o en un <iframe>.
+def validar_enlace(valor: Optional[str]) -> Optional[str]:
+    if valor is None:
+        return None
+    limpio = valor.strip()
+    if not limpio:
+        return None
+    if not (limpio.startswith("http://") or limpio.startswith("https://")):
+        raise ValueError("El enlace del video debe empezar por http:// o https://")
+    if len(limpio) > 2000:
+        raise ValueError("El enlace es demasiado largo")
+    return limpio
+
+
+class HighlightLinkCreate(BaseModel):
+    """Jugada que vive fuera: se guarda el enlace, no el archivo."""
+
+    video_url: str
+    play_type: Optional[str] = None
+    title: Optional[str] = None
+    match_id: Optional[UUID] = None
+    team_id: Optional[UUID] = None
+    player_id: Optional[UUID] = None
+    minute: Optional[int] = None
+    # Portada opcional: un fotograma en data URI, como los escudos. Sin ella la
+    # grilla muestra el emblema de la disciplina.
+    poster_url: Optional[str] = None
+    published: bool = True
+
+    @field_validator("video_url")
+    @classmethod
+    def _validar_enlace(cls, v: str) -> str:
+        validado = validar_enlace(v)
+        if not validado:
+            raise ValueError("Falta el enlace del video")
+        return validado
+
+    @field_validator("poster_url")
+    @classmethod
+    def _validar_portada(cls, v: Optional[str]) -> Optional[str]:
+        return validar_imagen(v)
+
+
+class HighlightUpdate(BaseModel):
+    """Edición de la ficha de una jugada; solo se aplica lo que venga.
+
+    El archivo no se cambia: para eso se borra la jugada y se sube otra. Lo que
+    se corrige aquí es lo que se escribió mal (el tipo, el jugador, el minuto)
+    y si sale o no al marcador público.
+    """
+
+    play_type: Optional[str] = None
+    title: Optional[str] = None
+    match_id: Optional[UUID] = None
+    team_id: Optional[UUID] = None
+    player_id: Optional[UUID] = None
+    minute: Optional[int] = None
+    poster_url: Optional[str] = None
+    published: Optional[bool] = None
+    order_index: Optional[int] = None
+
+    @field_validator("poster_url")
+    @classmethod
+    def _validar_portada(cls, v: Optional[str]) -> Optional[str]:
+        return validar_imagen(v)
+
+
+class HighlightResponse(BaseModel):
+    """Una jugada lista para pintar.
+
+    Trae el nombre del jugador, del equipo y el rótulo del partido ya
+    resueltos: el reel es una grilla de tarjetas y resolverlos en el cliente
+    serían tres consultas más por tarjeta.
+    """
+
+    id: UUID
+    tournament_id: Optional[UUID] = None
+    match_id: Optional[UUID] = None
+    team_id: Optional[UUID] = None
+    player_id: Optional[UUID] = None
+    play_type: Optional[str] = None
+    # Cómo se llama la jugada en esta disciplina («Moñona», «Atajada»).
+    play_label: Optional[str] = None
+    title: Optional[str] = None
+    minute: Optional[int] = None
+    storage: Optional[str] = None
+    video_url: Optional[str] = None
+    poster_url: Optional[str] = None
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    external_url: Optional[str] = None
+    published: Optional[bool] = True
+    order_index: Optional[int] = 0
+    created_at: Optional[datetime] = None
+    # Resueltos para la tarjeta del reel.
+    player_name: Optional[str] = None
+    team_name: Optional[str] = None
+    match_label: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --------------------------------------------------------------------------- #
 #  Matches & Events
 # --------------------------------------------------------------------------- #
 class MatchCreate(BaseModel):
