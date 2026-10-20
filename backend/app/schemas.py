@@ -610,6 +610,12 @@ class HighlightResponse(BaseModel):
     player_name: Optional[str] = None
     team_name: Optional[str] = None
     match_label: Optional[str] = None
+    # Contexto del campeonato. Al organizador le sobra (ya sabe cuál mira),
+    # pero el capitán lista varios a la vez y el marco necesita saber qué
+    # nombre y qué logo pintar en cada clip.
+    tournament_name: Optional[str] = None
+    tournament_logo_url: Optional[str] = None
+    sport_type: Optional[str] = None
 
     class Config:
         from_attributes = True

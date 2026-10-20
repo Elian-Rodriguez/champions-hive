@@ -23,7 +23,7 @@ Tres decisiones del módulo:
   es cómo se corrompe la cola entera. Subir una jugada necesita conexión y el
   panel lo dice en pantalla.
 """
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import (
@@ -51,7 +51,6 @@ from app.db.models import (
     MatchHighlight,
     Player,
     Stage,
-    Team,
     Tournament,
     TournamentTeam,
     User,
@@ -64,6 +63,7 @@ from app.schemas import (
 )
 from app.services import auditoria, media
 from app.services.contentful import contentful_configurado, espejar_jugada, estado
+from app.services.jugadas import deporte_de, ordenadas, payload_jugadas
 from app.services.strategy import jugadas_de, validar_jugada
 
 router = APIRouter()
@@ -99,11 +99,6 @@ def _torneo(db: Session, tournament_id: UUID) -> Tournament:
     if not torneo:
         raise HTTPException(status_code=404, detail="Torneo no encontrado")
     return torneo
-
-
-def _deporte(torneo: Tournament) -> str:
-    deporte = getattr(torneo, "sport_type", None)
-    return str(getattr(deporte, "value", deporte) or "")
 
 
 def _partido_del_torneo(
@@ -182,7 +177,7 @@ def _validar_jugador(db: Session, player_id: Optional[UUID]) -> None:
 
 def _jugada_validada(torneo: Tournament, play_type: Optional[str]) -> str:
     try:
-        return validar_jugada(_deporte(torneo), play_type)
+        return validar_jugada(deporte_de(torneo), play_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -194,97 +189,6 @@ def _portada_validada(poster_url: Optional[str]) -> Optional[str]:
         return validar_imagen(poster_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-def _payload(db: Session, filas: List[MatchHighlight], torneo: Tournament) -> List[Dict[str, Any]]:
-    """Resuelve nombres de una vez para toda la lista.
-
-    El reel es una grilla de tarjetas: resolver jugador, equipo y rótulo del
-    partido tarjeta por tarjeta serían tres consultas por clip.
-    """
-    catalogo = jugadas_de(_deporte(torneo))
-
-    ids_jugador = {f.player_id for f in filas if f.player_id}
-    jugadores = (
-        {
-            str(p.id): p.name
-            for p in db.query(Player).filter(Player.id.in_(ids_jugador)).all()
-        }
-        if ids_jugador
-        else {}
-    )
-
-    ids_partido = {f.match_id for f in filas if f.match_id}
-    partidos = (
-        {str(m.id): m for m in db.query(Match).filter(Match.id.in_(ids_partido)).all()}
-        if ids_partido
-        else {}
-    )
-
-    # Los equipos que hacen falta: el de la jugada y los dos de cada partido.
-    ids_equipo = {f.team_id for f in filas if f.team_id}
-    for m in partidos.values():
-        ids_equipo.update({m.home_team_id, m.away_team_id})
-    ids_equipo.discard(None)
-    equipos = (
-        {
-            str(t.id): t.name
-            for t in db.query(Team).filter(Team.id.in_(ids_equipo)).all()
-        }
-        if ids_equipo
-        else {}
-    )
-
-    def rotulo(match_id) -> Optional[str]:
-        m = partidos.get(str(match_id)) if match_id else None
-        if not m:
-            return None
-        local = equipos.get(str(m.home_team_id), "Por definir")
-        visita = equipos.get(str(m.away_team_id), "Por definir")
-        return f"{local} vs {visita}"
-
-    salida = []
-    for f in filas:
-        salida.append(
-            {
-                "id": f.id,
-                "tournament_id": f.tournament_id,
-                "match_id": f.match_id,
-                "team_id": f.team_id,
-                "player_id": f.player_id,
-                "play_type": f.play_type,
-                "play_label": catalogo.get(f.play_type or "", f.play_type),
-                "title": f.title,
-                "minute": f.minute,
-                "storage": f.storage,
-                # El espejo en el CDN manda si existe: es más rápido que el
-                # disco del servidor y es para lo que se configuró.
-                "video_url": f.external_url or f.video_url,
-                "poster_url": f.poster_url,
-                "mime_type": f.mime_type,
-                "size_bytes": f.size_bytes,
-                "duration_seconds": f.duration_seconds,
-                "external_url": f.external_url,
-                "published": bool(f.published),
-                "order_index": f.order_index or 0,
-                "created_at": f.created_at,
-                "player_name": jugadores.get(str(f.player_id)) if f.player_id else None,
-                "team_name": equipos.get(str(f.team_id)) if f.team_id else None,
-                "match_label": rotulo(f.match_id),
-            }
-        )
-    return salida
-
-
-def _ordenadas(filas: List[MatchHighlight]) -> List[MatchHighlight]:
-    """Primero lo que el organizador puso arriba, después lo más nuevo."""
-    return sorted(
-        filas,
-        key=lambda f: (
-            -(f.order_index or 0),
-            -(f.created_at.timestamp() if f.created_at else 0),
-        ),
-    )
 
 
 def _jugada(db: Session, highlight_id: UUID) -> MatchHighlight:
@@ -320,9 +224,9 @@ def highlights_config():
 def highlight_plays(tournament_id: UUID, db: Session = Depends(get_db)):
     """Jugadas destacadas de la disciplina de ESTE torneo, en orden."""
     torneo = _torneo(db, tournament_id)
-    catalogo = jugadas_de(_deporte(torneo))
+    catalogo = jugadas_de(deporte_de(torneo))
     return {
-        "sport_type": _deporte(torneo),
+        "sport_type": deporte_de(torneo),
         "plays": [{"type": k, "label": v} for k, v in catalogo.items()],
     }
 
@@ -358,7 +262,7 @@ def list_highlights(
     if not (include_unpublished and puede_administrar(current, torneo)):
         filas = [f for f in filas if f.published]
 
-    return _payload(db, _ordenadas(filas), torneo)
+    return payload_jugadas(db, ordenadas(filas), {str(torneo.id): torneo})
 
 
 # --------------------------------------------------------------------------- #
@@ -409,7 +313,7 @@ def _crear(
         db,
         actor,
         auditoria.ACCION_JUGADA,
-        resumen=f"Subió la jugada «{_resumen(fila, jugadas_de(_deporte(torneo)))}»",
+        resumen=f"Subió la jugada «{_resumen(fila, jugadas_de(deporte_de(torneo)))}»",
         tournament_id=torneo.id,
         match_id=match_id,
         team_id=team_id,
@@ -489,7 +393,7 @@ def upload_highlight(
     if contentful_configurado():
         background.add_task(espejar_jugada, fila.id)
 
-    return _payload(db, [fila], torneo)[0]
+    return payload_jugadas(db, [fila], {str(torneo.id): torneo})[0]
 
 
 @router.post(
@@ -535,7 +439,7 @@ def link_highlight(
     )
     db.commit()
     db.refresh(fila)
-    return _payload(db, [fila], torneo)[0]
+    return payload_jugadas(db, [fila], {str(torneo.id): torneo})[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -563,7 +467,7 @@ def update_highlight(
     _asegurar_puede_cargar(db, current, torneo, partido_actual)
 
     cambios = payload_in.model_dump(exclude_unset=True)
-    catalogo = jugadas_de(_deporte(torneo))
+    catalogo = jugadas_de(deporte_de(torneo))
     antes = {
         "tipo": catalogo.get(fila.play_type or "", fila.play_type),
         "titulo": fila.title,
@@ -618,7 +522,7 @@ def update_highlight(
         )
     db.commit()
     db.refresh(fila)
-    return _payload(db, [fila], torneo)[0]
+    return payload_jugadas(db, [fila], {str(torneo.id): torneo})[0]
 
 
 @router.delete("/highlights/{highlight_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -648,7 +552,7 @@ def delete_highlight(
         db,
         current,
         auditoria.ACCION_JUGADA,
-        resumen=f"Borró la jugada «{_resumen(fila, jugadas_de(_deporte(torneo)))}»",
+        resumen=f"Borró la jugada «{_resumen(fila, jugadas_de(deporte_de(torneo)))}»",
         tournament_id=torneo.id,
         match_id=fila.match_id,
         team_id=fila.team_id,
@@ -696,4 +600,4 @@ def mirror_highlight(
             detail="Solo se pueden espejar las jugadas cuyo video está en este servidor",
         )
     background.add_task(espejar_jugada, fila.id)
-    return _payload(db, [fila], torneo)[0]
+    return payload_jugadas(db, [fila], {str(torneo.id): torneo})[0]

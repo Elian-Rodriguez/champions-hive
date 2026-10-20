@@ -53,6 +53,16 @@ export type JugadaLike = {
   team_name?: string | null
   match_label?: string | null
   published?: boolean
+  /** Contexto del campeonato. Al organizador le sobra (ya sabe cuál mira),
+   *  pero el capitán lista varios a la vez y el marco necesita saber qué
+   *  nombre y qué logo pintar en cada clip. */
+  tournament_name?: string | null
+  tournament_logo_url?: string | null
+  sport_type?: string | null
+  /** Solo en el panel del capitán: si la jugada es de SU equipo o del rival
+   *  en un partido que jugó. `null` cuando no tiene equipo etiquetado, que no
+   *  es ni una cosa ni la otra. */
+  is_mine?: boolean | null
 }
 
 export type TorneoLike = {

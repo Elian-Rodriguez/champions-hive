@@ -358,6 +358,12 @@ export const api = {
   captainTeams: () => req('/captain/teams'),
   captainMatches: (teamId?: string) =>
     req(`/captain/matches${teamId ? `?team_id=${teamId}` : ''}`),
+  /** Las mejores jugadas de los partidos del capitán: las de su equipo y las
+   *  del partido que jugó (incluido el gol del rival, que `is_mine` distingue).
+   *  Un campeonato cuyo organizador apagó el interruptor se cae de la lista en
+   *  vez de responder 403, porque la consulta cruza todos sus campeonatos. */
+  captainHighlights: (teamId?: string) =>
+    req(`/captain/highlights${teamId ? `?team_id=${teamId}` : ''}`),
   captainSummary: (teamId: string, tournamentId?: string) =>
     req(
       `/captain/teams/${teamId}/summary${
