@@ -7,6 +7,7 @@ import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
 import JugadasPanel from './JugadasPanel'
+import CuadroTab from './CuadroBuilder'
 import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
 import { escudoDesdeArchivo } from '../utils/imagen'
@@ -31,12 +32,43 @@ const PILDORA =
   'flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-display text-sm font-bold tracking-tight transition duration-200 ease-snap'
 
 const SPORTS = SPORT_LIST
+// Qué es cada tipo de fase, dicho en una línea. El desplegable ofrecía cuatro
+// palabras sueltas —«Suizo» entre ellas— y elegir mal se notaba recién al
+// generar el fixture.
 const STAGE_TYPES = [
-  { value: 'group', label: 'Grupos' },
-  { value: 'league', label: 'Liga' },
-  { value: 'knockout', label: 'Eliminación' },
-  { value: 'swiss', label: 'Suizo' },
+  {
+    value: 'group',
+    label: 'Grupos',
+    pista: 'Todos contra todos dentro de cada grupo. De acá salen los clasificados.',
+    fixture: true,
+  },
+  {
+    value: 'league',
+    label: 'Liga',
+    pista: 'Una sola tabla, todos contra todos. El campeón es el primero.',
+    fixture: true,
+  },
+  {
+    value: 'knockout',
+    label: 'Eliminación',
+    pista: 'El que pierde queda afuera. Los cruces se arman en la pestaña Cuadro.',
+    fixture: false,
+  },
+  {
+    value: 'swiss',
+    label: 'Suizo',
+    pista: 'Ronda a ronda, cada equipo juega contra otro de su mismo puntaje.',
+    fixture: false,
+  },
 ]
+const pistaDeFase = (tipo: string) =>
+  STAGE_TYPES.find((s) => s.value === tipo)?.pista || ''
+// Si la fase no se juega a todos contra todos no hay fixture que generar, y el
+// botón solo serviría para borrar lo que ya tiene: el cuadro de una
+// eliminatoria o las rondas de un suizo. El backend lo rechaza igual.
+const tieneFixture = (tipo: string) =>
+  STAGE_TYPES.find((s) => s.value === tipo)?.fixture ?? true
+
 type Tab =
   | 'resumen'
   | 'config'
@@ -44,7 +76,7 @@ type Tab =
   | 'fases'
   | 'calendario'
   | 'posiciones'
-  | 'avance'
+  | 'cuadro'
   | 'jugadas'
   | 'marca'
   | 'historial'
@@ -265,7 +297,7 @@ export default function AdminView() {
                   <Badge className="bg-secondary-container/40 text-secondary">{sportLabel(selected.sport_type)}</Badge>
                 </div>
                 <div className={`mb-5 ${PILDORAS}`}>
-                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'avance', 'jugadas', 'marca', 'historial'] as Tab[]).map((t) => (
+                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'cuadro', 'jugadas', 'marca', 'historial'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
@@ -282,7 +314,7 @@ export default function AdminView() {
                 {tab === 'fases' && <FasesTab tournament={selected} />}
                 {tab === 'calendario' && <CalendarioTab tournament={selected} />}
                 {tab === 'posiciones' && <PosicionesTab tournament={selected} />}
-                {tab === 'avance' && <AvanceTab tournament={selected} />}
+                {tab === 'cuadro' && <CuadroTab tournament={selected} />}
                 {tab === 'jugadas' && <JugadasPanel tournament={selected} />}
                 {tab === 'marca' && <MarcaTab tournament={selected} />}
                 {tab === 'historial' && <HistorialTab tournament={selected} />}
@@ -326,7 +358,7 @@ const HELP_STEPS: { icon: string; title: string; body: string }[] = [
   {
     icon: 'account_tree',
     title: '6. Crea las fases y el fixture',
-    body: 'Pestaña Fases: crea fases de Grupos, Liga, Eliminación o Suizo y pulsa Fixture para generar los partidos de cada fase.',
+    body: 'Pestaña Fases: crea fases de Grupos, Liga, Eliminación o Suizo. En Grupos y Liga, Fixture genera los partidos; un Suizo empareja con «Ronda suiza» y una Eliminación se arma en la pestaña Cuadro.',
   },
   {
     icon: 'calendar_month',
@@ -345,8 +377,8 @@ const HELP_STEPS: { icon: string; title: string; body: string }[] = [
   },
   {
     icon: 'emoji_events',
-    title: '10. Avanza a eliminatorias',
-    body: 'Pestaña Avance: siembra el bracket desde las posiciones de los grupos (con 3er puesto si quieres). Los ganadores avanzan automáticamente.',
+    title: '10. Arma las eliminatorias',
+    body: 'Pestaña Cuadro: «Sembrar por mérito» arma el árbol solo, y si quieres cambiar un cruce arrastras el equipo a otra casilla. Una casilla vacía es un equipo que pasa directo. Los ganadores avanzan automáticamente.',
   },
 ]
 
@@ -1487,16 +1519,24 @@ function StageConfig({
           </Select>
         </div>
       </div>
+      <p className="-mt-2 flex items-start gap-1.5 text-xs text-on-surface-variant">
+        <Icon name="info" className="text-base" /> {pistaDeFase(type)}
+      </p>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={doubleRound}
-          onChange={(e) => setDoubleRound(e.target.checked)}
-          className="h-4 w-4 accent-secondary"
-        />
-        Ida y vuelta (todos contra todos dos veces)
-      </label>
+      {/* En eliminación directa esto no es «dos vueltas» sino una llave de dos
+          partidos, y se configura abajo: ofrecerlo acá era una casilla que no
+          hacía nada. */}
+      {type !== 'knockout' && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={doubleRound}
+            onChange={(e) => setDoubleRound(e.target.checked)}
+            className="h-4 w-4 accent-secondary"
+          />
+          Ida y vuelta (todos contra todos dos veces)
+        </label>
+      )}
 
       {/* En eliminación directa «ida y vuelta» es otra cosa: no son más
           jornadas sino una llave de dos partidos que se decide por el global,
@@ -1533,173 +1573,180 @@ function StageConfig({
         </div>
       )}
 
-      <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
-          Sistema de clasificación
-        </p>
-        <Select
-          value={preset}
-          onChange={(e) => {
-            const v = e.target.value
-            setPreset(v)
-            const p = (presets?.presets || []).find((x: any) => x.value === v)
-            if (p) {
-              setPerGroup(String(p.qualifiers_per_group))
-              setExtras(String(p.best_thirds_count))
-            }
-          }}
-        >
-          <option value="">Personalizado</option>
-          {(presets?.presets || []).map((p: any) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </Select>
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <div className="w-40">
-            <label className="mb-1 block text-xs text-on-surface-variant">
-              Clasifican por grupo
-            </label>
-            <Input
-              type="number"
-              min={1}
-              value={perGroup}
-              onChange={(e) => setPerGroup(e.target.value)}
-            />
-          </div>
-          <div className="w-44">
-            <label className="mb-1 block text-xs text-on-surface-variant">Repescados</label>
-            <Select value={extras} onChange={(e) => setExtras(e.target.value)}>
-              <option value="auto">Auto (completa el cuadro)</option>
-              {[0, 1, 2, 3, 4, 6, 8].map((n) => (
-                <option key={n} value={String(n)}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-        <p className="mt-1 text-xs text-on-surface-variant">
-          Los repescados son los que quedan justo debajo del corte en cada grupo (los
-          terceros si pasan 2, los segundos si pasa 1). Elegir un sistema rellena estos
-          dos valores; si los cambias a mano, mandan los tuyos.
-        </p>
-      </div>
-
-      <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
-          Desempate entre grupos
-        </p>
-        <p className="mb-1.5 text-xs text-on-surface-variant">
-          Orden para comparar equipos de grupos distintos (los repescados). Sin criterios
-          propios se usa: {(presets?.default_cross_tiebreakers || []).join(' → ')}.
-        </p>
-        {crossTb.length > 0 && (
-          <ListaOrdenable
-            items={crossTb}
-            idDe={(k) => k}
-            onReordenar={setCrossTb}
-            className="mb-2 space-y-1"
-            claseItem="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1 text-sm"
-          >
-            {(k, i) => (
-              <>
-                <AsaArrastre />
-                <span className="tnum text-xs text-on-surface-variant">{i + 1}.</span>
-                <span className="flex-1">
-                  {(presets?.cross_tiebreaker_options || []).find((o: any) => o.value === k)
-                    ?.label || k}
-                </span>
-                <button
-                  onClick={() => setCrossTb(crossTb.filter((x) => x !== k))}
-                  className="text-error/80 transition hover:text-error"
-                >
-                  <Icon name="close" className="text-base" />
-                </button>
-              </>
-            )}
-          </ListaOrdenable>
-        )}
-        <div className="flex flex-wrap gap-1.5">
-          {(presets?.cross_tiebreaker_options || [])
-            .filter((o: any) => !crossTb.includes(o.value))
-            .map((o: any) => (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => setCrossTb([...crossTb, o.value])}
-                className="rounded-full border border-outline-variant px-2.5 py-1 text-xs text-on-surface-variant transition hover:border-secondary/60 hover:text-secondary"
-              >
-                + {o.label}
-              </button>
-            ))}
-        </div>
-      </div>
-
-      {preview && preview.pairings?.length > 0 && (
+      {/* Clasificación y repesca solo tienen sentido donde hay grupos que
+          comparar: en una liga, un suizo o una eliminatoria estos campos no
+          hacían nada y el organizador los llenaba igual. */}
+      {type === 'group' && (
+        <>
         <div>
           <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
-            Vista previa del cuadro
+            Sistema de clasificación
           </p>
-          <p className="mb-2 text-xs text-on-surface-variant">
-            <span className="tnum">{preview.bracket_size}</span> equipos ·{' '}
-            {preview.byes?.length
-              ? `${preview.byes.length} pasa(n) directo a la segunda ronda`
-              : 'cuadro completo'}
-            . Se siembra por mérito —mejor contra peor— y el 1 y el 2 quedan en mitades
-            distintas, así que solo pueden encontrarse en la final. Guardar la fase
-            actualiza esto.
-          </p>
-          {preview.byes?.length > 0 && (
-            <ul className="mb-2 space-y-1 text-sm">
-              {preview.byes.map((b: any) => (
-                <li
-                  key={b.seed}
-                  className="flex items-center gap-2 rounded-lg bg-secondary/10 px-2 py-1.5"
-                >
-                  <span className="tnum w-5 shrink-0 text-xs text-on-surface-variant">
-                    {b.seed}º
-                  </span>
-                  <span className="flex-1 truncate">{b.team_name}</span>
-                  <Badge className="bg-secondary/20 text-secondary">Pasa directo</Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-          {preview.avisos?.length > 0 && (
-            <ul className="mb-2 space-y-1">
-              {preview.avisos.map((a: string, i: number) => (
-                <li key={i} className="rounded-lg bg-tertiary/10 px-2 py-1.5 text-xs text-tertiary">
-                  ⚠ {a}
-                </li>
-              ))}
-            </ul>
-          )}
-          <ul className="space-y-1 text-sm">
-            {preview.pairings.map((p: any) => (
-              <li
-                key={p.match}
-                className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1.5"
-              >
-                <span className="tnum w-6 text-xs text-on-surface-variant">#{p.match}</span>
-                <span className="flex-1 truncate text-right">
-                  {p.home_team_name}
-                  <span className="tnum ml-1 text-xs text-on-surface-variant">
-                    ({p.home_seed}º{p.home_group ? ` · ${p.home_group}` : ''})
-                  </span>
-                </span>
-                <span className="text-xs text-on-surface-variant">vs</span>
-                <span className="flex-1 truncate">
-                  {p.away_team_name}
-                  <span className="tnum ml-1 text-xs text-on-surface-variant">
-                    ({p.away_seed}º{p.away_group ? ` · ${p.away_group}` : ''})
-                  </span>
-                </span>
-              </li>
+          <Select
+            value={preset}
+            onChange={(e) => {
+              const v = e.target.value
+              setPreset(v)
+              const p = (presets?.presets || []).find((x: any) => x.value === v)
+              if (p) {
+                setPerGroup(String(p.qualifiers_per_group))
+                setExtras(String(p.best_thirds_count))
+              }
+            }}
+          >
+            <option value="">Personalizado</option>
+            {(presets?.presets || []).map((p: any) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
             ))}
-          </ul>
+          </Select>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <div className="w-40">
+              <label className="mb-1 block text-xs text-on-surface-variant">
+                Clasifican por grupo
+              </label>
+              <Input
+                type="number"
+                min={1}
+                value={perGroup}
+                onChange={(e) => setPerGroup(e.target.value)}
+              />
+            </div>
+            <div className="w-44">
+              <label className="mb-1 block text-xs text-on-surface-variant">Repescados</label>
+              <Select value={extras} onChange={(e) => setExtras(e.target.value)}>
+                <option value="auto">Auto (completa el cuadro)</option>
+                {[0, 1, 2, 3, 4, 6, 8].map((n) => (
+                  <option key={n} value={String(n)}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-on-surface-variant">
+            Los repescados son los que quedan justo debajo del corte en cada grupo (los
+            terceros si pasan 2, los segundos si pasa 1). Elegir un sistema rellena estos
+            dos valores; si los cambias a mano, mandan los tuyos.
+          </p>
         </div>
+
+        <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
+            Desempate entre grupos
+          </p>
+          <p className="mb-1.5 text-xs text-on-surface-variant">
+            Orden para comparar equipos de grupos distintos (los repescados). Sin criterios
+            propios se usa: {(presets?.default_cross_tiebreakers || []).join(' → ')}.
+          </p>
+          {crossTb.length > 0 && (
+            <ListaOrdenable
+              items={crossTb}
+              idDe={(k) => k}
+              onReordenar={setCrossTb}
+              className="mb-2 space-y-1"
+              claseItem="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1 text-sm"
+            >
+              {(k, i) => (
+                <>
+                  <AsaArrastre />
+                  <span className="tnum text-xs text-on-surface-variant">{i + 1}.</span>
+                  <span className="flex-1">
+                    {(presets?.cross_tiebreaker_options || []).find((o: any) => o.value === k)
+                      ?.label || k}
+                  </span>
+                  <button
+                    onClick={() => setCrossTb(crossTb.filter((x) => x !== k))}
+                    className="text-error/80 transition hover:text-error"
+                  >
+                    <Icon name="close" className="text-base" />
+                  </button>
+                </>
+              )}
+            </ListaOrdenable>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {(presets?.cross_tiebreaker_options || [])
+              .filter((o: any) => !crossTb.includes(o.value))
+              .map((o: any) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setCrossTb([...crossTb, o.value])}
+                  className="rounded-full border border-outline-variant px-2.5 py-1 text-xs text-on-surface-variant transition hover:border-secondary/60 hover:text-secondary"
+                >
+                  + {o.label}
+                </button>
+              ))}
+          </div>
+        </div>
+
+        {preview && preview.pairings?.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
+              Vista previa del cuadro
+            </p>
+            <p className="mb-2 text-xs text-on-surface-variant">
+              <span className="tnum">{preview.bracket_size}</span> equipos ·{' '}
+              {preview.byes?.length
+                ? `${preview.byes.length} pasa(n) directo a la segunda ronda`
+                : 'cuadro completo'}
+              . Se siembra por mérito —mejor contra peor— y el 1 y el 2 quedan en mitades
+              distintas, así que solo pueden encontrarse en la final. Guardar la fase
+              actualiza esto.
+            </p>
+            {preview.byes?.length > 0 && (
+              <ul className="mb-2 space-y-1 text-sm">
+                {preview.byes.map((b: any) => (
+                  <li
+                    key={b.seed}
+                    className="flex items-center gap-2 rounded-lg bg-secondary/10 px-2 py-1.5"
+                  >
+                    <span className="tnum w-5 shrink-0 text-xs text-on-surface-variant">
+                      {b.seed}º
+                    </span>
+                    <span className="flex-1 truncate">{b.team_name}</span>
+                    <Badge className="bg-secondary/20 text-secondary">Pasa directo</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {preview.avisos?.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {preview.avisos.map((a: string, i: number) => (
+                  <li key={i} className="rounded-lg bg-tertiary/10 px-2 py-1.5 text-xs text-tertiary">
+                    ⚠ {a}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ul className="space-y-1 text-sm">
+              {preview.pairings.map((p: any) => (
+                <li
+                  key={p.match}
+                  className="flex items-center gap-2 rounded-lg bg-surface-container-high px-2 py-1.5"
+                >
+                  <span className="tnum w-6 text-xs text-on-surface-variant">#{p.match}</span>
+                  <span className="flex-1 truncate text-right">
+                    {p.home_team_name}
+                    <span className="tnum ml-1 text-xs text-on-surface-variant">
+                      ({p.home_seed}º{p.home_group ? ` · ${p.home_group}` : ''})
+                    </span>
+                  </span>
+                  <span className="text-xs text-on-surface-variant">vs</span>
+                  <span className="flex-1 truncate">
+                    {p.away_team_name}
+                    <span className="tnum ml-1 text-xs text-on-surface-variant">
+                      ({p.away_seed}º{p.away_group ? ` · ${p.away_group}` : ''})
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        </>
       )}
 
       <div>
@@ -1851,20 +1898,22 @@ function FasesTab({ tournament }: { tournament: any }) {
                 >
                   <Icon name="tune" /> Configurar
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={async () => {
-                    setMsg(null)
-                    try {
-                      const r = await api.generateFixture(s.id)
-                      setMsg(r.message)
-                    } catch (e: any) {
-                      setMsg(e.message)
-                    }
-                  }}
-                >
-                  <Icon name="event" /> Fixture
-                </Button>
+                {tieneFixture(s.type) && (
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      setMsg(null)
+                      try {
+                        const r = await api.generateFixture(s.id)
+                        setMsg(r.message)
+                      } catch (e: any) {
+                        setMsg(e.message)
+                      }
+                    }}
+                  >
+                    <Icon name="event" /> Fixture
+                  </Button>
+                )}
                 {s.type === 'swiss' && (
                   <Button
                     variant="ghost"
@@ -1970,433 +2019,6 @@ function PosicionesTab({ tournament }: { tournament: any }) {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// Valor del selector de grupo que significa «aquí juega el ganador de un
-// partido de otra fase». Es lo que hace de un repechaje un partido de
-// verdad en vez de un ranking en papel.
-const GANADOR_DE = '__winner_of__'
-
-function AvanceTab({ tournament }: { tournament: any }) {
-  const [stages, setStages] = useState<any[]>([])
-  const [sourceId, setSourceId] = useState('')
-  const [targetId, setTargetId] = useState('')
-  const [groups, setGroups] = useState<string[]>([])
-  const [standings, setStandings] = useState<Record<string, any[]>>({})
-  const [thirds, setThirds] = useState<any[]>([])
-  const [rows, setRows] = useState<any[]>([{ hg: '', hp: 1, ag: '', ap: 2 }])
-  // Los que pasan directo a la segunda ronda, cuando los clasificados no son
-  // una potencia de 2. Sin esto un cuadro de 6 no se puede armar a mano.
-  const [byeRows, setByeRows] = useState<any[]>([])
-  // Los partidos de las fases eliminatorias ya creadas: cualquiera de ellos
-  // puede alimentar un cruce («juega el ganador de…»), que es lo que hace de
-  // un repechaje un partido de verdad y no un ranking en papel.
-  const [partidosFuente, setPartidosFuente] = useState<any[]>([])
-  const [thirdPlace, setThirdPlace] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  useEffect(() => {
-    api.getStages(tournament.id).then(async (st: any[]) => {
-      setStages(st)
-      const llaves = st.filter((s) => s.type === 'knockout')
-      const listas = await Promise.all(
-        llaves.map((s) =>
-          api
-            .stageMatches(s.id)
-            .then((ms: any[]) => ms.map((m) => ({ ...m, stage_name: s.name })))
-            .catch(() => []),
-        ),
-      )
-      setPartidosFuente(listas.flat())
-    })
-  }, [tournament.id])
-  const rotuloPartido = (m: any) =>
-    `${m.stage_name}: ${m.home_team_name || 'Por definir'} vs ${
-      m.away_team_name || 'Por definir'
-    }`
-  async function onSource(id: string) {
-    setSourceId(id)
-    setStandings({})
-    setThirds([])
-    if (!id) return setGroups([])
-    const gs = await api.standingsByGroup(id)
-    setGroups(Object.keys(gs))
-    setStandings(gs)
-    api.bestThirds(id, 4).then((r) => setThirds(r.best_thirds || [])).catch(() => setThirds([]))
-  }
-  const groupOpts = [...groups, '__best_thirds__']
-
-  async function run(action: 'seed' | 'advance') {
-    setMsg(null)
-    try {
-      if (!sourceId || !targetId) {
-        setMsg('Selecciona fase origen y destino.')
-        return
-      }
-      if (action === 'seed') {
-        const r = await api.seedBracket(targetId, {
-          source_stage_id: sourceId,
-          third_place: thirdPlace,
-          round1: rows.map((c) => ({
-            ...(c.hg === GANADOR_DE
-              ? { home_winner_of: c.hw }
-              : { home_group: c.hg, home_position: Number(c.hp) }),
-            ...(c.ag === GANADOR_DE
-              ? { away_winner_of: c.aw }
-              : { away_group: c.ag, away_position: Number(c.ap) }),
-          })),
-          byes: byeRows
-            .filter((b) => b.g)
-            .map((b) =>
-              b.g === GANADOR_DE
-                ? { winner_of: b.w }
-                : { group: b.g, position: Number(b.p) },
-            ),
-        })
-        setMsg(r.message)
-      } else {
-        const r = await api.advance(sourceId, {
-          next_stage_id: targetId,
-          pairings: rows.map((c) => ({
-            h_group: c.hg,
-            h_pos: Number(c.hp),
-            a_group: c.ag,
-            a_pos: Number(c.ap),
-          })),
-        })
-        setMsg(r.message)
-      }
-    } catch (e: any) {
-      setMsg(e.message)
-    }
-  }
-
-  async function autoBracket() {
-    setMsg(null)
-    try {
-      const allStages = await api.getStages(tournament.id)
-      const groupStage = allStages.find((s: any) => s.type === 'group')
-      if (!groupStage) {
-        setMsg('No hay una fase de grupos de la cual generar las eliminatorias.')
-        return
-      }
-      const sbg: Record<string, any[]> = await api.standingsByGroup(groupStage.id)
-      const grps = Object.keys(sbg).filter((g) => g !== 'Sin Grupo' && sbg[g].length)
-      if (grps.length < 1) {
-        setMsg('La fase de grupos no tiene equipos en grupos.')
-        return
-      }
-      const metric = (r: any) => [r.league_points || 0, r.diff || 0, r.points_scored || 0]
-      const cmp = (a: any, b: any) => {
-        const ma = metric(a.row)
-        const mb = metric(b.row)
-        for (let i = 0; i < 3; i++) if (mb[i] !== ma[i]) return mb[i] - ma[i]
-        return 0
-      }
-      const maxpos = Math.max(...grps.map((g) => sbg[g].length))
-      let seeds: any[] = []
-      for (let pos = 1; pos <= maxpos; pos++) {
-        const tier = grps
-          .filter((g) => sbg[g].length >= pos)
-          .map((g) => ({ group: g, position: pos, row: sbg[g][pos - 1] }))
-        tier.sort(cmp)
-        seeds.push(...tier)
-      }
-      const base = grps.reduce((a, g) => a + Math.min(2, sbg[g].length), 0)
-      const thirdsAvail = grps.filter((g) => sbg[g].length >= 3).length
-      const total = seeds.length
-      const nextPow2 = (x: number) => {
-        let p = 1
-        while (p < x) p *= 2
-        return p
-      }
-      const size = Math.max(2, nextPow2(base))
-      // Los clasificados son los directos más los repescados que haya. Antes,
-      // cuando no alcanzaban para llegar a la potencia de 2, el cuadro se
-      // achicaba y los últimos clasificados desaparecían; ahora se quedan
-      // todos y los mejores sembrados entran con bye.
-      const clasificados = Math.min(size, base + thirdsAvail, total)
-      if (clasificados < 2) {
-        setMsg('No hay suficientes equipos clasificados para armar las eliminatorias.')
-        return
-      }
-      seeds = seeds.slice(0, clasificados)
-      // Orden de siembra estándar (1 vs N, …) para que el 1.º y 2.º solo se crucen en la final.
-      let order = [1, 2]
-      while (order.length < size) {
-        const m = order.length * 2 + 1
-        const out: number[] = []
-        for (const r of order) {
-          out.push(r)
-          out.push(m - r)
-        }
-        order = out
-      }
-      const round1: any[] = []
-      const byes: any[] = []
-      for (let i = 0; i < size; i += 2) {
-        const mejor = Math.min(order[i], order[i + 1])
-        const peor = Math.max(order[i], order[i + 1])
-        const a = seeds[mejor - 1]
-        // La casilla de enfrente quedó vacía: ese sembrado pasa directo.
-        if (peor > clasificados) {
-          byes.push({ group: a.group, position: a.position })
-          continue
-        }
-        const b = seeds[peor - 1]
-        round1.push({
-          home_group: a.group,
-          home_position: a.position,
-          away_group: b.group,
-          away_position: b.position,
-        })
-      }
-      const gm = await api.stageMatches(groupStage.id)
-      const allDone = gm.length > 0 && gm.every((m: any) => m.status === 'finished')
-      const ko = await api.createStage(tournament.id, { name: 'Eliminatorias', type: 'knockout' })
-      await api.seedBracket(ko.id, {
-        source_stage_id: groupStage.id,
-        third_place: true,
-        round1,
-        byes,
-      })
-      if (allDone) await api.resolveSlots(ko.id)
-      setStages(await api.getStages(tournament.id))
-      const conBye = byes.length ? ` · ${byes.length} pasa(n) directo` : ''
-      setMsg(
-        allDone
-          ? `🎯 Eliminatorias generadas (${clasificados} equipos${conBye}) y cruces resueltos.`
-          : `🎯 Estructura de eliminatorias creada (${clasificados} equipos${conBye}). Se llenará al terminar los grupos.`,
-      )
-    } catch (e: any) {
-      setMsg(e.message)
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="card-accent flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-xl border border-secondary/30 bg-secondary/10 p-4">
-        <div className="min-w-0">
-          <p className="headline flex items-center gap-2 text-base tracking-[0.08em] text-secondary">
-            <Icon name="auto_awesome" /> Generar eliminatorias automáticamente
-          </p>
-          <p className="mt-0.5 text-xs text-on-surface-variant">
-            Toma 1.º y 2.º de cada grupo + los mejores terceros y siembra cuartos/semis/3.º/final.
-          </p>
-        </div>
-        <Button onClick={autoBracket}>
-          <Icon name="bolt" /> Generar
-        </Button>
-      </div>
-      <p className="text-sm text-on-surface-variant">
-        O define los cruces manualmente tomando posiciones de la fase origen y créalos en la fase destino.
-      </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs text-on-surface-variant">Fase origen (grupos/liga)</label>
-          <Select value={sourceId} onChange={(e) => onSource(e.target.value)}>
-            <option value="">—</option>
-            {stages.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-on-surface-variant">Fase destino</label>
-          <Select value={targetId} onChange={(e) => setTargetId(e.target.value)}>
-            <option value="">—</option>
-            {stages.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.type})
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
-
-      {Object.keys(standings).length > 0 && (
-        <div className="space-y-3 rounded-lg bg-surface-container-low p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant">
-            Posiciones de la fase origen
-          </p>
-          {Object.entries(standings).map(([group, rws]) => (
-            <div key={group}>
-              <h4 className="mb-1 font-display text-sm font-bold">
-                {group === 'Sin Grupo' ? 'Tabla general' : `Grupo ${group}`}
-              </h4>
-              <StandingsTable rows={rws} sport={tournament?.sport_type} />
-            </div>
-          ))}
-          {thirds.length > 0 && (
-            <p className="text-xs text-on-surface-variant">
-              Mejores terceros:{' '}
-              {thirds.map((t, i) => `${t.team_name || t.team_id} (${t.from_group})`).join(' · ')}
-            </p>
-          )}
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {rows.map((c, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-high p-2">
-            <Select value={c.hg} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, hg: e.target.value } : r)))} className="w-32">
-              <option value="">grupo</option>
-              {groupOpts.map((g) => (
-                <option key={g} value={g}>
-                  {g === '__best_thirds__' ? 'Mej. terceros' : g}
-                </option>
-              ))}
-              {partidosFuente.length > 0 && <option value={GANADOR_DE}>Ganador de…</option>}
-            </Select>
-            {c.hg === GANADOR_DE ? (
-              <Select
-                value={c.hw || ''}
-                onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, hw: e.target.value } : r)))}
-                className="w-56"
-              >
-                <option value="">partido</option>
-                {partidosFuente.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {rotuloPartido(m)}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input type="number" min={1} value={c.hp} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, hp: e.target.value } : r)))} className="tnum w-16" />
-            )}
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-on-surface-variant">vs</span>
-            <Select value={c.ag} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, ag: e.target.value } : r)))} className="w-32">
-              <option value="">grupo</option>
-              {groupOpts.map((g) => (
-                <option key={g} value={g}>
-                  {g === '__best_thirds__' ? 'Mej. terceros' : g}
-                </option>
-              ))}
-              {partidosFuente.length > 0 && <option value={GANADOR_DE}>Ganador de…</option>}
-            </Select>
-            {c.ag === GANADOR_DE ? (
-              <Select
-                value={c.aw || ''}
-                onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, aw: e.target.value } : r)))}
-                className="w-56"
-              >
-                <option value="">partido</option>
-                {partidosFuente.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {rotuloPartido(m)}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input type="number" min={1} value={c.ap} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, ap: e.target.value } : r)))} className="tnum w-16" />
-            )}
-            <button onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-error/80 transition hover:text-error">
-              <Icon name="close" />
-            </button>
-          </div>
-        ))}
-        <Button variant="ghost" onClick={() => setRows([...rows, { hg: '', hp: 1, ag: '', ap: 2 }])}>
-          <Icon name="add" /> Cruce
-        </Button>
-      </div>
-
-      {/* Byes: con 6 clasificados juegan 4 y los dos mejores esperan. El
-          servidor dice cuántos faltan si las cuentas no cierran. */}
-      <div className="space-y-2">
-        {byeRows.map((b, i) => (
-          <div
-            key={i}
-            className="flex flex-wrap items-center gap-2 rounded-lg bg-secondary/10 p-2"
-          >
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary">
-              Pasa directo
-            </span>
-            <Select
-              value={b.g}
-              onChange={(e) =>
-                setByeRows(byeRows.map((r, j) => (j === i ? { ...r, g: e.target.value } : r)))
-              }
-              className="w-32"
-            >
-              <option value="">grupo</option>
-              {groupOpts.map((g) => (
-                <option key={g} value={g}>
-                  {g === '__best_thirds__' ? 'Mej. terceros' : g}
-                </option>
-              ))}
-              {partidosFuente.length > 0 && <option value={GANADOR_DE}>Ganador de…</option>}
-            </Select>
-            {b.g === GANADOR_DE ? (
-              <Select
-                value={b.w || ''}
-                onChange={(e) =>
-                  setByeRows(byeRows.map((r, j) => (j === i ? { ...r, w: e.target.value } : r)))
-                }
-                className="w-56"
-              >
-                <option value="">partido</option>
-                {partidosFuente.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {rotuloPartido(m)}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input
-                type="number"
-                min={1}
-                value={b.p}
-                onChange={(e) =>
-                  setByeRows(byeRows.map((r, j) => (j === i ? { ...r, p: e.target.value } : r)))
-                }
-                className="tnum w-16"
-              />
-            )}
-            <button
-              onClick={() => setByeRows(byeRows.filter((_, j) => j !== i))}
-              className="text-error/80 transition hover:text-error"
-            >
-              <Icon name="close" />
-            </button>
-          </div>
-        ))}
-        <Button variant="ghost" onClick={() => setByeRows([...byeRows, { g: '', p: 1 }])}>
-          <Icon name="add" /> Bye (pasa directo a 2ª ronda)
-        </Button>
-      </div>
-
-      <label className="flex items-center gap-2 text-sm text-on-surface-variant">
-        <input
-          type="checkbox"
-          checked={thirdPlace}
-          onChange={(e) => setThirdPlace(e.target.checked)}
-          className="accent-secondary"
-        />
-        Incluir partido por el 3er puesto
-      </label>
-
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => run('seed')}>
-          <Icon name="account_tree" /> Sembrar bracket
-        </Button>
-        <Button variant="outline" onClick={() => run('advance')}>
-          <Icon name="arrow_forward" /> Avanzar (crear cruces)
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={async () => {
-            if (!targetId) return setMsg('Selecciona la fase destino.')
-            const r = await api.resolveSlots(targetId)
-            setMsg(r.message)
-          }}
-        >
-          <Icon name="sync" /> Resolver cruces
-        </Button>
-      </div>
-      {msg && <p className="text-sm text-secondary">{msg}</p>}
     </div>
   )
 }
