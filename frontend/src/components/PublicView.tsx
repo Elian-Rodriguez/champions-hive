@@ -8,9 +8,11 @@ import {
   makeMatchImage,
   makeStandingsImage,
   makeStatsImage,
+  PALETAS,
   shareImages,
+  TONOS,
 } from '../utils/socialImage'
-import type { TableCol } from '../utils/socialImage'
+import type { Paleta, TableCol, Tono } from '../utils/socialImage'
 import QRCode from 'qrcode'
 import {
   Badge,
@@ -41,6 +43,19 @@ type PubTab = 'posiciones' | 'bracket' | 'calendario' | 'estadisticas'
 
 // Alcance por defecto de las estadísticas: todas las fases del torneo.
 const TODAS_LAS_FASES: StatScope = { stageId: null, mode: 'from' }
+
+// Con qué tono salen las imágenes para redes. Se recuerda en el navegador
+// porque el marcador tiene nueve botones de compartir y quien publica en claro
+// publica todo en claro: volver a elegirlo nueve veces es lo que hace que la
+// opción no se use.
+const TONO_KEY = 'ch_tono_imagen'
+function tonoGuardado(): Tono {
+  try {
+    return localStorage.getItem(TONO_KEY) === 'claro' ? 'claro' : 'oscuro'
+  } catch {
+    return 'oscuro'
+  }
+}
 
 // Racha (forma) de un equipo: secuencia W/D/L de sus partidos finalizados, en
 // orden cronológico (los más recientes al final).
@@ -192,11 +207,16 @@ export default function PublicView({
   const [disciplina, setDisciplina] = useState<any>(null)
   const [valla, setValla] = useState<any[]>([])
   const [statScope, setStatScope] = useState<StatScope>(TODAS_LAS_FASES)
+  // El tono elegido manda en las imágenes de redes y en el PNG/PDF que se
+  // bajan directo, que son la misma imagen por otra puerta.
+  const [tono, setTono] = useState<Tono>(tonoGuardado)
   const [shareImg, setShareImg] = useState<{
     urls: string[]
     blobs: Blob[]
     label: string
     i: number
+    /** Cómo se dibujó: el modal deja cambiar el tono sin cerrarse. */
+    make: (paleta: Paleta) => Promise<Blob | Blob[]>
   } | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   // team_id → logo_url del torneo abierto: alimenta las tablas en pantalla y
@@ -217,18 +237,45 @@ export default function PublicView({
 
   // Los cuadros largos (calendario, posiciones, goleadores) vuelven repartidos
   // en varias imágenes; el resto devuelve una sola y se trata igual.
-  async function genShare(label: string, make: () => Promise<Blob | Blob[]>) {
+  async function genShare(
+    label: string,
+    make: (paleta: Paleta) => Promise<Blob | Blob[]>,
+    conTono: Tono = tono,
+  ) {
+    // Las de pantalla se liberan recién cuando hay reemplazo: al cambiar de
+    // tono el modal no queda un instante en blanco.
+    const previas = shareImg
+    const mismo = previas?.label === label
     setShareBusy(true)
     try {
-      const hecho = await make()
+      const hecho = await make(PALETAS[conTono])
       const blobs = Array.isArray(hecho) ? hecho : [hecho]
       if (!blobs.length) return
-      setShareImg({ blobs, urls: blobs.map((b) => URL.createObjectURL(b)), label, i: 0 })
+      setShareImg({
+        blobs,
+        urls: blobs.map((b) => URL.createObjectURL(b)),
+        label,
+        // Quien cambia el tono mirando la página 2 de 3 sigue en la 2.
+        i: mismo ? Math.min(previas!.i, blobs.length - 1) : 0,
+        make,
+      })
+      previas?.urls.forEach((u) => URL.revokeObjectURL(u))
     } catch {
       /* no se pudo generar la imagen */
     } finally {
       setShareBusy(false)
     }
+  }
+  /** Cambia el tono y vuelve a dibujar lo que ya está en pantalla. */
+  function cambiarTono(t: Tono) {
+    if (t === tono) return
+    setTono(t)
+    try {
+      localStorage.setItem(TONO_KEY, t)
+    } catch {
+      /* cuota llena: la imagen sale igual, solo no se recuerda */
+    }
+    if (shareImg) genShare(shareImg.label, shareImg.make, t)
   }
   function closeShare() {
     shareImg?.urls.forEach((u) => URL.revokeObjectURL(u))
@@ -658,7 +705,14 @@ export default function PublicView({
                                 onClick={async () => {
                                   try {
                                     downloadImages(
-                                      await makeStandingsImage(selected, group, rows, sponsors, teamLogos),
+                                      await makeStandingsImage(
+                                        selected,
+                                        group,
+                                        rows,
+                                        sponsors,
+                                        teamLogos,
+                                        PALETAS[tono],
+                                      ),
                                       `posiciones-${selected.name}${group !== 'Sin Grupo' ? `-grupo-${group}` : ''}`,
                                     )
                                   } catch {
@@ -671,7 +725,11 @@ export default function PublicView({
                                 <Icon name="download" className="text-sm" /> PNG
                               </button>
                               <button
-                                onClick={() => genShare('tabla', () => makeStandingsImage(selected, group, rows, sponsors, teamLogos))}
+                                onClick={() =>
+                                  genShare('tabla', (paleta) =>
+                                    makeStandingsImage(selected, group, rows, sponsors, teamLogos, paleta),
+                                  )
+                                }
                                 className="flex items-center gap-1 rounded-lg bg-surface-container-high px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-surface-bright"
                                 title="Generar imagen para redes"
                               >
@@ -779,7 +837,13 @@ export default function PublicView({
                           onClick={async () => {
                             try {
                               await exportImagePDF(
-                                await makeBracketImage(selected, koStage?.name || null, bracket, sponsors),
+                                await makeBracketImage(
+                                  selected,
+                                  koStage?.name || null,
+                                  bracket,
+                                  sponsors,
+                                  PALETAS[tono],
+                                ),
                                 `bracket-${selected.name}.pdf`,
                                 { landscape: true },
                               )
@@ -793,8 +857,8 @@ export default function PublicView({
                         <Button
                           variant="outline"
                           onClick={() =>
-                            genShare('bracket', () =>
-                              makeBracketImage(selected, koStage?.name || null, bracket, sponsors),
+                            genShare('bracket', (paleta) =>
+                              makeBracketImage(selected, koStage?.name || null, bracket, sponsors, paleta),
                             )
                           }
                         >
@@ -850,7 +914,7 @@ export default function PublicView({
                           className="ml-auto"
                           disabled={calMatches.length === 0}
                           onClick={() =>
-                            genShare('calendario', () =>
+                            genShare('calendario', (paleta) =>
                               makeCalendarImage(
                                 selected,
                                 calMatches,
@@ -860,6 +924,7 @@ export default function PublicView({
                                 },
                                 sponsors,
                                 teamLogos,
+                                paleta,
                               ),
                             )
                           }
@@ -936,7 +1001,11 @@ export default function PublicView({
                                   </Badge>
                                 )}
                                 <button
-                                  onClick={() => genShare('partido', () => makeMatchImage(selected, m, sponsors))}
+                                  onClick={() =>
+                                    genShare('partido', (paleta) =>
+                                      makeMatchImage(selected, m, sponsors, paleta),
+                                    )
+                                  }
                                   className="shrink-0 rounded-lg p-1.5 text-on-surface-variant transition hover:bg-surface-bright hover:text-secondary"
                                   title="Imagen para redes"
                                 >
@@ -1121,7 +1190,7 @@ export default function PublicView({
                         </h3>
                         <ShareChip
                           onClick={() =>
-                            genShare('valla', () =>
+                            genShare('valla', (paleta) =>
                               makeStatsImage(
                                 selected,
                                 sportOf(selected?.sport_type).defenseLabel,
@@ -1129,6 +1198,7 @@ export default function PublicView({
                                 vallaCols,
                                 valla,
                                 sponsors,
+                                paleta,
                               ),
                             )
                           }
@@ -1194,7 +1264,7 @@ export default function PublicView({
                       {playerStats.length > 0 && (
                         <ShareChip
                           onClick={() =>
-                            genShare('goleadores', () =>
+                            genShare('goleadores', (paleta) =>
                               makeStatsImage(
                                 selected,
                                 sportOf(selected?.sport_type).scorersLabel,
@@ -1202,6 +1272,7 @@ export default function PublicView({
                                 golCols,
                                 playerStats,
                                 sponsors,
+                                paleta,
                               ),
                             )
                           }
@@ -1249,8 +1320,16 @@ export default function PublicView({
                       {teamStats.length > 0 && (
                         <ShareChip
                           onClick={() =>
-                            genShare('equipos', () =>
-                              makeStatsImage(selected, 'Estadísticas por equipo', scopeLabel, teamCols, teamStats, sponsors),
+                            genShare('equipos', (paleta) =>
+                              makeStatsImage(
+                                selected,
+                                'Estadísticas por equipo',
+                                scopeLabel,
+                                teamCols,
+                                teamStats,
+                                sponsors,
+                                paleta,
+                              ),
                             )
                           }
                         />
@@ -1349,8 +1428,16 @@ export default function PublicView({
                           </h3>
                           <ShareChip
                             onClick={() =>
-                              genShare('sancionados', () =>
-                                makeStatsImage(selected, 'Sancionados', scopeLabel, sancCols, sanc, sponsors),
+                              genShare('sancionados', (paleta) =>
+                                makeStatsImage(
+                                  selected,
+                                  'Sancionados',
+                                  scopeLabel,
+                                  sancCols,
+                                  sanc,
+                                  sponsors,
+                                  paleta,
+                                ),
                               )
                             }
                           />
@@ -1462,8 +1549,16 @@ export default function PublicView({
                         </h3>
                         <ShareChip
                           onClick={() =>
-                            genShare('juego-limpio', () =>
-                              makeStatsImage(selected, 'Tabla de juego limpio', scopeLabel, fairCols, fairPlay, sponsors),
+                            genShare('juego-limpio', (paleta) =>
+                              makeStatsImage(
+                                selected,
+                                'Tabla de juego limpio',
+                                scopeLabel,
+                                fairCols,
+                                fairPlay,
+                                sponsors,
+                                paleta,
+                              ),
                             )
                           }
                         />
@@ -1708,7 +1803,23 @@ export default function PublicView({
                 </>
               )}
             </div>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-3 flex items-center justify-center gap-1.5">
+              {TONOS.map((t) => (
+                <button
+                  key={t.tono}
+                  onClick={() => cambiarTono(t.tono)}
+                  disabled={shareBusy}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition disabled:opacity-60 ${
+                    tono === t.tono
+                      ? 'border-secondary bg-secondary/15 text-secondary'
+                      : 'border-outline-variant text-on-surface-variant hover:border-outline'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex gap-2">
               <Button
                 className="flex-1"
                 onClick={() =>

@@ -5,16 +5,214 @@
 // (Blob) para descargar/compartir.
 
 import { penalesLabel } from './partido'
+import { THEME } from '../theme'
 
 const W = 1080
 const H = 1080
-const GREEN = '#c7ff3f'
-const GREEN_DK = '#9be000'
-const ORANGE = '#ff6a3d'
-const TEXT = '#eaf0fa'
-const MUTED = '#99a4b8'
 
 type Ctx = CanvasRenderingContext2D
+
+// ---- La paleta ----
+
+/**
+ * Con qué colores se dibuja la imagen.
+ *
+ * El módulo estaba cableado a la paleta oscura del sistema «Hive Arena», que
+ * es la de la app, y la imagen no se mira donde se mira la app: sale a un hilo
+ * de WhatsApp o a una historia de Instagram, donde el fondo lo pone quien la
+ * recibe. Un cuadro casi negro en un chat claro se lee como un agujero, la
+ * liga que imprime el calendario para pegarlo en la cancha gasta un cartucho
+ * en el fondo, y el torneo cuya marca es clara no tiene cómo publicar en lo
+ * suyo. De ahí las dos variantes.
+ *
+ * Dos pares de tokens que parecen repetidos y no lo son: lo que se LEE sobre
+ * el fondo (`acento`, `urgencia`) va separado de lo que se usa como RELLENO de
+ * marca (`acentoRelleno`, `urgenciaRelleno`: el lima y el naranja). El lima
+ * de la marca sobre blanco tiene 1,3 de contraste —como texto no existe—, pero
+ * como relleno con tinta oscura encima funciona igual en las dos paletas, y es
+ * justo lo que no hay que perder al pasar a claro.
+ *
+ * Los tonos tenues NO son campos de esto: se derivan con `velo()`, porque una
+ * fila alterna o un separador son la tinta a poca opacidad SOBRE el degradado
+ * del fondo. Si fueran hex opacos taparían el degradado, que es la mitad del
+ * aire que tiene la imagen.
+ */
+export type Paleta = {
+  /** Los dos extremos del degradado del fondo. */
+  fondo: string
+  fondoAlto: string
+  /** Tinte de los rellenos tenues: filas alternas, tarjetas del bracket. */
+  superficie: string
+  /** Tinte de separadores y bordes. */
+  linea: string
+  texto: string
+  textoTenue: string
+  /** El acento que se lee sobre el fondo: textos, trazos, puntos, horas. */
+  acento: string
+  /** El relleno de marca (la barra de arriba, el pill, el chip de página) y su
+   *  segundo tono; van juntos porque son el degradado del acento. */
+  acentoRelleno: string
+  acentoProfundo: string
+  /** La tinta que va encima de un relleno de acento. */
+  sobreAcento: string
+  /** En vivo, aplazado, W.O.: lo que urge, para leer y para rellenar. */
+  urgencia: string
+  urgenciaRelleno: string
+}
+
+/** La de siempre, y la que sigue saliendo si nadie pide otra cosa. Sale de
+ *  theme.ts para que el acento no haya que retunearlo en dos lugares; el
+ *  `fondoAlto` es el único hex propio, porque ese degradado solo se pinta acá. */
+export const PALETA_OSCURA: Paleta = {
+  fondo: THEME.ink,
+  fondoAlto: '#101624',
+  superficie: THEME.text,
+  linea: THEME.text,
+  texto: THEME.text,
+  textoTenue: THEME.textDim,
+  acento: THEME.volt,
+  acentoRelleno: THEME.volt,
+  acentoProfundo: THEME.voltDeep,
+  sobreAcento: THEME.onVolt,
+  urgencia: THEME.flare,
+  urgenciaRelleno: THEME.flare,
+}
+
+/**
+ * La clara, que no es la oscura invertida.
+ *
+ * El fondo no es blanco puro a propósito: en un hilo claro de WhatsApp una
+ * imagen blanca no tiene borde y se derrama sobre el chat. Los acentos que se
+ * leen bajan a un lima y un ladrillo profundos (5,9 y 4,9 de contraste contra
+ * el fondo, donde el lima crudo da 1,3) y los rellenos se quedan con el lima y
+ * el naranja de la marca, que es lo que mantiene la imagen reconocible.
+ *
+ * Vive acá y no en theme.ts porque theme.ts es el sistema de la app, y la app
+ * es oscura por diseño: estos tonos solo existen para lo que se exporta.
+ */
+export const PALETA_CLARA: Paleta = {
+  fondo: '#F7F9FD',
+  fondoAlto: '#E4EAF6',
+  superficie: THEME.ink,
+  linea: THEME.ink,
+  texto: THEME.ink,
+  textoTenue: '#5A6477',
+  acento: '#4A6B00',
+  acentoRelleno: THEME.volt,
+  acentoProfundo: THEME.voltDeep,
+  sobreAcento: THEME.onVolt,
+  urgencia: '#C2420F',
+  urgenciaRelleno: THEME.flare,
+}
+
+/** Cómo se pide una paleta desde la UI, que es lo único que viaja a un estado
+ *  de React o a localStorage. */
+export type Tono = 'oscuro' | 'claro'
+export const PALETAS: Record<Tono, Paleta> = {
+  oscuro: PALETA_OSCURA,
+  claro: PALETA_CLARA,
+}
+export const TONOS: { tono: Tono; label: string }[] = [
+  { tono: 'oscuro', label: 'Oscuro' },
+  { tono: 'claro', label: 'Claro' },
+]
+
+/** Un color de la paleta a cierta opacidad. Los tonos tenues se derivan así
+ *  en vez de ser campos de la paleta; ver el comentario de `Paleta`. */
+function velo(hex: string, a: number): string {
+  const h = hex.replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(n.slice(0, 2), 16)
+  const g = parseInt(n.slice(2, 4), 16)
+  const b = parseInt(n.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+
+/** Luminancia percibida (0-255) de un hex. */
+function luma(hex: string): number {
+  const h = hex.replace('#', '')
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(n.slice(0, 2), 16)
+  const g = parseInt(n.slice(2, 4), 16)
+  const b = parseInt(n.slice(4, 6), 16)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+// Distancia de luminancia por debajo de la cual la tinta del escudo no se
+// despega del fondo. Contra el fondo oscuro de siempre (luminancia 9) deja el
+// corte en 64, que es el umbral fijo que esto tenía antes de que hubiera dos
+// paletas: ningún escudo cambia de decisión en oscuro.
+const DISTANCIA_MINIMA = 55
+
+/** Luminancia del escudo, o null si no se puede leer. Se cachea por imagen
+ *  —el mismo escudo se dibuja una vez por fila y por página— y lo cacheado es
+ *  la medición y no la decisión, que depende de la paleta. */
+const LUMA_LOGO = new WeakMap<HTMLImageElement, number | null>()
+
+function lumaDelLogo(img: HTMLImageElement): number | null {
+  const visto = LUMA_LOGO.get(img)
+  if (visto !== undefined) return visto
+  let medida: number | null = null
+  try {
+    const n = 32 // alcanza para promediar; no se trata de ver el detalle
+    const c = document.createElement('canvas')
+    c.width = n
+    c.height = n
+    const cx = c.getContext('2d')
+    if (cx) {
+      cx.drawImage(img, 0, 0, n, n)
+      const { data } = cx.getImageData(0, 0, n, n)
+      let suma = 0
+      let peso = 0
+      // Solo los píxeles opacos: el fondo transparente no cuenta, que si no
+      // cualquier logo con mucho aire daría oscuro.
+      for (let i = 0; i < data.length; i += 4) {
+        const alfa = data[i + 3] / 255
+        if (alfa < 0.35) continue
+        suma += (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) * alfa
+        peso += alfa
+      }
+      if (peso > 0) medida = suma / peso
+    }
+  } catch {
+    // Un logo de otro dominio sin CORS mancha el canvas y getImageData lanza.
+    // Se deja como estaba: sin placa, que es el comportamiento de siempre.
+    medida = null
+  }
+  LUMA_LOGO.set(img, medida)
+  return medida
+}
+
+/**
+ * De qué color hay que ponerle una placa detrás a este escudo, o null si no
+ * hace falta.
+ *
+ * Un escudo negro sobre el fondo de marca simplemente no existe, y es un caso
+ * común: utils/imagen.ts codifica en webp justamente para conservar la
+ * transparencia, así que un logo de tinta oscura sobre fondo transparente
+ * llega entero y se dibuja sobre la nada. En claro el problema es el mismo al
+ * revés: el que desaparece es el logo blanco. Así que la pregunta no es «¿es
+ * oscuro?» sino «¿se parece al fondo?», y la placa es del color de la tinta de
+ * esta paleta, que por definición es el polo contrario al fondo.
+ *
+ * No se le pone a todos: una placa detrás de un escudo de color lo convierte
+ * en un recuadro que no pidió nadie. El acta en PDF (utils/pdf.ts, `escudo`)
+ * sí se la pone a todos, blanca y con borde, porque ahí el fondo es papel y no
+ * hay de dónde sacar contraste; acá la placa ya es el polo opuesto al fondo,
+ * así que se ve sola y no necesita borde.
+ */
+function placaPara(img: HTMLImageElement, paleta: Paleta): string | null {
+  const l = lumaDelLogo(img)
+  if (l == null) return null
+  return Math.abs(l - luma(paleta.fondo)) < DISTANCIA_MINIMA ? paleta.texto : null
+}
+
+/** Placa detrás de un logo que si no se perdería contra el fondo. */
+function placa(ctx: Ctx, x: number, y: number, w: number, h: number, r: number, color: string) {
+  ctx.fillStyle = color
+  rr(ctx, x, y, w, h, r)
+  ctx.fill()
+}
 
 function loadImg(url?: string | null): Promise<HTMLImageElement | null> {
   if (!url) return Promise.resolve(null)
@@ -66,14 +264,14 @@ async function newCanvas(w = W, h = H): Promise<{ canvas: HTMLCanvasElement; ctx
 
 // Fondo de marca + cabecera con logo + nombre del torneo. Devuelve la Y donde
 // puede empezar el contenido. Se adapta al tamaño real del canvas.
-async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
+async function drawBase(ctx: Ctx, t: any, eyebrow: string, paleta: Paleta): Promise<number> {
   const cw = ctx.canvas.width
   const ch = ctx.canvas.height
 
   // Fondo base
   const bg = ctx.createLinearGradient(0, 0, cw, ch)
-  bg.addColorStop(0, '#070910')
-  bg.addColorStop(1, '#101624')
+  bg.addColorStop(0, paleta.fondo)
+  bg.addColorStop(1, paleta.fondoAlto)
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, cw, ch)
 
@@ -90,8 +288,8 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
     ctx.drawImage(banner, (cw - bw) / 2, (360 - bh) / 2, bw, bh)
     ctx.globalAlpha = 1
     const fade = ctx.createLinearGradient(0, 0, 0, 360)
-    fade.addColorStop(0, 'rgba(7,9,16,0.45)')
-    fade.addColorStop(1, 'rgba(7,9,16,1)')
+    fade.addColorStop(0, velo(paleta.fondo, 0.45))
+    fade.addColorStop(1, velo(paleta.fondo, 1))
     ctx.fillStyle = fade
     ctx.fillRect(0, 0, cw, 360)
     ctx.restore()
@@ -99,15 +297,15 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
 
   // Glow verde
   const glow = ctx.createRadialGradient(cw - 120, 80, 0, cw - 120, 80, 520)
-  glow.addColorStop(0, 'rgba(199,255,63,0.16)')
-  glow.addColorStop(1, 'rgba(199,255,63,0)')
+  glow.addColorStop(0, velo(paleta.acentoRelleno, 0.16))
+  glow.addColorStop(1, velo(paleta.acentoRelleno, 0))
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, cw, ch)
 
   // Barra de acento superior
   const top = ctx.createLinearGradient(0, 0, cw, 0)
-  top.addColorStop(0, GREEN)
-  top.addColorStop(1, GREEN_DK)
+  top.addColorStop(0, paleta.acentoRelleno)
+  top.addColorStop(1, paleta.acentoProfundo)
   ctx.fillStyle = top
   ctx.fillRect(0, 0, cw, 10)
 
@@ -116,21 +314,24 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
   let x = 64
   const cy = 132
   if (logo) {
+    const col = placaPara(logo, paleta)
+    const m = col ? 9 : 0
+    if (col) placa(ctx, x, cy - 52, 104, 104, 24, col)
     ctx.save()
-    rr(ctx, x, cy - 52, 104, 104, 24)
+    rr(ctx, x + m, cy - 52 + m, 104 - 2 * m, 104 - 2 * m, 24 - m)
     ctx.clip()
-    ctx.drawImage(logo, x, cy - 52, 104, 104)
+    ctx.drawImage(logo, x + m, cy - 52 + m, 104 - 2 * m, 104 - 2 * m)
     ctx.restore()
     ctx.lineWidth = 3
-    ctx.strokeStyle = 'rgba(199,255,63,0.5)'
+    ctx.strokeStyle = velo(paleta.acento, 0.5)
     rr(ctx, x, cy - 52, 104, 104, 24)
     ctx.stroke()
     x += 130
   } else {
-    ctx.fillStyle = GREEN
+    ctx.fillStyle = paleta.acentoRelleno
     rr(ctx, x, cy - 52, 104, 104, 24)
     ctx.fill()
-    ctx.fillStyle = '#0f1a00'
+    ctx.fillStyle = paleta.sobreAcento
     ctx.font = '800 56px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
@@ -140,16 +341,16 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
 
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
-  ctx.fillStyle = GREEN
+  ctx.fillStyle = paleta.acento
   ctx.font = '700 26px Inter, sans-serif'
   ctx.fillText(ellipsize(ctx, eyebrow.toUpperCase(), cw - x - 64), x, cy - 24)
-  ctx.fillStyle = TEXT
+  ctx.fillStyle = paleta.texto
   ctx.font = '800 48px Lexend, sans-serif'
   ctx.fillText(ellipsize(ctx, t.name || 'Torneo', cw - x - 64), x, cy + 24)
 
   // Marca Champion Hive (arriba derecha)
   ctx.textAlign = 'right'
-  ctx.fillStyle = MUTED
+  ctx.fillStyle = paleta.textoTenue
   ctx.font = '700 22px Lexend, sans-serif'
   ctx.fillText('CHAMPION HIVE', cw - 64, 56)
   ctx.textAlign = 'left'
@@ -158,22 +359,22 @@ async function drawBase(ctx: Ctx, t: any, eyebrow: string): Promise<number> {
 }
 
 // Franja de patrocinadores al pie. Ocupa los últimos ~150px del canvas.
-async function drawSponsors(ctx: Ctx, sponsors: any[]) {
+async function drawSponsors(ctx: Ctx, sponsors: any[], paleta: Paleta) {
   const cw = ctx.canvas.width
   const ch = ctx.canvas.height
   const list = (sponsors || []).slice(0, 5)
   const baseY = ch - 150
   // separador
-  ctx.fillStyle = 'rgba(234,240,250,0.08)'
+  ctx.fillStyle = velo(paleta.linea, 0.08)
   ctx.fillRect(64, baseY, cw - 128, 2)
-  ctx.fillStyle = MUTED
+  ctx.fillStyle = paleta.textoTenue
   ctx.font = '700 22px Inter, sans-serif'
   ctx.textAlign = 'center'
   ctx.fillText('PATROCINAN', cw / 2, baseY + 44)
   ctx.textAlign = 'left'
 
   if (!list.length) {
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '600 24px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('Champion Hive', cw / 2, baseY + 96)
@@ -195,10 +396,17 @@ async function drawSponsors(ctx: Ctx, sponsors: any[]) {
   for (let i = 0; i < list.length; i++) {
     if (imgs[i]) {
       const w = widths[i]
+      // El patrocinador es el que más manda un logo de una tinta: si es
+      // oscuro, en la franja no se ve nada y el que paga no aparece.
+      const col = placaPara(imgs[i]!, paleta)
+      if (col) {
+        const pad = 10 // menos que el `gap`, así dos placas no se tocan
+        placa(ctx, x - pad, y - pad, w + 2 * pad, cellH + 2 * pad, 14, col)
+      }
       ctx.drawImage(imgs[i]!, x, y, w, cellH)
       x += w + gap
     } else {
-      ctx.fillStyle = TEXT
+      ctx.fillStyle = paleta.texto
       ctx.font = '700 26px Lexend, sans-serif'
       ctx.textBaseline = 'middle'
       ctx.fillText(list[i].name || '', x, y + cellH / 2)
@@ -208,13 +416,13 @@ async function drawSponsors(ctx: Ctx, sponsors: any[]) {
   }
 }
 
-function pill(ctx: Ctx, label: string, cx: number, y: number, color: string) {
+function pill(ctx: Ctx, label: string, cx: number, y: number, color: string, paleta: Paleta) {
   ctx.font = '800 24px Inter, sans-serif'
   const w = ctx.measureText(label.toUpperCase()).width + 56
   rr(ctx, cx - w / 2, y, w, 50, 25)
   ctx.fillStyle = color
   ctx.fill()
-  ctx.fillStyle = '#131c00'
+  ctx.fillStyle = paleta.sobreAcento
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(label.toUpperCase(), cx, y + 26)
@@ -253,20 +461,27 @@ function drawTeamLogo(
   x: number,
   yC: number,
   size: number,
+  paleta: Paleta,
 ) {
   const y = yC - size / 2
   if (img) {
+    // El margen deja ver la placa alrededor del escudo, así que también
+    // funciona con un logo opaco de fondo negro, donde una placa puramente
+    // detrás quedaría tapada.
+    const col = placaPara(img, paleta)
+    const m = col ? size * 0.09 : 0
+    if (col) placa(ctx, x, y, size, size, size * 0.28, col)
     ctx.save()
-    rr(ctx, x, y, size, size, size * 0.28)
+    rr(ctx, x + m, y + m, size - 2 * m, size - 2 * m, (size - 2 * m) * 0.26)
     ctx.clip()
-    ctx.drawImage(img, x, y, size, size)
+    ctx.drawImage(img, x + m, y + m, size - 2 * m, size - 2 * m)
     ctx.restore()
     return
   }
-  ctx.fillStyle = 'rgba(234,240,250,0.12)'
+  ctx.fillStyle = velo(paleta.superficie, 0.12)
   rr(ctx, x, y, size, size, size / 2)
   ctx.fill()
-  ctx.fillStyle = MUTED
+  ctx.fillStyle = paleta.textoTenue
   ctx.font = `800 ${Math.round(size * 0.52)}px Lexend, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -275,25 +490,30 @@ function drawTeamLogo(
   ctx.textBaseline = 'alphabetic'
 }
 
-function teamRow(ctx: Ctx, name: string, score: string | null, y: number, win: boolean) {
+function teamRow(ctx: Ctx, name: string, score: string | null, y: number, win: boolean, paleta: Paleta) {
   const cw = ctx.canvas.width
-  ctx.fillStyle = win ? GREEN : TEXT
+  ctx.fillStyle = win ? paleta.acento : paleta.texto
   ctx.font = `${win ? 800 : 700} 64px Lexend, sans-serif`
   ctx.textAlign = 'left'
   ctx.fillText(ellipsize(ctx, name || 'Por definir', 640), 90, y)
   if (score != null) {
     ctx.textAlign = 'right'
-    ctx.fillStyle = win ? GREEN : TEXT
+    ctx.fillStyle = win ? paleta.acento : paleta.texto
     ctx.font = '800 76px Lexend, sans-serif'
     ctx.fillText(score, cw - 90, y + 6)
     ctx.textAlign = 'left'
   }
 }
 
-export async function makeMatchImage(t: any, m: any, sponsors: any[]): Promise<Blob> {
+export async function makeMatchImage(
+  t: any,
+  m: any,
+  sponsors: any[],
+  paleta: Paleta = PALETA_OSCURA,
+): Promise<Blob> {
   const { canvas, ctx } = await newCanvas()
   const finished = m.status === 'finished'
-  await drawBase(ctx, t, finished ? 'Resultado' : 'Próximo partido')
+  await drawBase(ctx, t, finished ? 'Resultado' : 'Próximo partido', paleta)
 
   // Un 2-2 compartido sin decir que se definió 4-3 es exactamente la imagen
   // que genera la discusión que todo esto viene a evitar.
@@ -303,43 +523,44 @@ export async function makeMatchImage(t: any, m: any, sponsors: any[]): Promise<B
     finished ? (tanda ? `Final · ${tanda}` : 'Final') : 'Próximo',
     W / 2,
     300,
-    finished ? GREEN : ORANGE,
+    finished ? paleta.acentoRelleno : paleta.urgenciaRelleno,
+    paleta,
   )
 
   const hs = finished ? String(m.home_score ?? 0) : null
   const as = finished ? String(m.away_score ?? 0) : null
   const hw = finished && (m.home_score ?? 0) > (m.away_score ?? 0)
   const aw = finished && (m.away_score ?? 0) > (m.home_score ?? 0)
-  teamRow(ctx, m.home_team_name, hs, 470, hw)
+  teamRow(ctx, m.home_team_name, hs, 470, hw, paleta)
   if (!finished) {
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '800 44px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('VS', W / 2, 540)
     ctx.textAlign = 'left'
   }
-  teamRow(ctx, m.away_team_name, as, finished ? 590 : 640, aw)
+  teamRow(ctx, m.away_team_name, as, finished ? 590 : 640, aw, paleta)
 
   // separador
-  ctx.fillStyle = 'rgba(234,240,250,0.08)'
+  ctx.fillStyle = velo(paleta.linea, 0.08)
   ctx.fillRect(90, finished ? 640 : 700, W - 180, 2)
 
   // fecha + meta
   ctx.textAlign = 'center'
   if (m.scheduled_start) {
-    ctx.fillStyle = GREEN
+    ctx.fillStyle = paleta.acento
     ctx.font = '800 40px Lexend, sans-serif'
     ctx.fillText(fmtDate(m.scheduled_start), W / 2, finished ? 712 : 772)
   }
   const meta = metaLine(ctx, m)
   if (meta) {
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '600 26px Inter, sans-serif'
     ctx.fillText(ellipsize(ctx, meta, W - 160), W / 2, finished ? 760 : 820)
   }
   ctx.textAlign = 'left'
 
-  await drawSponsors(ctx, sponsors)
+  await drawSponsors(ctx, sponsors, paleta)
   return canvasBlob(canvas)
 }
 
@@ -372,19 +593,19 @@ export function paginar<T>(filas: T[], porPagina: number): T[][] {
 }
 
 /** Chip "2 / 3" bajo la marca; solo aparece cuando hay más de una imagen. */
-function marcaDePagina(ctx: Ctx, indice: number, total: number) {
+function marcaDePagina(ctx: Ctx, indice: number, total: number, paleta: Paleta) {
   if (total <= 1) return
   const cw = ctx.canvas.width
   const label = `${indice + 1} / ${total}`
   ctx.font = '800 22px Inter, sans-serif'
   const w = ctx.measureText(label).width + 40
   rr(ctx, cw - 64 - w, 74, w, 40, 20)
-  ctx.fillStyle = 'rgba(199,255,63,0.14)'
+  ctx.fillStyle = velo(paleta.acentoRelleno, 0.14)
   ctx.fill()
-  ctx.strokeStyle = 'rgba(199,255,63,0.45)'
+  ctx.strokeStyle = velo(paleta.acento, 0.45)
   ctx.lineWidth = 2
   ctx.stroke()
-  ctx.fillStyle = GREEN
+  ctx.fillStyle = paleta.acento
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(label, cw - 64 - w / 2, 95)
@@ -405,6 +626,7 @@ export async function makeStandingsImage(
   rows: any[],
   sponsors: any[],
   logos?: TeamLogos,
+  paleta: Paleta = PALETA_OSCURA,
 ): Promise<Blob[]> {
   const filas = rows || []
   const title = group && group !== 'Sin Grupo' ? `Grupo ${group}` : 'Clasificación'
@@ -426,17 +648,17 @@ export async function makeStandingsImage(
   let desde = 0
   for (let p = 0; p < paginas.length; p++) {
     const { canvas, ctx } = await newCanvas()
-    await drawBase(ctx, t, 'Tabla de posiciones')
-    marcaDePagina(ctx, p, paginas.length)
+    await drawBase(ctx, t, 'Tabla de posiciones', paleta)
+    marcaDePagina(ctx, p, paginas.length, paleta)
 
-    ctx.fillStyle = TEXT
+    ctx.fillStyle = paleta.texto
     ctx.font = '800 40px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(title, W / 2, 300)
     ctx.textAlign = 'left'
 
     let y = yTabla
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '700 24px Inter, sans-serif'
     ctx.fillText('#', x0 + 16, y + 36)
     ctx.fillText('EQUIPO', x0 + 80 + logoCol, y + 36)
@@ -451,19 +673,27 @@ export async function makeStandingsImage(
       // g es la posición real en la tabla; i, la fila dentro de esta imagen.
       const g = desde + i
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(234,240,250,0.05)'
+        ctx.fillStyle = velo(paleta.superficie, 0.05)
         rr(ctx, x0, y, tw, rowH - 6, 12)
         ctx.fill()
       }
       const qualified = g < 2
-      ctx.fillStyle = qualified ? GREEN : MUTED
+      ctx.fillStyle = qualified ? paleta.acento : paleta.textoTenue
       ctx.font = '800 30px Lexend, sans-serif'
       ctx.fillText(String(r.position ?? g + 1), x0 + 18, y + rowH / 2 + 10)
 
       if (conLogos) {
-        drawTeamLogo(ctx, logoImgs[g], r.team_name || '', x0 + 76, y + rowH / 2, Math.min(40, rowH - 14))
+        drawTeamLogo(
+          ctx,
+          logoImgs[g],
+          r.team_name || '',
+          x0 + 76,
+          y + rowH / 2,
+          Math.min(40, rowH - 14),
+          paleta,
+        )
       }
-      ctx.fillStyle = TEXT
+      ctx.fillStyle = paleta.texto
       ctx.font = '700 30px Lexend, sans-serif'
       ctx.textBaseline = 'middle'
       ctx.fillText(
@@ -474,12 +704,12 @@ export async function makeStandingsImage(
       ctx.textBaseline = 'alphabetic'
 
       ctx.textAlign = 'right'
-      ctx.fillStyle = MUTED
+      ctx.fillStyle = paleta.textoTenue
       ctx.font = '600 28px Inter, sans-serif'
       ctx.fillText(String(r.matches_played ?? 0), x0 + tw - 230, y + rowH / 2 + 9)
       const dg = r.diff ?? 0
       ctx.fillText((dg > 0 ? '+' : '') + dg, x0 + tw - 120, y + rowH / 2 + 9)
-      ctx.fillStyle = GREEN
+      ctx.fillStyle = paleta.acento
       ctx.font = '800 32px Lexend, sans-serif'
       ctx.fillText(String(r.league_points ?? 0), x0 + tw - 24, y + rowH / 2 + 10)
       ctx.textAlign = 'left'
@@ -487,7 +717,7 @@ export async function makeStandingsImage(
     })
     desde += paginas[p].length
 
-    await drawSponsors(ctx, sponsors)
+    await drawSponsors(ctx, sponsors, paleta)
     out.push(await canvasBlob(canvas))
   }
   return out
@@ -504,6 +734,7 @@ export async function makeCalendarImage(
   opts: { dateLabel?: string | null; courtLabel?: string | null },
   sponsors: any[],
   logos?: TeamLogos,
+  paleta: Paleta = PALETA_OSCURA,
 ): Promise<Blob[]> {
   // Los partidos sin programar van al final, no encabezando la imagen.
   const list = (matches || [])
@@ -520,12 +751,12 @@ export async function makeCalendarImage(
   const areaH = H - 170 - yTabla
 
   const titulo = (ctx: Ctx) => {
-    ctx.fillStyle = TEXT
+    ctx.fillStyle = paleta.texto
     ctx.font = '800 40px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(ellipsize(ctx, opts.dateLabel || 'Todas las fechas', W - 128), W / 2, 300)
     if (opts.courtLabel) {
-      ctx.fillStyle = ORANGE
+      ctx.fillStyle = paleta.urgencia
       ctx.font = '700 26px Inter, sans-serif'
       ctx.fillText(ellipsize(ctx, `📍 ${opts.courtLabel}`, W - 128), W / 2, 344)
     }
@@ -534,14 +765,14 @@ export async function makeCalendarImage(
 
   if (!list.length) {
     const { canvas, ctx } = await newCanvas()
-    await drawBase(ctx, t, 'Calendario')
+    await drawBase(ctx, t, 'Calendario', paleta)
     titulo(ctx)
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '600 30px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('Sin partidos programados', W / 2, yTabla + 80)
     ctx.textAlign = 'left'
-    await drawSponsors(ctx, sponsors)
+    await drawSponsors(ctx, sponsors, paleta)
     return [await canvasBlob(canvas)]
   }
 
@@ -570,15 +801,15 @@ export async function makeCalendarImage(
   let desde = 0
   for (let p = 0; p < paginas.length; p++) {
     const { canvas, ctx } = await newCanvas()
-    await drawBase(ctx, t, 'Calendario')
-    marcaDePagina(ctx, p, paginas.length)
+    await drawBase(ctx, t, 'Calendario', paleta)
+    marcaDePagina(ctx, p, paginas.length, paleta)
     titulo(ctx)
 
     let y = yTabla
     paginas[p].forEach((m: any, i: number) => {
       const g = desde + i
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(234,240,250,0.05)'
+        ctx.fillStyle = velo(paleta.superficie, 0.05)
         rr(ctx, x0, y + 2, tw, rowH - 6, 12)
         ctx.fill()
       }
@@ -589,7 +820,7 @@ export async function makeCalendarImage(
       const s = m.scheduled_start ? String(m.scheduled_start) : ''
       const hora = s ? s.slice(11, 16) : '--:--'
       const cuando = multiDate && s ? `${s.slice(8, 10)}/${s.slice(5, 7)} ${hora}` : hora
-      ctx.fillStyle = GREEN
+      ctx.fillStyle = paleta.acento
       ctx.font = '800 26px Lexend, sans-serif'
       ctx.textAlign = 'left'
       ctx.fillText(cuando, x0 + 12, cy)
@@ -599,7 +830,11 @@ export async function makeCalendarImage(
       const live = m.status === 'live'
       const postponed = m.status === 'postponed'
       ctx.textAlign = 'center'
-      ctx.fillStyle = finished ? GREEN : live || postponed ? ORANGE : MUTED
+      ctx.fillStyle = finished
+        ? paleta.acento
+        : live || postponed
+          ? paleta.urgencia
+          : paleta.textoTenue
       // «APLAZADO» va más chico para no pisar los nombres de los equipos: la
       // columna del centro son 116 px.
       ctx.font = `800 ${finished || live ? 30 : postponed ? 16 : 24}px Lexend, sans-serif`
@@ -614,7 +849,7 @@ export async function makeCalendarImage(
       )
 
       // equipos (con su logo si lo tienen)
-      ctx.fillStyle = TEXT
+      ctx.fillStyle = paleta.texto
       ctx.font = '700 28px Lexend, sans-serif'
       const homeName = ellipsize(ctx, m.home_team_name || 'Por definir', nameMax)
       const awayName = ellipsize(ctx, m.away_team_name || 'Por definir', nameMax)
@@ -626,23 +861,31 @@ export async function makeCalendarImage(
       if (homeLogo) {
         ctx.font = '700 28px Lexend, sans-serif'
         const wName = ctx.measureText(homeName).width
-        drawTeamLogo(ctx, homeLogo, m.home_team_name || '', cxm - 58 - wName - 10 - logoSize, cy, logoSize)
+        drawTeamLogo(
+          ctx,
+          homeLogo,
+          m.home_team_name || '',
+          cxm - 58 - wName - 10 - logoSize,
+          cy,
+          logoSize,
+          paleta,
+        )
       }
       if (awayLogo) {
         ctx.font = '700 28px Lexend, sans-serif'
         const wName = ctx.measureText(awayName).width
-        drawTeamLogo(ctx, awayLogo, m.away_team_name || '', cxm + 58 + wName + 10, cy, logoSize)
+        drawTeamLogo(ctx, awayLogo, m.away_team_name || '', cxm + 58 + wName + 10, cy, logoSize, paleta)
       }
       // drawTeamLogo restablece la baseline; la fila sigue dibujando centrada.
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      ctx.fillStyle = TEXT
+      ctx.fillStyle = paleta.texto
 
       // cancha (si no se filtró por una sola)
       if (showCourt) {
         const cancha = [m.court_name, m.venue_name].filter(Boolean).join(' · ')
         if (cancha) {
-          ctx.fillStyle = MUTED
+          ctx.fillStyle = paleta.textoTenue
           ctx.font = '600 20px Inter, sans-serif'
           ctx.textAlign = 'right'
           ctx.fillText(ellipsize(ctx, cancha, courtW - 16), x0 + tw - 12, cy)
@@ -654,7 +897,7 @@ export async function makeCalendarImage(
     })
     desde += paginas[p].length
 
-    await drawSponsors(ctx, sponsors)
+    await drawSponsors(ctx, sponsors, paleta)
     out.push(await canvasBlob(canvas))
   }
   return out
@@ -682,6 +925,7 @@ export async function makeStatsImage(
   cols: TableCol[],
   rows: any[],
   sponsors: any[],
+  paleta: Paleta = PALETA_OSCURA,
 ): Promise<Blob[]> {
   const filas = rows || []
   const x0 = 64
@@ -706,22 +950,22 @@ export async function makeStatsImage(
   let desde = 0
   for (let p = 0; p < paginas.length; p++) {
     const { canvas, ctx } = await newCanvas()
-    await drawBase(ctx, t, 'Estadísticas')
-    marcaDePagina(ctx, p, paginas.length)
+    await drawBase(ctx, t, 'Estadísticas', paleta)
+    marcaDePagina(ctx, p, paginas.length, paleta)
 
     ctx.textAlign = 'center'
-    ctx.fillStyle = TEXT
+    ctx.fillStyle = paleta.texto
     ctx.font = '800 40px Lexend, sans-serif'
     ctx.fillText(ellipsize(ctx, title, W - 128), W / 2, 300)
     if (subtitle) {
-      ctx.fillStyle = MUTED
+      ctx.fillStyle = paleta.textoTenue
       ctx.font = '600 24px Inter, sans-serif'
       ctx.fillText(ellipsize(ctx, subtitle, W - 128), W / 2, 340)
     }
     ctx.textAlign = 'left'
 
     let y = yTabla
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '700 22px Inter, sans-serif'
     cols.forEach((c, ci) => {
       const cwCol = c.width || flexW
@@ -740,7 +984,7 @@ export async function makeStatsImage(
       // la columna "#" de goleadores sigue numerando 11, 12, 13…
       const g = desde + i
       if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(234,240,250,0.05)'
+        ctx.fillStyle = velo(paleta.superficie, 0.05)
         rr(ctx, x0 - 12, y, tw + 24, rowH - 5, 10)
         ctx.fill()
       }
@@ -749,14 +993,14 @@ export async function makeStatsImage(
       cols.forEach((c, ci) => {
         const cwCol = c.width || flexW
         if (c.accent) {
-          ctx.fillStyle = GREEN
+          ctx.fillStyle = paleta.acento
           ctx.font = '800 30px Lexend, sans-serif'
         } else if (!c.width) {
           // la columna flexible es el nombre principal del cuadro
-          ctx.fillStyle = TEXT
+          ctx.fillStyle = paleta.texto
           ctx.font = '700 28px Lexend, sans-serif'
         } else {
-          ctx.fillStyle = MUTED
+          ctx.fillStyle = paleta.textoTenue
           ctx.font = '600 26px Inter, sans-serif'
         }
         const val = String(c.cell(r, g) ?? '')
@@ -769,7 +1013,7 @@ export async function makeStatsImage(
     })
     desde += paginas[p].length
 
-    await drawSponsors(ctx, sponsors)
+    await drawSponsors(ctx, sponsors, paleta)
     out.push(await canvasBlob(canvas))
   }
   return out
@@ -791,7 +1035,15 @@ function roundLabel(count: number): string {
             : `Ronda de ${count * 2}`
 }
 
-function drawKoMatch(ctx: Ctx, m: any, x: number, yC: number, w: number, h: number) {
+function drawKoMatch(
+  ctx: Ctx,
+  m: any,
+  x: number,
+  yC: number,
+  w: number,
+  h: number,
+  paleta: Paleta,
+) {
   const finished = m.status === 'finished'
   const live = m.status === 'live'
   // Quién pasó no se deduce del marcador: con penales o con una llave a ida y
@@ -805,11 +1057,11 @@ function drawKoMatch(ctx: Ctx, m: any, x: number, yC: number, w: number, h: numb
     : finished && (m.away_score ?? 0) > (m.home_score ?? 0)
   const y = yC - h / 2
 
-  ctx.fillStyle = 'rgba(234,240,250,0.06)'
+  ctx.fillStyle = velo(paleta.superficie, 0.06)
   rr(ctx, x, y, w, h, 14)
   ctx.fill()
   ctx.lineWidth = 2
-  ctx.strokeStyle = live ? 'rgba(255,106,61,0.8)' : 'rgba(234,240,250,0.14)'
+  ctx.strokeStyle = live ? velo(paleta.urgencia, 0.8) : velo(paleta.linea, 0.14)
   rr(ctx, x, y, w, h, 14)
   ctx.stroke()
 
@@ -817,11 +1069,11 @@ function drawKoMatch(ctx: Ctx, m: any, x: number, yC: number, w: number, h: numb
   const row = (name: string | null, score: number | null, win: boolean, ry: number) => {
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
-    ctx.fillStyle = win ? GREEN : TEXT
+    ctx.fillStyle = win ? paleta.acento : paleta.texto
     ctx.font = `${win ? 800 : 600} ${nameFont}px Lexend, sans-serif`
     ctx.fillText(ellipsize(ctx, name || 'Por definir', w - 74), x + 16, ry)
     ctx.textAlign = 'right'
-    ctx.fillStyle = win ? GREEN : finished || live ? TEXT : MUTED
+    ctx.fillStyle = win ? paleta.acento : finished || live ? paleta.texto : paleta.textoTenue
     ctx.font = `800 ${nameFont + 2}px Lexend, sans-serif`
     ctx.fillText(finished || live ? String(score ?? 0) : '–', x + w - 14, ry)
     ctx.textAlign = 'left'
@@ -838,20 +1090,21 @@ export async function makeBracketImage(
   stageName: string | null,
   tree: any,
   sponsors: any[],
+  paleta: Paleta = PALETA_OSCURA,
 ): Promise<Blob> {
   const CW = 1920
   const CH = 1080
   const { canvas, ctx } = await newCanvas(CW, CH)
-  await drawBase(ctx, t, stageName ? `Bracket · ${stageName}` : 'Bracket')
+  await drawBase(ctx, t, stageName ? `Bracket · ${stageName}` : 'Bracket', paleta)
 
   const rounds: any[] = tree?.rounds || []
   if (!rounds.length) {
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '600 34px Lexend, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('El bracket aún no ha sido generado', CW / 2, CH / 2)
     ctx.textAlign = 'left'
-    await drawSponsors(ctx, sponsors)
+    await drawSponsors(ctx, sponsors, paleta)
     return canvasBlob(canvas)
   }
 
@@ -900,7 +1153,7 @@ export async function makeBracketImage(
   const colX = (ri: number) => x0 + colW * ri + (colW - boxW) / 2
 
   // conectores (debajo de las cajas)
-  ctx.strokeStyle = 'rgba(234,240,250,0.18)'
+  ctx.strokeStyle = velo(paleta.linea, 0.18)
   ctx.lineWidth = 2
   for (let ri = 1; ri < mains.length; ri++) {
     const prev = centers[ri - 1]
@@ -922,12 +1175,12 @@ export async function makeBracketImage(
 
   // rondas
   mains.forEach((main: any[], ri: number) => {
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '700 22px Inter, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(roundLabel(main.length || 1).toUpperCase(), x0 + colW * ri + colW / 2, y0 - 22)
     ctx.textAlign = 'left'
-    main.forEach((m, i) => drawKoMatch(ctx, m, colX(ri), centers[ri][i], boxW, boxH))
+    main.forEach((m, i) => drawKoMatch(ctx, m, colX(ri), centers[ri][i], boxW, boxH, paleta))
   })
 
   // tercer puesto (abajo, en la columna de la final)
@@ -936,12 +1189,12 @@ export async function makeBracketImage(
     const ri = rounds.length - 1
     const yC = y0 + areaH - boxH / 2
     if (Math.abs(yC - centers[ri][0]) > boxH + 30) {
-      ctx.fillStyle = MUTED
+      ctx.fillStyle = paleta.textoTenue
       ctx.font = '700 20px Inter, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('TERCER PUESTO', x0 + colW * ri + colW / 2, yC - boxH / 2 - 12)
       ctx.textAlign = 'left'
-      drawKoMatch(ctx, thirdPlace, colX(ri), yC, boxW, boxH)
+      drawKoMatch(ctx, thirdPlace, colX(ri), yC, boxW, boxH, paleta)
     }
   }
 
@@ -951,16 +1204,16 @@ export async function makeBracketImage(
     ctx.textAlign = 'center'
     ctx.font = '110px sans-serif'
     ctx.fillText('🏆', cx, y0 + areaH / 2 - 40)
-    ctx.fillStyle = GREEN
+    ctx.fillStyle = paleta.acento
     ctx.font = '800 42px Lexend, sans-serif'
     ctx.fillText(ellipsize(ctx, champion, rightPad - 60), cx, y0 + areaH / 2 + 40)
-    ctx.fillStyle = MUTED
+    ctx.fillStyle = paleta.textoTenue
     ctx.font = '700 24px Inter, sans-serif'
     ctx.fillText('CAMPEÓN', cx, y0 + areaH / 2 + 84)
     ctx.textAlign = 'left'
   }
 
-  await drawSponsors(ctx, sponsors)
+  await drawSponsors(ctx, sponsors, paleta)
   return canvasBlob(canvas)
 }
 
