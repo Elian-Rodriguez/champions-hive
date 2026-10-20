@@ -14,9 +14,16 @@ Como la tabla de posiciones, **no se guarda nada**: se recalcula desde los
 eventos. Una tarjeta corregida o borrada por el árbitro mueve la suspensión al
 instante, que es justo lo que hace falta cuando el error se descubre el domingo
 por la mañana.
+
+Las **sanciones manuales** (`PlayerSanction`) son la otra mitad y van por
+fuera del interruptor: las decide el comité —la agresión del informe arbitral,
+la alineación indebida— y una liga que no quiere el contador automático es
+justamente la que más las usa. Lo que se guarda es la decisión (fechas y
+motivo); las fechas cumplidas se recalculan igual que las de la acumulación,
+así que salen en la misma lista y la planilla del árbitro las marca igual.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -24,6 +31,7 @@ from app.db.models import (
     Match,
     MatchStat,
     Player,
+    PlayerSanction,
     Stage,
     Team,
     TeamPlayer,
@@ -122,23 +130,170 @@ def _fases_que_cuentan(db: Session, tournament: Tournament, cfg: Dict) -> List:
     return [s.id for s in fases]
 
 
+def _cumplimiento(
+    siguientes: List[Match], fechas: int
+) -> Tuple[int, int, Optional[Match]]:
+    """(cumplidas, faltan, próximo partido) de una suspensión de `fechas`.
+
+    Se cumple con los partidos que el equipo TERMINÓ después del hecho. No se
+    mira quién estuvo en la planilla a propósito: si el suspendido jugó igual,
+    eso es una alineación indebida y la resuelve el organizador, no un contador.
+    """
+    cumplidas = min(sum(1 for m in siguientes if _estado(m) == "finished"), fechas)
+    proximo = next(
+        (m for m in siguientes if _estado(m) in ("scheduled", "live")), None
+    )
+    return cumplidas, fechas - cumplidas, proximo
+
+
+def _proximo_payload(proximo: Optional[Match]) -> Optional[Dict[str, Any]]:
+    if not proximo:
+        return None
+    return {"id": str(proximo.id), "scheduled_start": proximo.scheduled_start}
+
+
+def sanciones_manuales(db: Session, tournament: Tournament) -> List[PlayerSanction]:
+    """Las sanciones del comité vigentes (las anuladas no suspenden a nadie)."""
+    return (
+        db.query(PlayerSanction)
+        .filter(
+            PlayerSanction.tournament_id == tournament.id,
+            PlayerSanction.status != "annulled",
+        )
+        .all()
+    )
+
+
+def _partidos_del_torneo(db: Session, tournament: Tournament) -> List[Match]:
+    stage_ids = [
+        s.id for s in db.query(Stage).filter(Stage.tournament_id == tournament.id).all()
+    ]
+    if not stage_ids:
+        return []
+    partidos = db.query(Match).filter(Match.stage_id.in_(stage_ids)).all()
+    partidos.sort(key=_clave_orden)
+    return partidos
+
+
+def estado_de_sancion(
+    s: PlayerSanction, partidos: List[Match]
+) -> Dict[str, Any]:
+    """Fechas cumplidas y pendientes de una sanción manual.
+
+    Cuentan los partidos del equipo posteriores al partido donde ocurrió, o —si
+    la sanción no dice partido— los que se juegan desde que se cargó. Los
+    partidos sin fecha van al final del calendario, así que cuentan como
+    posteriores: es lo que pasa en una liga que nunca carga horarios.
+    """
+    equipo = str(s.team_id) if s.team_id else None
+    del_equipo = [
+        m
+        for m in partidos
+        if equipo and equipo in (str(m.home_team_id), str(m.away_team_id))
+    ]
+    if s.match_id:
+        ids = [str(m.id) for m in del_equipo]
+        corte = ids.index(str(s.match_id)) + 1 if str(s.match_id) in ids else 0
+        siguientes = del_equipo[corte:]
+    else:
+        desde = s.created_at or datetime.min
+        siguientes = [
+            m for m in del_equipo
+            if m.scheduled_start is None or m.scheduled_start >= desde
+        ]
+    fechas = int(s.matches or 0)
+    cumplidas, faltan, proximo = _cumplimiento(siguientes, fechas)
+    return {
+        "served": cumplidas,
+        "pending": faltan if s.status != "annulled" else 0,
+        "next_match": _proximo_payload(proximo) if faltan > 0 else None,
+    }
+
+
 def calcular(db: Session, tournament: Tournament) -> Dict[str, Any]:
     """Quién está suspendido y quién está a una tarjeta de estarlo.
 
-    Devuelve siempre la misma forma; con el reglamento apagado, las listas van
-    vacías y el frontend no dibuja la sección.
+    Devuelve siempre la misma forma; con el reglamento apagado y sin sanciones
+    del comité, las listas van vacías y el frontend no dibuja la sección.
+    `enabled` habla solo del contador automático; cada sanción dice de dónde
+    sale en `source` (`auto` o `manual`).
     """
     cfg = config_de(tournament)
     vacio = {"enabled": False, "config": cfg, "sanctions": [], "at_risk": []}
-    if not cfg.get("enabled"):
+    manuales = sanciones_manuales(db, tournament)
+    if not cfg.get("enabled") and not manuales:
         return vacio
 
+    sanciones: List[Dict[str, Any]] = []
+    en_riesgo: List[Dict[str, Any]] = []
+    if cfg.get("enabled"):
+        sanciones, en_riesgo = _automaticas(db, tournament, cfg)
+    if manuales:
+        sanciones.extend(_manuales_payload(db, tournament, manuales))
+
+    sanciones.sort(key=lambda s: (s["team_name"] or "", s["player_name"]))
+    en_riesgo.sort(key=lambda s: (s["team_name"] or "", s["player_name"]))
+    return {
+        "enabled": bool(cfg.get("enabled")),
+        "config": cfg,
+        "sanctions": sanciones,
+        "at_risk": en_riesgo,
+    }
+
+
+def _manuales_payload(
+    db: Session, tournament: Tournament, manuales: List[PlayerSanction]
+) -> List[Dict[str, Any]]:
+    """Las sanciones del comité que todavía dejan a alguien sin jugar."""
+    partidos = _partidos_del_torneo(db, tournament)
+    jugadores = {
+        str(p.id): p.name
+        for p in db.query(Player).filter(
+            Player.id.in_([s.player_id for s in manuales if s.player_id])
+        ).all()
+    }
+    equipos = {
+        str(t.id): t.name
+        for t in db.query(Team).filter(
+            Team.id.in_([s.team_id for s in manuales if s.team_id])
+        ).all()
+    }
+    out: List[Dict[str, Any]] = []
+    for s in manuales:
+        if not s.matches:
+            continue  # amonestación: queda registrada pero no suspende
+        estado = estado_de_sancion(s, partidos)
+        if estado["pending"] <= 0:
+            continue
+        out.append(
+            {
+                "player_id": str(s.player_id),
+                "player_name": jugadores.get(str(s.player_id), "—"),
+                "team_id": str(s.team_id) if s.team_id else None,
+                "team_name": equipos.get(str(s.team_id)),
+                "reason": s.reason,
+                "matches": s.matches,
+                "served": estado["served"],
+                "pending": estado["pending"],
+                "since_match_id": str(s.match_id) if s.match_id else None,
+                "next_match": estado["next_match"],
+                "source": "manual",
+                "sanction_id": str(s.id),
+            }
+        )
+    return out
+
+
+def _automaticas(
+    db: Session, tournament: Tournament, cfg: Dict[str, Any]
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """(sanciones, en riesgo) que salen de contar tarjetas."""
     stage_ids = _fases_que_cuentan(db, tournament, cfg)
     if not stage_ids:
-        return {**vacio, "enabled": True}
+        return [], []
     partidos = db.query(Match).filter(Match.stage_id.in_(stage_ids)).all()
     if not partidos:
-        return {**vacio, "enabled": True}
+        return [], []
 
     partidos.sort(key=_clave_orden)
     posicion = {str(m.id): i for i, m in enumerate(partidos)}
@@ -153,7 +308,7 @@ def calcular(db: Session, tournament: Tournament) -> Dict[str, Any]:
     # llegar antes que el acta.
     ids_terminados = [m.id for m in partidos if _estado(m) == "finished"]
     if not ids_terminados:
-        return {**vacio, "enabled": True}
+        return [], []
     eventos = (
         db.query(MatchStat)
         .filter(
@@ -163,7 +318,7 @@ def calcular(db: Session, tournament: Tournament) -> Dict[str, Any]:
         .all()
     )
     if not eventos:
-        return {**vacio, "enabled": True}
+        return [], []
 
     partido_por_id = {str(m.id): m for m in partidos}
 
@@ -271,22 +426,13 @@ def calcular(db: Session, tournament: Tournament) -> Dict[str, Any]:
             equipo = s["team_id"]
             if not equipo or not s["matches"]:
                 continue
-            # Se cumple con los partidos que el equipo jugó DESPUÉS de la
-            # tarjeta. No se mira quién estuvo en la planilla a propósito: si
-            # el suspendido jugó igual, eso es una alineación indebida y la
-            # resuelve el organizador, no un contador.
             desde = posicion.get(s["match_id"], 0)
             siguientes = [
                 m for m in por_equipo.get(equipo, []) if posicion[str(m.id)] > desde
             ]
-            cumplidas = sum(1 for m in siguientes if _estado(m) == "finished")
-            cumplidas = min(cumplidas, s["matches"])
-            faltan = s["matches"] - cumplidas
+            cumplidas, faltan, proximo = _cumplimiento(siguientes, s["matches"])
             if faltan <= 0:
                 continue
-            proximo = next(
-                (m for m in siguientes if _estado(m) in ("scheduled", "live")), None
-            )
             sanciones.append(
                 {
                     "player_id": pid,
@@ -298,14 +444,9 @@ def calcular(db: Session, tournament: Tournament) -> Dict[str, Any]:
                     "served": cumplidas,
                     "pending": faltan,
                     "since_match_id": s["match_id"],
-                    "next_match": (
-                        {
-                            "id": str(proximo.id),
-                            "scheduled_start": proximo.scheduled_start,
-                        }
-                        if proximo
-                        else None
-                    ),
+                    "next_match": _proximo_payload(proximo),
+                    "source": "auto",
+                    "sanction_id": None,
                 }
             )
 
@@ -323,14 +464,7 @@ def calcular(db: Session, tournament: Tournament) -> Dict[str, Any]:
                 }
             )
 
-    sanciones.sort(key=lambda s: (s["team_name"] or "", s["player_name"]))
-    en_riesgo.sort(key=lambda s: (s["team_name"] or "", s["player_name"]))
-    return {
-        "enabled": True,
-        "config": cfg,
-        "sanctions": sanciones,
-        "at_risk": en_riesgo,
-    }
+    return sanciones, en_riesgo
 
 
 def suspendidos_por_equipo(db: Session, tournament: Tournament) -> Dict[str, set]:

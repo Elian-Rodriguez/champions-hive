@@ -117,7 +117,11 @@ export function isQueueable(path: string, method: string): boolean {
     (m === 'POST' && path === '/matches/events') ||
     ((m === 'PUT' || m === 'DELETE') && /^\/matches\/events\/[^/]+$/.test(path)) ||
     (m === 'PUT' && /^\/matches\/[^/]+\/status$/.test(path)) ||
-    (m === 'PUT' && /^\/matches\/[^/]+\/lineup$/.test(path))
+    (m === 'PUT' && /^\/matches\/[^/]+\/lineup$/.test(path)) ||
+    // El informe arbitral se escribe en la cancha, igual que la planilla: el
+    // borrador y la firma esperan en la cola si no hay señal.
+    (m === 'PUT' && /^\/matches\/[^/]+\/report$/.test(path)) ||
+    (m === 'POST' && /^\/matches\/[^/]+\/report\/submit$/.test(path))
   )
 }
 
@@ -194,6 +198,28 @@ export function applyOptimistic(
     }))
     cacheSet(luPath, [...otros, ...filas])
     return filas
+  }
+
+  // Informe arbitral: el borrador reemplaza al anterior y la firma lo cierra,
+  // las dos cosas en la copia local para que la pantalla no vuelva atrás.
+  const inf = path.match(/^\/matches\/([^/]+)\/report(\/submit)?$/)
+  if (inf) {
+    const infPath = `/matches/${inf[1]}/report`
+    const previo = cacheGet(infPath) || { match_id: inf[1], incidents: [] }
+    const siguiente = inf[2]
+      ? { ...previo, exists: true, submitted_at: new Date().toISOString(), _pending: true }
+      : {
+          ...previo,
+          exists: true,
+          observations: body?.observations ?? '',
+          incidents: (body?.incidents || []).map((x: any, i: number) => ({
+            id: x.id || `${id}_${i}`,
+            ...x,
+          })),
+          _pending: true,
+        }
+    cacheSet(infPath, siguiente)
+    return siguiente
   }
   return { _pending: true }
 }

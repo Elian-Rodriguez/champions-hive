@@ -33,6 +33,8 @@ from app.core.log import logger
 # Carpeta de los clips dentro de MEDIA_ROOT. Separada para que mañana otra
 # cosa (audios, actas firmadas) no se mezcle con los videos.
 CARPETA_JUGADAS = "jugadas"
+# Los videos que un equipo adjunta como prueba de un reclamo.
+CARPETA_RECLAMOS = "reclamos"
 
 # Contenedores que acepta. El .mov está porque es lo que graba un iPhone y es
 # la mitad de los videos que va a recibir esto; el .mp4 es lo que graba Android
@@ -125,12 +127,15 @@ class ArchivoRechazado(Exception):
     """El archivo no se puede guardar; el mensaje va tal cual al organizador."""
 
 
-def guardar_video(archivo, content_type: Optional[str] = None) -> Tuple[str, int, str]:
+def guardar_video(
+    archivo, content_type: Optional[str] = None, carpeta: str = None
+) -> Tuple[str, int, str]:
     """Guarda el clip y devuelve (ruta relativa, bytes, extensión).
 
     `archivo` es el `UploadFile` de FastAPI (cualquier objeto con `.file`,
     `.filename` y `.content_type` sirve). Lanza `ArchivoRechazado` con una
-    frase lista para mostrar.
+    frase lista para mostrar. `carpeta` separa los clips de las pruebas de
+    reclamos (`CARPETA_RECLAMOS`), que no son jugadas del reel.
     """
     extension = extension_de(content_type or getattr(archivo, "content_type", None),
                              getattr(archivo, "filename", None))
@@ -141,7 +146,7 @@ def guardar_video(archivo, content_type: Optional[str] = None) -> Tuple[str, int
         )
 
     tope = max_bytes()
-    destino_rel = f"{CARPETA_JUGADAS}/{uuid.uuid4().hex}{extension}"
+    destino_rel = f"{carpeta or CARPETA_JUGADAS}/{uuid.uuid4().hex}{extension}"
     destino = raiz() / destino_rel
     destino.parent.mkdir(parents=True, exist_ok=True)
 

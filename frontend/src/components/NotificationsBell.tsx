@@ -9,6 +9,10 @@ const ESTILO: Record<string, { icon: string; color: string }> = {
   partido_programado: { icon: 'event_available', color: 'text-secondary' },
   partido_resultado: { icon: 'scoreboard', color: 'text-primary' },
   partido_en_vivo: { icon: 'play_circle', color: 'text-tertiary' },
+  sancion_jugador: { icon: 'gavel', color: 'text-error' },
+  informe_arbitral: { icon: 'assignment', color: 'text-primary' },
+  reclamo_nuevo: { icon: 'balance', color: 'text-tertiary' },
+  reclamo_resuelto: { icon: 'task_alt', color: 'text-secondary' },
   general: { icon: 'campaign', color: 'text-on-surface-variant' },
 }
 

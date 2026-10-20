@@ -547,3 +547,118 @@ class Notification(Base):
     data = Column(JSON)
     read_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PlayerSanction(Base):
+    """Sanción a un jugador que decide una persona, no un contador.
+
+    La suspensión por acumulación (`services/disciplina.py`) cubre las tres
+    amarillas; lo que no cubría es lo que resuelve el comité el martes: la
+    agresión que el árbitro anotó en el informe, el insulto al juez de línea, la
+    alineación indebida. Eso son fechas que nadie puede derivar de los eventos,
+    así que se guardan —a diferencia de la acumulación, que se recalcula— con su
+    motivo, porque una suspensión sin motivo es la que se pierde en el reclamo.
+
+    Las fechas cumplidas sí se calculan: son los partidos que el equipo terminó
+    después de `match_id` (el partido donde ocurrió) o, si no se dice, después
+    de que se cargó la sanción. `status = annulled` es la que cayó en un
+    reclamo: no se borra, porque que existió y se revocó es parte de la historia.
+    """
+
+    __tablename__ = "player_sanctions"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    tournament_id = Column(GUID(), ForeignKey("tournaments.id"), index=True)
+    player_id = Column(GUID(), ForeignKey("players.id"))
+    team_id = Column(GUID(), ForeignKey("teams.id"))
+    # Fechas de suspensión. 0 es una amonestación que queda en el registro.
+    matches = Column(Integer, default=1)
+    reason = Column(String, nullable=False)
+    # Partido donde ocurrió: desde ahí se cuentan las fechas cumplidas.
+    match_id = Column(GUID(), ForeignKey("matches.id", ondelete="SET NULL"))
+    # Incidencia del informe arbitral que la originó (id dentro del JSON de
+    # MatchReport.incidents), para que el informe diga «sancionado».
+    incident_id = Column(String)
+    status = Column(String, default="active")  # active | annulled
+    created_by_id = Column(GUID(), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MatchReport(Base):
+    """Informe arbitral: lo que el árbitro firma además del marcador.
+
+    El acta dice cuánto terminó; el informe dice qué pasó —la agresión del
+    minuto 70, el público que invadió, el equipo que llegó tarde— y es la
+    prueba con la que el comité sanciona. Las incidencias van como lista JSON
+    dentro del informe y no en tabla aparte porque se cargan y se firman juntas,
+    igual que la planilla de un equipo, y así viajan enteras por la cola sin
+    señal del árbitro.
+
+    `submitted_at` es la firma: desde ahí el árbitro ya no lo toca (lo que
+    firmó, firmó) y solo el organizador lo puede reabrir.
+    """
+
+    __tablename__ = "match_reports"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    match_id = Column(
+        GUID(), ForeignKey("matches.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    author_id = Column(GUID(), nullable=True)
+    author_email = Column(String)  # copia, por lo mismo que en AuditLog
+    observations = Column(String)
+    # [{id, kind, minute, team: home|away|null, player_id, description}]
+    incidents = Column(JSON)
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Claim(Base):
+    """Reclamo de un equipo: el resultado, una alineación, una sanción.
+
+    Hasta ahora el reclamo llegaba por WhatsApp y la resolución también, así
+    que nadie más en la liga se enteraba de por qué se le dieron los puntos a
+    quién. Aquí queda el reclamo, la prueba —el clip de la jugada, que es
+    justo lo que se discute— y la resolución, que el organizador puede
+    publicar en el marcador.
+
+    La prueba es una jugada ya cargada (`highlight_id`) o un video propio del
+    equipo (`evidence_*`), porque quien reclama casi nunca es quien subió el
+    clip oficial: es el delegado que lo grabó desde la tribuna.
+    """
+
+    __tablename__ = "claims"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    tournament_id = Column(GUID(), ForeignKey("tournaments.id"), index=True)
+    match_id = Column(GUID(), ForeignKey("matches.id", ondelete="SET NULL"))
+    team_id = Column(GUID(), ForeignKey("teams.id"))  # el que reclama
+    # Si se apela una sanción manual: la resolución puede bajarla o anularla.
+    sanction_id = Column(
+        GUID(), ForeignKey("player_sanctions.id", ondelete="SET NULL")
+    )
+    # resultado | alineacion_indebida | arbitraje | sancion | otro
+    kind = Column(String, default="otro")
+    description = Column(String, nullable=False)
+
+    highlight_id = Column(
+        GUID(), ForeignKey("match_highlights.id", ondelete="SET NULL")
+    )
+    evidence_storage = Column(String)  # local | link
+    evidence_url = Column(String)
+    evidence_path = Column(String)  # para borrar el archivo con el reclamo
+    evidence_mime = Column(String)
+    evidence_size = Column(Integer)
+
+    # open | in_review | accepted | rejected | withdrawn
+    status = Column(String, default="open")
+    resolution = Column(String)
+    resolved_by_id = Column(GUID(), nullable=True)
+    resolved_at = Column(DateTime)
+    # La resolución sale al marcador público solo si el organizador lo decide.
+    published = Column(Boolean, default=False)
+    created_by_id = Column(GUID(), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)

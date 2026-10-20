@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api'
 import { Badge, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import JugadaPlayer, { ChipJugada, type JugadaLike } from './JugadaPlayer'
+import ReclamosCapitan from './ReclamosCapitan'
 import { duracionLegible } from '../utils/clip'
 import { sportOf } from '../sports'
 import { estadoLabel, woDetalle, woLabel } from '../utils/partido'
@@ -16,7 +17,7 @@ import { estadoLabel, woDetalle, woLabel } from '../utils/partido'
 
 /** Las tres pestañas del panel. Con nombre propio porque el arreglo que las
  *  pinta lleva un spread condicional y ahí `as const` ya no alcanza. */
-type CapTab = 'agenda' | 'equipo' | 'jugadas'
+type CapTab = 'agenda' | 'equipo' | 'jugadas' | 'reclamos'
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 const MESES = [
@@ -334,6 +335,7 @@ export default function CaptainView() {
             ...(jugadas.length
               ? [{ key: 'jugadas', label: 'Mejores jugadas', icon: 'movie' }]
               : []),
+            { key: 'reclamos', label: 'Reclamos', icon: 'balance' },
           ] as { key: CapTab; label: string; icon: string }[]
         ).map((t) => (
           <button
@@ -377,6 +379,13 @@ export default function CaptainView() {
             )}
           </Card>
         </div>
+      ) : tab === 'reclamos' ? (
+        <ReclamosCapitan
+          sel={sel}
+          jugados={[...(agenda.live || []), ...(agenda.played || [])]}
+          jugadas={jugadas}
+          sanciones={castigados}
+        />
       ) : tab === 'jugadas' ? (
         <div className="space-y-4">
           <div>

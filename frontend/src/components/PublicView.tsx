@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { exportImagePDF, exportStandingsPDF } from '../utils/pdf'
+import { PruebaReclamo } from './GobiernoPanel'
+import { estadoReclamo, fechaCorta, fechasLabel } from '../utils/gobierno'
 import {
   downloadImages,
   makeBracketImage,
@@ -207,6 +209,9 @@ export default function PublicView({
   // Suspendidos por tarjetas. Solo trae algo si el organizador encendió el
   // reglamento disciplinario del torneo; si no, la sección no se dibuja.
   const [disciplina, setDisciplina] = useState<any>(null)
+  // Resoluciones de reclamos que el organizador decidió publicar.
+  const [resoluciones, setResoluciones] = useState<any[]>([])
+  const [exportando, setExportando] = useState(false)
   const [valla, setValla] = useState<any[]>([])
   // Mejores jugadas. Vacío puede significar dos cosas —que no hay o que el
   // organizador no las publica (403)—, y en las dos la pestaña no se ofrece.
@@ -342,6 +347,7 @@ export default function PublicView({
     // la tabla vacía y la sección simplemente no se muestra.
     api.fairplay(tid, scope).then(setFairPlay).catch(() => setFairPlay([]))
     api.tournamentDiscipline(tid).then(setDisciplina).catch(() => setDisciplina(null))
+    api.resolutions(tid).then(setResoluciones).catch(() => setResoluciones([]))
   }
 
   async function openTournament(t: any) {
@@ -356,6 +362,7 @@ export default function PublicView({
     setMetrics(null)
     setFairPlay([])
     setDisciplina(null)
+    setResoluciones([])
     setStandings({})
     setQualifiers(null)
     setBracket(null)
@@ -705,9 +712,30 @@ export default function PublicView({
                       </Button>
                     ))}
                     {Object.keys(standings).length > 0 && (
-                      <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(selected.name, standings)}>
-                        <Icon name="picture_as_pdf" /> PDF
-                      </Button>
+                      <span className="ml-auto flex gap-2">
+                        <Button variant="outline" onClick={() => exportStandingsPDF(selected.name, standings)}>
+                          <Icon name="picture_as_pdf" /> PDF
+                        </Button>
+                        {/* El libro entero (posiciones, calendario, goleadores…),
+                            con lo que el organizador publica y nada más. */}
+                        <Button
+                          variant="outline"
+                          disabled={exportando}
+                          title="Descargar las tablas del campeonato en Excel"
+                          onClick={async () => {
+                            setExportando(true)
+                            try {
+                              await api.exportTournament(selected.id, selected.name)
+                            } catch {
+                              /* sin red: el botón vuelve a quedar disponible */
+                            } finally {
+                              setExportando(false)
+                            }
+                          }}
+                        >
+                          <Icon name={exportando ? 'hourglass_top' : 'table_view'} /> Excel
+                        </Button>
+                      </span>
                     )}
                   </div>
                   {groupStages.length === 0 ? (
@@ -1607,9 +1635,8 @@ export default function PublicView({
                   {/* Suspendidos: la pregunta del sábado —«¿quién no puede
                       jugar mañana?»— publicada donde la ven todos, capitanes
                       incluidos. Solo aparece si el torneo lo tiene encendido. */}
-                  {disciplina?.enabled &&
-                    (disciplina.sanctions?.length > 0 ||
-                      disciplina.at_risk?.length > 0) && (
+                  {(disciplina?.sanctions?.length > 0 ||
+                    disciplina?.at_risk?.length > 0) && (
                       <Card className="p-4">
                         <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
                           <Icon name="gavel" className="text-error" /> Suspendidos
@@ -1618,13 +1645,21 @@ export default function PublicView({
                           <ul className="space-y-1.5">
                             {disciplina.sanctions.map((s: any) => (
                               <li
-                                key={`${s.player_id}-${s.since_match_id}`}
+                                key={s.sanction_id || `${s.player_id}-${s.since_match_id}`}
                                 className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-error-container/25 px-3 py-2 text-sm"
                               >
                                 <span className="font-semibold">{s.player_name}</span>
                                 <span className="text-on-surface-variant">
                                   {s.team_name}
                                 </span>
+                                {s.source === 'manual' && (
+                                  <span
+                                    className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant"
+                                    title="Sanción decidida por el comité, no por acumulación de tarjetas"
+                                  >
+                                    Comité
+                                  </span>
+                                )}
                                 <span className="ml-auto flex items-center gap-2">
                                   <Badge className="bg-error-container text-on-error-container">
                                     {s.reason}
@@ -1664,13 +1699,53 @@ export default function PublicView({
                             </div>
                           </>
                         )}
-                        <p className="mt-2 text-xs text-on-surface-variant">
-                          {disciplina.config?.yellow_limit} amarillas ={' '}
-                          {disciplina.config?.yellow_matches} fecha(s); roja ={' '}
-                          {disciplina.config?.red_matches} fecha(s).
-                        </p>
+                        {disciplina.enabled && (
+                          <p className="mt-2 text-xs text-on-surface-variant">
+                            {disciplina.config?.yellow_limit} amarillas ={' '}
+                            {disciplina.config?.yellow_matches} fecha(s); roja ={' '}
+                            {disciplina.config?.red_matches} fecha(s).
+                          </p>
+                        )}
                       </Card>
                     )}
+                  {/* Resoluciones publicadas: la respuesta a «¿por qué le dieron
+                      los puntos?» para toda la liga, no solo para los dos
+                      equipos. Sale solo lo que el organizador decidió publicar. */}
+                  {resoluciones.length > 0 && (
+                    <Card className="p-4">
+                      <h3 className="mb-3 flex items-center gap-2 font-display font-semibold">
+                        <Icon name="balance" className="text-tertiary" /> Resoluciones del comité
+                      </h3>
+                      <ul className="space-y-3">
+                        {resoluciones.map((r: any) => {
+                          const est = estadoReclamo(r.status)
+                          return (
+                            <li key={r.id} className="rounded-lg bg-surface-container-low px-3 py-2.5 text-sm">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold">{r.team_name}</span>
+                                <span className="text-on-surface-variant">· {r.kind_label}</span>
+                                {r.match_label && (
+                                  <span className="text-xs text-on-surface-variant">· {r.match_label}</span>
+                                )}
+                                <Badge className={`ml-auto ${est.tone}`}>{est.label}</Badge>
+                              </div>
+                              {r.sanction && (
+                                <p className="mt-1 text-xs text-on-surface-variant">
+                                  Sanción de {r.sanction.player_name}: {fechasLabel(r.sanction.matches)}
+                                  {r.sanction.status === 'annulled' && ' (anulada)'}
+                                </p>
+                              )}
+                              <p className="mt-1.5 whitespace-pre-line">{r.resolution}</p>
+                              {r.resolved_at && (
+                                <p className="mt-1 text-xs text-on-surface-variant">{fechaCorta(r.resolved_at)}</p>
+                              )}
+                              <PruebaReclamo claim={r} />
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </Card>
+                  )}
                   {fairPlay.length > 0 && (
                     <Card className="p-4">
                       <div className="mb-3 flex items-center justify-between gap-2">

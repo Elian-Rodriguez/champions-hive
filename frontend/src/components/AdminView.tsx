@@ -7,6 +7,8 @@ import TournamentBracket from './TournamentBracket'
 import VenuesPanel from './VenuesPanel'
 import UsersPanel from './UsersPanel'
 import JugadasPanel from './JugadasPanel'
+import GobiernoPanel from './GobiernoPanel'
+import ImportarNomina from './ImportarNomina'
 import CuadroTab from './CuadroBuilder'
 import DashboardView from './DashboardView'
 import { exportMatchReportPDF, exportStandingsPDF } from '../utils/pdf'
@@ -78,6 +80,7 @@ type Tab =
   | 'posiciones'
   | 'cuadro'
   | 'jugadas'
+  | 'disciplina'
   | 'marca'
   | 'historial'
 type Section = 'dashboard' | 'torneos' | 'sedes' | 'usuarios'
@@ -297,7 +300,7 @@ export default function AdminView() {
                   <Badge className="bg-secondary-container/40 text-secondary">{sportLabel(selected.sport_type)}</Badge>
                 </div>
                 <div className={`mb-5 ${PILDORAS}`}>
-                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'cuadro', 'jugadas', 'marca', 'historial'] as Tab[]).map((t) => (
+                  {(['resumen', 'config', 'equipos', 'fases', 'calendario', 'posiciones', 'cuadro', 'jugadas', 'disciplina', 'marca', 'historial'] as Tab[]).map((t) => (
                     <button
                       key={t}
                       onClick={() => setTab(t)}
@@ -316,6 +319,7 @@ export default function AdminView() {
                 {tab === 'posiciones' && <PosicionesTab tournament={selected} />}
                 {tab === 'cuadro' && <CuadroTab tournament={selected} />}
                 {tab === 'jugadas' && <JugadasPanel tournament={selected} />}
+                {tab === 'disciplina' && <GobiernoPanel tournament={selected} />}
                 {tab === 'marca' && <MarcaTab tournament={selected} />}
                 {tab === 'historial' && <HistorialTab tournament={selected} />}
               </Card>
@@ -1148,6 +1152,7 @@ function EquiposTab({ tournament }: { tournament: any }) {
   // Grupos creados a mano que todavía no tienen equipos.
   const [gruposExtra, setGruposExtra] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
+  const [importar, setImportar] = useState(false)
   async function load() {
     setTeams(await api.getTeams(tournament.id))
   }
@@ -1215,7 +1220,23 @@ function EquiposTab({ tournament }: { tournament: any }) {
         <Button type="submit">
           <Icon name="add" /> Añadir
         </Button>
+        <Button
+          type="button"
+          variant={importar ? 'outline' : 'ghost'}
+          onClick={() => setImportar((v) => !v)}
+          title="Cargar equipos y nóminas desde una planilla de Excel"
+        >
+          <Icon name="upload_file" /> Importar Excel
+        </Button>
       </form>
+
+      {importar && (
+        <ImportarNomina
+          tournament={tournament}
+          onClose={() => setImportar(false)}
+          onImported={load}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-on-surface-variant">Sortear en</span>
@@ -1967,6 +1988,7 @@ function PosicionesTab({ tournament }: { tournament: any }) {
   const [active, setActive] = useState<any>(null)
   const [standings, setStandings] = useState<Record<string, any[]>>({})
   const [bracket, setBracket] = useState<any>(null)
+  const [exportando, setExportando] = useState(false)
   useEffect(() => {
     api.getStages(tournament.id).then((st) => {
       setStages(st)
@@ -1997,11 +2019,30 @@ function PosicionesTab({ tournament }: { tournament: any }) {
             ))}
           </div>
         )}
-        {Object.keys(standings).length > 0 && (
-          <Button variant="outline" className="ml-auto" onClick={() => exportStandingsPDF(tournament.name, standings)}>
-            <Icon name="picture_as_pdf" /> PDF
-          </Button>
-        )}
+        <div className="ml-auto flex gap-2">
+          {Object.keys(standings).length > 0 && (
+            <Button variant="outline" onClick={() => exportStandingsPDF(tournament.name, standings)}>
+              <Icon name="picture_as_pdf" /> PDF
+            </Button>
+          )}
+          {stages.length > 0 && (
+            <Button
+              variant="outline"
+              disabled={exportando}
+              title="Posiciones, calendario, goleadores, valla, sanciones y nóminas en un libro de Excel"
+              onClick={async () => {
+                setExportando(true)
+                try {
+                  await api.exportTournament(tournament.id, tournament.name)
+                } finally {
+                  setExportando(false)
+                }
+              }}
+            >
+              <Icon name={exportando ? 'hourglass_top' : 'table_view'} /> Excel
+            </Button>
+          )}
+        </div>
       </div>
       {!active ? (
         <EmptyState icon="leaderboard" title="Crea una fase para ver posiciones" />
@@ -2875,6 +2916,9 @@ const ACCION_ESTILO: Record<string, { icon: string; tone: string }> = {
   sancion: { icon: 'gavel', tone: 'text-error' },
   cuenta: { icon: 'manage_accounts', tone: 'text-on-surface-variant' },
   torneo: { icon: 'delete_forever', tone: 'text-error' },
+  informe: { icon: 'assignment', tone: 'text-primary' },
+  reclamo: { icon: 'balance', tone: 'text-tertiary' },
+  importacion: { icon: 'upload_file', tone: 'text-secondary' },
 }
 
 // Cómo se nombra cada campo en el detalle de un cambio.
@@ -2893,6 +2937,12 @@ const CAMPO_HISTORIAL: Record<string, string> = {
   rol: 'Rol',
   cupo: 'Cupo',
   email: 'Correo',
+  fechas: 'Fechas',
+  partido: 'Partido',
+  resolucion: 'Resolución',
+  publicada: 'Publicada',
+  firmado: 'Firmado',
+  tipo: 'Tipo',
 }
 
 /** Las fechas del backend son UTC sin sufijo; sin la Z el navegador las lee
