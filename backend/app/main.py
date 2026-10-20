@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -7,6 +8,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.api import (
     auth_routes,
     captain_routes,
+    highlight_routes,
     match_routes,
     notification_routes,
     team_routes,
@@ -20,6 +22,8 @@ from app.core.security import get_password_hash
 from app.db import models  # noqa: F401  (registra los modelos en Base.metadata)
 from app.db.database import Base, SessionLocal, engine, run_sqlite_migrations
 from app.db.models import User
+from app.services import media
+from app.services.contentful import contentful_configurado
 from app.services.correo import correo_configurado
 
 # Lo primero: el log, para que lo que pase al arrancar (migraciones, siembra
@@ -66,10 +70,14 @@ seed_admin()
 # base corre, si el correo saliente está configurado y en qué huso escribe los
 # avisos. Sin esto, un despliegue mal configurado solo se descubre fallando.
 logger.info(
-    "Champion Hive arriba | base=%s | correo=%s | huso=%+d min",
+    "Champion Hive arriba | base=%s | correo=%s | huso=%+d min | "
+    "archivos=%s (hasta %d MB) | contentful=%s",
     settings.DATABASE_URL.split("://", 1)[0],
     "configurado" if correo_configurado() else "sin configurar (reseteo manual)",
     settings.TIMEZONE_OFFSET_MINUTES,
+    media.raiz(),
+    settings.MAX_VIDEO_MB,
+    "encendido" if contentful_configurado() else "apagado (el video se sirve local)",
 )
 
 app = FastAPI(
@@ -104,6 +112,17 @@ app.include_router(
     notification_routes.router, prefix="/api/v1/notifications", tags=["Notifications"]
 )
 app.include_router(captain_routes.router, prefix="/api/v1/captain", tags=["Captain"])
+# Mejores jugadas: va en /api/v1 (como teams) porque tiene rutas colgadas de
+# /tournaments/{id}/highlights y de /highlights/{id}.
+app.include_router(highlight_routes.router, prefix="/api/v1", tags=["Highlights"])
+
+# Los clips de las mejores jugadas, servidos desde disco. Cuelga de /api/v1 a
+# propósito: así lo cubre el mismo `location /api/` que ya tiene nginx delante
+# (ver deploy/nginx.conf) y el mismo origen del servidor de desarrollo, sin una
+# regla de configuración más que alguien tenga que recordar al desplegar.
+# StaticFiles responde peticiones Range, que es lo que necesita un <video> para
+# que el usuario pueda adelantar el clip.
+app.mount("/api/v1/media", StaticFiles(directory=str(media.raiz())), name="media")
 
 
 @app.get("/")

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api'
 import { Badge, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
+import JugadaPlayer, { ChipJugada, type JugadaLike } from './JugadaPlayer'
+import { duracionLegible } from '../utils/clip'
 import { sportOf } from '../sports'
 import { estadoLabel, woDetalle, woLabel } from '../utils/partido'
 
@@ -11,6 +13,10 @@ import { estadoLabel, woDetalle, woLabel } from '../utils/partido'
  * gestión. Aquí ve cuándo y dónde juega, cómo va en la tabla, cómo van sus
  * jugadores y los avisos de reprogramación (la campana vive en el Layout).
  */
+
+/** Las tres pestañas del panel. Con nombre propio porque el arreglo que las
+ *  pinta lleva un spread condicional y ahí `as const` ya no alcanza. */
+type CapTab = 'agenda' | 'equipo' | 'jugadas'
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 const MESES = [
@@ -198,7 +204,12 @@ export default function CaptainView() {
   const [castigados, setCastigados] = useState<any[]>([])
   const [agenda, setAgenda] = useState<any>({ upcoming: [], played: [], live: [] })
   const [resumen, setResumen] = useState<any>(null)
-  const [tab, setTab] = useState<'agenda' | 'equipo'>('agenda')
+  const [tab, setTab] = useState<CapTab>('agenda')
+  // Mejores jugadas del equipo. Vacío puede ser que no haya o que el
+  // organizador no las publique: en los dos casos la pestaña no se ofrece.
+  const [jugadas, setJugadas] = useState<JugadaLike[]>([])
+  const [jugadaAbierta, setJugadaAbierta] = useState<JugadaLike | null>(null)
+  const [patrocinadores, setPatrocinadores] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -220,6 +231,14 @@ export default function CaptainView() {
       .captainSummary(sel.team_id, sel.tournament_id)
       .then(setResumen)
       .catch(() => setResumen(null))
+    setJugadaAbierta(null)
+    api.captainHighlights(sel.team_id).then(setJugadas).catch(() => setJugadas([]))
+    // Los patrocinadores son del torneo y van DENTRO del marco del clip: sin
+    // ellos el video sale sin la parte que le paga al campeonato.
+    api
+      .getSponsors(sel.tournament_id)
+      .then(setPatrocinadores)
+      .catch(() => setPatrocinadores([]))
     // Suspendidos del campeonato, filtrados a los de mi equipo. Solo trae algo
     // si el organizador encendió el reglamento disciplinario.
     api
@@ -310,7 +329,12 @@ export default function CaptainView() {
           [
             { key: 'agenda', label: 'Calendario', icon: 'calendar_month' },
             { key: 'equipo', label: 'Mi equipo', icon: 'insights' },
-          ] as const
+            // Solo si hay clips: una pestaña vacía no le enseña nada a quien
+            // no puede subirlos.
+            ...(jugadas.length
+              ? [{ key: 'jugadas', label: 'Mejores jugadas', icon: 'movie' }]
+              : []),
+          ] as { key: CapTab; label: string; icon: string }[]
         ).map((t) => (
           <button
             key={t.key}
@@ -352,6 +376,72 @@ export default function CaptainView() {
               <EmptyState icon="sports_score" title="Todavía no juegan" />
             )}
           </Card>
+        </div>
+      ) : tab === 'jugadas' ? (
+        <div className="space-y-4">
+          <div>
+            <h3 className="font-display text-lg font-bold">Mejores jugadas</h3>
+            <p className="mt-1 text-sm text-on-surface-variant">
+              Los clips de tus partidos. Cada uno se comparte con el marco del campeonato
+              puesto: el nombre, el logo y los patrocinadores van dentro del video.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {jugadas.map((j) => (
+              <button
+                key={j.id}
+                onClick={() => setJugadaAbierta(j)}
+                className="group overflow-hidden rounded-xl border border-outline-variant/70 bg-surface-container text-left transition duration-200 ease-snap hover:-translate-y-0.5 hover:border-secondary/50"
+              >
+                <span className="relative block aspect-video w-full bg-surface-container-lowest">
+                  {j.poster_url ? (
+                    <img
+                      src={j.poster_url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                    />
+                  ) : (
+                    <span className="grid h-full place-items-center">
+                      <Icon name="movie" className="text-3xl opacity-25" />
+                    </span>
+                  )}
+                  <span className="absolute inset-0 grid place-items-center bg-surface-container-lowest/25 transition group-hover:bg-surface-container-lowest/5">
+                    <span className="relative grid h-12 w-12 place-items-center transition duration-200 ease-snap group-hover:scale-110">
+                      <span className="clip-hex absolute inset-0 bg-volt/90" />
+                      <Icon name="play_arrow" className="relative text-2xl text-on-secondary" />
+                    </span>
+                  </span>
+                  <span className="absolute left-2 top-2">
+                    <ChipJugada sport={j.sport_type || sel?.sport_type} type={j.play_type} />
+                  </span>
+                  {/* El reel de un partido trae también lo del rival, y eso hay
+                      que decirlo: ver un golazo etiquetado con el otro escudo
+                      sin explicación se lee como un error. */}
+                  {j.is_mine === false && (
+                    <span className="absolute right-2 top-2 rounded-full bg-surface-container-lowest/85 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+                      Del rival
+                    </span>
+                  )}
+                  {j.duration_seconds ? (
+                    <span className="tnum absolute bottom-2 right-2 rounded bg-surface-container-lowest/85 px-1.5 py-0.5 text-[10px] font-bold">
+                      {duracionLegible(j.duration_seconds)}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="block p-3">
+                  <span className="block truncate font-display text-sm font-bold">
+                    {j.title || j.play_label || 'Jugada'}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[11px] text-on-surface-variant">
+                    {[j.player_name, j.team_name, j.match_label].filter(Boolean).join(' · ') ||
+                      j.tournament_name}
+                    {j.minute != null ? ` · ${j.minute}'` : ''}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="space-y-5">
@@ -480,6 +570,41 @@ export default function CaptainView() {
               />
             )}
           </Card>
+        </div>
+      )}
+
+      {jugadaAbierta && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-surface-container-lowest/92 p-4"
+          onClick={() => setJugadaAbierta(null)}
+        >
+          <div className="w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="truncate font-display text-base font-bold">
+                {jugadaAbierta.title || jugadaAbierta.play_label}
+              </p>
+              <button
+                onClick={() => setJugadaAbierta(null)}
+                aria-label="Cerrar"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-container-high transition hover:bg-surface-bright"
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+            {/* El marco se pinta con los datos del torneo de LA JUGADA y no con
+                los del equipo seleccionado: un capitán puede llevar equipos en
+                dos campeonatos distintos. */}
+            <JugadaPlayer
+              jugada={jugadaAbierta}
+              torneo={{
+                name: jugadaAbierta.tournament_name || sel?.tournament_name,
+                logo_url: jugadaAbierta.tournament_logo_url || sel?.tournament_logo_url,
+                sport_type: jugadaAbierta.sport_type || sel?.sport_type,
+              }}
+              patrocinadores={patrocinadores}
+              autoPlay
+            />
+          </div>
         </div>
       )}
     </div>

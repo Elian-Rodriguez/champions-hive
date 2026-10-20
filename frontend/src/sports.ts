@@ -27,6 +27,26 @@ export type ScoreEvent = {
   hint?: string
 }
 
+
+/** Tono de una jugada destacada. Es el NOMBRE del token, no un hex, porque el
+ *  mismo valor lo usa el chip de Tailwind y el canvas que quema el marco en el
+ *  clip (que lee el hex de theme.ts). Dos archivos, un sistema. */
+export type HighlightTone = 'volt' | 'ice' | 'plasma' | 'flare' | 'ember' | 'outline'
+
+/** Jugada destacada: lo que se etiqueta al subir un clip a «mejores jugadas».
+ *
+ *  Va atado a la disciplina por la misma razón que todo lo demás de este
+ *  archivo: un cajón de tejo no tiene atajada y una cancha de fútbol no tiene
+ *  moñona. Las claves son las mismas que valida el backend
+ *  (JUGADAS_POR_DEPORTE en services/strategy.py); si se tocan aquí hay que
+ *  tocarlas allá o la subida responde 400. */
+export type HighlightPlay = {
+  type: string
+  label: string
+  icon: string
+  tone: HighlightTone
+}
+
 export type DiscColumn = { key: string; label: string; title: string }
 
 export type SportMeta = {
@@ -53,6 +73,10 @@ export type SportMeta = {
   scoreEvents: ScoreEvent[]
   /** Eventos disciplinarios disponibles en el panel del árbitro. */
   events: DisciplineEvent[]
+  /** Jugadas que se pueden etiquetar en «mejores jugadas», de la más
+   *  espectacular a la más común: ese es el orden en que se ofrecen y el orden
+   *  en que vale la pena verlas en el reel. */
+  highlightPlays: HighlightPlay[]
   /** Columnas de disciplina en las tablas públicas. */
   discColumns: DiscColumn[]
   /** Marcador [a favor, en contra] que fija el reglamento en un W.O. Es el
@@ -94,6 +118,22 @@ const COL_FOULS: DiscColumn = { key: 'fouls', label: 'Fal', title: 'Faltas' }
 /** El gol de toda la vida: una jugada, un punto. */
 const GOL: ScoreEvent = { type: 'GOL', label: 'Gol', short: 'GOL', points: 1, icon: 'sports_soccer' }
 
+
+/** Jugadas destacadas del fútbol y sus variantes (micro, banquitas). */
+const JUGADAS_FUTBOL: HighlightPlay[] = [
+  { type: 'GOL', label: 'Gol', icon: 'sports_soccer', tone: 'volt' },
+  { type: 'ATAJADA', label: 'Atajada', icon: 'sports_handball', tone: 'ice' },
+  { type: 'REGATE', label: 'Regate', icon: 'moving', tone: 'plasma' },
+  { type: 'TIRO_LIBRE', label: 'Tiro libre', icon: 'sports', tone: 'flare' },
+  { type: 'ASISTENCIA', label: 'Asistencia', icon: 'handshake', tone: 'ember' },
+  { type: 'OTRA', label: 'Otra jugada', icon: 'videocam', tone: 'outline' },
+]
+
+/** El cajón genérico está en todas las disciplinas: siempre existe el clip que
+ *  no es ninguna de las anteriores —la celebración, la hinchada, la
+ *  premiación— y no tener dónde ponerlo es peor que un cajón sin nombre. */
+const JUGADA_OTRA: HighlightPlay = JUGADAS_FUTBOL[JUGADAS_FUTBOL.length - 1]
+
 export const SPORTS: Record<string, SportMeta> = {
   football: {
     value: 'football',
@@ -109,6 +149,7 @@ export const SPORTS: Record<string, SportMeta> = {
     scoreEvents: [GOL],
     events: [AMARILLA, ROJA],
     discColumns: [COL_YELLOW, COL_RED],
+    highlightPlays: JUGADAS_FUTBOL,
     walkoverScore: [3, 0],
   },
   micro: {
@@ -125,6 +166,7 @@ export const SPORTS: Record<string, SportMeta> = {
     scoreEvents: [GOL],
     events: [AMARILLA, AZUL, ROJA],
     discColumns: [COL_YELLOW, COL_BLUE, COL_RED],
+    highlightPlays: JUGADAS_FUTBOL,
     walkoverScore: [3, 0],
   },
   basketball: {
@@ -152,6 +194,14 @@ export const SPORTS: Record<string, SportMeta> = {
       },
     ],
     discColumns: [{ key: 'fouls', label: 'Faltas', title: 'Faltas' }],
+    highlightPlays: [
+      { type: 'CLAVADA', label: 'Clavada', icon: 'sports_basketball', tone: 'volt' },
+      { type: 'TRIPLE', label: 'Triple', icon: 'filter_3', tone: 'plasma' },
+      { type: 'BLOQUEO', label: 'Bloqueo', icon: 'block', tone: 'ice' },
+      { type: 'ROBO', label: 'Robo', icon: 'bolt', tone: 'ember' },
+      { type: 'ASISTENCIA', label: 'Asistencia', icon: 'handshake', tone: 'flare' },
+      JUGADA_OTRA,
+    ],
     // Como en FIBA: el que no se presenta pierde 20-0.
     walkoverScore: [20, 0],
   },
@@ -172,6 +222,7 @@ export const SPORTS: Record<string, SportMeta> = {
     scoreEvents: [GOL],
     events: [AMARILLA, AZUL, ROJA, FALTA],
     discColumns: [COL_YELLOW, COL_BLUE, COL_RED, COL_FOULS],
+    highlightPlays: JUGADAS_FUTBOL,
     walkoverScore: [3, 0],
   },
   // Tejo: no se juega por tiempo sino a 21 puntos, y el marcador no se mueve
@@ -227,6 +278,15 @@ export const SPORTS: Record<string, SportMeta> = {
     // En tejo no hay tarjetas: lo que se anota es la falta de línea.
     events: [FALTA],
     discColumns: [COL_FOULS],
+    // Las cuatro jugadas del tejo, de la que más vale a la que menos: la
+    // moñona (9) abre el reel y la mano (1) lo cierra.
+    highlightPlays: [
+      { type: 'MOÑONA', label: 'Moñona', icon: 'auto_awesome', tone: 'volt' },
+      { type: 'EMBOCINADA', label: 'Embocinada', icon: 'radio_button_checked', tone: 'ice' },
+      { type: 'MECHA', label: 'Mecha', icon: 'local_fire_department', tone: 'flare' },
+      { type: 'MANO', label: 'Mano', icon: 'adjust', tone: 'ember' },
+      JUGADA_OTRA,
+    ],
     // La partida se juega a 21, así que ese es el marcador del que no llegó.
     walkoverScore: [21, 0],
   },
@@ -279,4 +339,20 @@ export function marcadorWalkover(
   const [aFavor, enContra] = sportOf(sport).walkoverScore
   if (ausente === 'both') return [0, 0]
   return ausente === 'home' ? [enContra, aFavor] : [aFavor, enContra]
+}
+
+/** Jugadas destacadas de la disciplina, en el orden en que se ofrecen. */
+export const jugadasDestacadas = (sport?: string | null): HighlightPlay[] =>
+  sportOf(sport).highlightPlays
+
+/** La jugada destacada por su clave, dentro de la disciplina. Devuelve el
+ *  cajón genérico si la clave no es de esta disciplina, que es lo que pasa al
+ *  mirar un clip viejo de un torneo al que le cambiaron el deporte. */
+export const jugadaDestacada = (
+  sport: string | null | undefined,
+  type: string | null | undefined,
+): HighlightPlay => {
+  const clave = (type || '').toUpperCase()
+  const lista = jugadasDestacadas(sport)
+  return lista.find((j) => j.type === clave) || lista[lista.length - 1]
 }

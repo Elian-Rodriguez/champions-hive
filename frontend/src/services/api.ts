@@ -161,6 +161,125 @@ if (typeof window !== 'undefined') {
   syncOutbox() // por si quedó cola de una sesión anterior
 }
 
+
+/**
+ * URL absoluta de un archivo servido por el backend (hoy, los clips).
+ *
+ * El backend devuelve rutas relativas («/api/v1/media/jugadas/x.webm»), que es
+ * lo correcto: en la imagen combinada el frontend y el API comparten origen y
+ * esa ruta resuelve sola. Pero cuando el backend vive en otro host —el
+ * servidor de desarrollo de Vite, o un despliegue con el API en su propio
+ * dominio— el navegador la resuelve contra la PÁGINA, y ahí el servidor de la
+ * SPA responde su index.html con un 200: el `<video>` recibe HTML donde
+ * esperaba video y falla con un error que no dice nada.
+ *
+ * Así que la ruta relativa se ancla al origen de VITE_API_URL, que es el único
+ * que sabe dónde está de verdad el archivo.
+ */
+export function mediaUrl(url?: string | null): string | null {
+  if (!url) return null
+  if (/^(https?:|blob:|data:)/i.test(url)) return url
+  try {
+    const base = new URL(API_URL, window.location.origin)
+    return new URL(url, base.origin).toString()
+  } catch {
+    return url
+  }
+}
+
+/** Campos de una jugada destacada al subirla. */
+export type JugadaCampos = {
+  play_type?: string | null
+  title?: string | null
+  match_id?: string | null
+  team_id?: string | null
+  player_id?: string | null
+  minute?: number | null
+  duration_seconds?: number | null
+  poster_url?: string | null
+  published?: boolean
+}
+
+/**
+ * Sube un clip de «mejores jugadas».
+ *
+ * Va por XMLHttpRequest y no por fetch por una sola razón: fetch no informa
+ * del progreso de SUBIDA, y aquí se están mandando decenas de megabytes desde
+ * un teléfono con datos móviles en una tribuna. Sin barra de progreso la
+ * pantalla parece colgada y la gente cierra la aplicación a medio subir.
+ *
+ * Tampoco pasa por la cola offline: un clip de 20 MB en el almacenamiento del
+ * navegador es cómo se corrompe la cola del árbitro entera. Si no hay red,
+ * esto falla y lo dice (ver isQueueable en services/offline.ts, que es una
+ * lista blanca y no incluye esta ruta).
+ */
+export function subirJugada(
+  tournamentId: string,
+  archivo: File,
+  campos: JugadaCampos = {},
+  onProgreso?: (fraccion: number) => void,
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (!isOnline()) {
+      reject(
+        new Error(
+          'Subir un video necesita conexión. Guarda el clip y súbelo cuando tengas señal.',
+        ),
+      )
+      return
+    }
+    const form = new FormData()
+    form.append('file', archivo, archivo.name)
+    Object.entries(campos).forEach(([clave, valor]) => {
+      if (valor === null || valor === undefined || valor === '') return
+      form.append(clave, typeof valor === 'boolean' ? String(valor) : String(valor))
+    })
+
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_URL}/tournaments/${tournamentId}/highlights`)
+    const token = localStorage.getItem('token')
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    // El Content-Type NO se pone: lo escribe el navegador con el separador
+    // del multipart, y ponerlo a mano rompe el cuerpo.
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgreso?.(e.loaded / e.total)
+    }
+    xhr.onload = () => {
+      let cuerpo: any = null
+      try {
+        cuerpo = JSON.parse(xhr.responseText)
+      } catch {
+        /* respuesta sin JSON */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgreso?.(1)
+        resolve(cuerpo)
+        return
+      }
+      if (xhr.status === 401 && localStorage.getItem('token')) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('role')
+        if (typeof window !== 'undefined') window.location.reload()
+      }
+      const detalle = cuerpo?.detail
+      reject(
+        new Error(
+          typeof detalle === 'string'
+            ? detalle
+            : detalle
+              ? JSON.stringify(detalle)
+              : 'No se pudo subir el clip.',
+        ),
+      )
+    }
+    xhr.onerror = () =>
+      reject(new Error('Se cortó la conexión mientras subía el clip.'))
+    xhr.onabort = () => reject(new Error('Subida cancelada.'))
+    xhr.send(form)
+  })
+}
+
 export const api = {
   // ---- Auth ----
   async login(email: string, password: string) {
@@ -239,6 +358,12 @@ export const api = {
   captainTeams: () => req('/captain/teams'),
   captainMatches: (teamId?: string) =>
     req(`/captain/matches${teamId ? `?team_id=${teamId}` : ''}`),
+  /** Las mejores jugadas de los partidos del capitán: las de su equipo y las
+   *  del partido que jugó (incluido el gol del rival, que `is_mine` distingue).
+   *  Un campeonato cuyo organizador apagó el interruptor se cae de la lista en
+   *  vez de responder 403, porque la consulta cruza todos sus campeonatos. */
+  captainHighlights: (teamId?: string) =>
+    req(`/captain/highlights${teamId ? `?team_id=${teamId}` : ''}`),
   captainSummary: (teamId: string, tournamentId?: string) =>
     req(
       `/captain/teams/${teamId}/summary${
@@ -342,6 +467,38 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+
+  // ---- Mejores jugadas ----
+  /** Tope de MB por clip y si el espejo en Contentful está encendido. */
+  highlightsConfig: () => req('/highlights/config'),
+  /** Jugadas destacadas de la disciplina del torneo. El front ya las tiene en
+   *  sports.ts; esto es para que la API se explique sola y para no duplicar la
+   *  verdad si mañana se configuran por torneo. */
+  highlightPlays: (tid: string) => req(`/tournaments/${tid}/highlight_plays`),
+  /** El reel. `includeUnpublished` solo lo atiende el dueño del torneo. */
+  highlights: (
+    tid: string,
+    opts?: { matchId?: string | null; playType?: string | null; includeUnpublished?: boolean },
+  ) => {
+    const q = new URLSearchParams()
+    if (opts?.matchId) q.set('match_id', opts.matchId)
+    if (opts?.playType) q.set('play_type', opts.playType)
+    if (opts?.includeUnpublished) q.set('include_unpublished', 'true')
+    const cola = q.toString()
+    return req(`/tournaments/${tid}/highlights${cola ? `?${cola}` : ''}`)
+  },
+  /** Jugada que vive fuera (YouTube, Instagram): se guarda el enlace. */
+  linkHighlight: (tid: string, data: any) =>
+    req(`/tournaments/${tid}/highlights/link`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateHighlight: (id: string, data: any) =>
+    req(`/highlights/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteHighlight: (id: string) => req(`/highlights/${id}`, { method: 'DELETE' }),
+  /** Reintenta el espejo en Contentful de una jugada ya subida. */
+  mirrorHighlight: (id: string) =>
+    req(`/highlights/${id}/mirror`, { method: 'POST' }),
 
   // ---- Stages / fixtures / brackets ----
   getStages: (tid: string) => req(`/tournaments/${tid}/stages`),

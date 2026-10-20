@@ -88,6 +88,11 @@ def _status_str(match: Match) -> str:
     return s.value if hasattr(s, "value") else str(s)
 
 
+def _stage_type_str(stage: Stage) -> str:
+    t = stage.type
+    return t.value if hasattr(t, "value") else str(t)
+
+
 def _team_groups(db: Session, tournament_id) -> Dict[str, str]:
     links = (
         db.query(TournamentTeam)
@@ -507,6 +512,40 @@ def _plan_de_cuadro(clasificados: int) -> List[str]:
         peor = max(siembra[i], siembra[i + 1])
         plan.append("bye" if peor > clasificados else "match")
     return plan
+
+
+def _plan_pedido(pedido: Any, por_defecto: List[str]) -> List[str]:
+    """El plan que manda el organizador, cuando arma el cuadro a mano.
+
+    `_plan_de_cuadro` le da el bye a los mejores sembrados, que es lo que hace
+    cualquier reglamento cuando el cuadro se siembra por mérito. Pero el que
+    dibuja los cruces a mano decide también en qué llave espera cada bye, y sin
+    esto el servidor le reordenaba el cuadro que acababa de armar: la cantidad
+    de cruces y de byes era la correcta, así que pasaba la validación y el
+    resultado era otro —el que esperaba en la llave 1 aparecía en la 3—.
+
+    Lo único que un plan propio puede cambiar es el ORDEN: cuántos cruces y
+    cuántos byes los sigue decidiendo la cantidad de equipos, porque de eso
+    depende que el árbol cierre.
+    """
+    if not pedido:
+        return por_defecto
+    if not isinstance(pedido, list) or any(x not in ("match", "bye") for x in pedido):
+        raise HTTPException(
+            status_code=400,
+            detail="El plan del cuadro solo acepta «match» y «bye» en cada llave",
+        )
+    if sorted(pedido) != sorted(por_defecto):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El plan del cuadro necesita {por_defecto.count('match')} cruce(s) "
+                f"y {por_defecto.count('bye')} bye(s) en {len(por_defecto)} llave(s); "
+                f"llegaron {pedido.count('match')} y {pedido.count('bye')} "
+                f"en {len(pedido)}."
+            ),
+        )
+    return list(pedido)
 
 
 def _byes_necesarios(clasificados: int) -> int:
@@ -1078,7 +1117,7 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
         cid: {"name": co.name, "venue": venues.get(str(co.venue_id))}
         for cid, co in courts.items()
     }
-    stage_type = stage.type.value if hasattr(stage.type, "value") else stage.type
+    stage_type = _stage_type_str(stage)
     groups = _team_groups(db, stage.tournament_id) if stage_type == "group" else {}
     ref_ids = [m.referee_id for m in matches if m.referee_id]
     refs = (
@@ -1133,7 +1172,29 @@ def get_stage_matches(stage_id: UUID, db: Session = Depends(get_db)):
 def generate_fixture(
     stage_id: UUID, db: Session = Depends(get_db), current: User = Depends(require_staff)
 ):
+    """Todos contra todos dentro de cada grupo, para las fases que se juegan así.
+
+    Una fase que NO se juega a todos contra todos no tiene fixture que generar,
+    y llamar acá lo único que hacía era borrar lo que la fase ya tenía: en una
+    eliminatoria, el cuadro recién sembrado —el botón estaba en la fila de
+    todas las fases, a un clic— y en un suizo, las rondas que `swiss_round`
+    empareja una por una según la tabla. Se avisa diciendo cuál es el camino,
+    no solo que no se puede.
+    """
     stage = _fase_administrable(db, stage_id, current)
+
+    otro_camino = {
+        "knockout": "las eliminatorias se arman en la pestaña Cuadro",
+        "swiss": "un suizo empareja ronda por ronda con «Ronda suiza»",
+    }.get(_stage_type_str(stage))
+    if otro_camino:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"«{stage.name}» no se juega a todos contra todos: {otro_camino}. "
+                "Generar el fixture acá borraría los partidos que ya tiene."
+            ),
+        )
 
     courts = _canchas_disponibles(db, current)
     if not courts:
@@ -1457,10 +1518,11 @@ def seed_bracket(
          "round1": [{"home_group": "A", "home_position": 1,
                      "away_group": "B", "away_position": 2}, ...],
          "byes": [{"group": "A", "position": 1}],
+         "plan": ["bye", "match", "bye", "match"],
          "third_place": true,
          "two_legged": true}
 
-    Tres cosas que antes no se podían armar:
+    Cuatro cosas que antes no se podían armar:
 
     - **Byes.** El cuadro exigía una cantidad par de cruces y un árbol
       perfecto, así que seis clasificados no tenían cuadro posible y la única
@@ -1478,6 +1540,11 @@ def seed_bracket(
       cualquiera de los dos reescribe el cuadro. Quién pasa lo decide el
       global (ver services/bracket.py). El tercer puesto se queda a partido
       único: nadie lo juega dos veces.
+    - **El cuadro dibujado a mano.** `plan` dice, llave por llave y en el orden
+      del cuadro, cuáles se juegan y cuáles son bye. Sin él el servidor usa
+      `_plan_de_cuadro`, que premia a los mejores sembrados; con él manda el
+      orden que armó el organizador, que es lo que hace que el cuadro creado
+      sea el que vio en pantalla (ver `_plan_pedido`).
     """
     source_stage_id = payload.get("source_stage_id")
     round1 = payload.get("round1", [])
@@ -1502,6 +1569,8 @@ def seed_bracket(
                 f"llegaron {len(round1)} y {len(byes_in)}."
             ),
         )
+    # El que arma el cuadro a mano también decide en qué llave espera cada bye.
+    plan = _plan_pedido(payload.get("plan"), plan)
 
     dst = _fase_administrable(db, stage_id, current)
     if not db.query(Stage).filter(Stage.id == source_stage_id).first():

@@ -346,6 +346,58 @@ def test_el_sembrado_con_bye_espera_en_la_segunda_ronda(
     assert all(campeon_a not in _equipos_de(m) for m in _por_ronda(client, fase["id"], 1))
 
 
+def test_el_bye_espera_en_la_llave_donde_lo_puso_el_organizador(
+    client, admin, torneo, fase_jugada
+):
+    """El cuadro armado a mano se crea como se dibujó, no como lo reordena el
+    servidor.
+
+    Con 6 equipos el plan por mérito es ["bye", "match", "bye", "match"]: los
+    dos byes caen en llaves distintas y cada uno espera al ganador de un cruce.
+    El organizador puede querer lo contrario —que los dos que esperan se
+    enfrenten entre sí— y antes no había forma de pedirlo: las cuentas cerraban
+    igual, así que el servidor aceptaba el cuadro y armaba otro.
+    """
+    _configurar(client, admin, fase_jugada["id"], qualifiers_per_group=2,
+                best_thirds_count=0)
+    fase = _crear_fase(client, admin, torneo)
+    r = _sembrar(
+        client, admin, fase, fase_jugada["id"],
+        [
+            {"home_group": "A", "home_position": 2,
+             "away_group": "C", "away_position": 2},
+            {"home_group": "B", "home_position": 2,
+             "away_group": "C", "away_position": 1},
+        ],
+        byes=[{"group": "A", "position": 1}, {"group": "B", "position": 1}],
+        plan=["match", "match", "bye", "bye"],
+    )
+    assert r.status_code == 200, r.text
+    _resolver(client, admin, fase)
+    grupos = client.get(
+        f"{API}/tournaments/stages/{fase_jugada['id']}/standings_by_group"
+    ).json()
+    campeones = {grupos["A"][0]["team_id"], grupos["B"][0]["team_id"]}
+    # Los dos byes quedaron en la MISMA semifinal, que es lo que se pidió.
+    semis = _por_ronda(client, fase["id"], 2)
+    assert any(_equipos_de(m) == campeones for m in semis)
+
+
+def test_el_plan_no_puede_cambiar_cuantos_byes_hay(
+    client, admin, torneo, fase_jugada
+):
+    """El orden lo elige el organizador; las cantidades las manda el árbol."""
+    fase = _crear_fase(client, admin, torneo)
+    r = _sembrar(
+        client, admin, fase, fase_jugada["id"],
+        [{"home_group": "B", "home_position": 1, "away_group": "C", "away_position": 1}],
+        byes=[{"group": "A", "position": 1}],
+        plan=["match", "match"],
+    )
+    assert r.status_code == 400
+    assert "1 cruce(s) y 1 bye(s)" in r.json()["detail"]
+
+
 def test_el_cuadro_dice_cuantos_byes_faltan(client, admin, torneo, fase_jugada):
     """El error tiene que traer los números, no un «no se puede»."""
     fase = _crear_fase(client, admin, torneo)

@@ -13,12 +13,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.tournament_routes import _build_group_standings, _ordered_stages
+from app.api.tournament_routes import (
+    _build_group_standings,
+    _es_publica,
+    _ordered_stages,
+)
 from app.core.deps import require_captain
 from app.db.database import get_db
 from app.db.models import (
     Court,
     Match,
+    MatchHighlight,
     MatchStat,
     Player,
     Stage,
@@ -31,6 +36,7 @@ from app.db.models import (
     User,
     Venue,
 )
+from app.services.jugadas import ordenadas, payload_jugadas
 from app.services.strategy import puntos_del_evento
 
 router = APIRouter()
@@ -248,6 +254,83 @@ def mis_partidos(
         "played": jugados,
         "live": [p for p in partidos if p["status"] == "live"],
     }
+
+
+@router.get("/highlights")
+def mis_jugadas(
+    team_id: Optional[UUID] = None,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_captain),
+):
+    """Las mejores jugadas de los partidos del capitán.
+
+    Es la pantalla donde la familia de un jugador va a buscar su gol, así que
+    trae dos cosas y no una: las jugadas etiquetadas a **su** equipo y las de
+    los **partidos que jugó**, que incluyen el golazo del rival. Eso último es
+    deliberado: el reel de un partido es la historia del partido, y recortarlo
+    a un solo lado lo deja contando la mitad. `is_mine` las distingue para que
+    la pantalla pueda separarlas sin que el servidor decida por ella.
+
+    **Un interruptor apagado filtra, no responde 403.** El reel por torneo sí
+    devuelve 403 (`list_highlights`), porque pregunta por UN campeonato y la
+    respuesta honesta es «este organizador no publica esto». Aquí la consulta
+    cruza todos los campeonatos del capitán, y un 403 por uno solo le dejaría
+    la pantalla vacía sin poder ver los otros; así que el torneo que no publica
+    se cae de la lista y los demás siguen.
+    """
+    equipos = list(_equipos_del_usuario(db, current).keys())
+    if team_id:
+        _asegurar_equipo_propio(db, team_id, current)
+        equipos = [str(team_id)]
+    if not equipos:
+        return []
+
+    # Los partidos que jugaron esos equipos: de ahí salen las jugadas del
+    # partido que no están etiquetadas a mi equipo (las del rival).
+    partidos = (
+        db.query(Match.id)
+        .filter(
+            (Match.home_team_id.in_(equipos)) | (Match.away_team_id.in_(equipos))
+        )
+        .all()
+    )
+    ids_partido = [m.id for m in partidos]
+
+    condicion = MatchHighlight.team_id.in_(equipos)
+    if ids_partido:
+        condicion = condicion | MatchHighlight.match_id.in_(ids_partido)
+    filas = (
+        db.query(MatchHighlight)
+        # isnot(False) y no == True: una fila heredada con NULL cuenta como
+        # publicada, que es el valor por defecto de la columna.
+        .filter(MatchHighlight.published.isnot(False))
+        .filter(condicion)
+        # El orden va ANTES del tope: sin él, un capitán con muchos clips se
+        # quedaría con doscientos cualesquiera —y lo más probable es que los
+        # que quiere ver sean los del domingo pasado—. El orden final lo pone
+        # `ordenadas`, que respeta además lo que el organizador subió arriba.
+        .order_by(MatchHighlight.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    if not filas:
+        return []
+
+    torneos = {
+        str(t.id): t
+        for t in db.query(Tournament)
+        .filter(Tournament.id.in_({f.tournament_id for f in filas if f.tournament_id}))
+        .all()
+    }
+    visibles = [
+        f
+        for f in filas
+        if str(f.tournament_id) in torneos
+        and _es_publica(torneos[str(f.tournament_id)], "jugadas")
+    ]
+    return payload_jugadas(
+        db, ordenadas(visibles), torneos, equipos_propios=equipos
+    )
 
 
 @router.get("/teams/{team_id}/summary")

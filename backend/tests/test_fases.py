@@ -97,3 +97,52 @@ def test_no_se_regenera_el_fixture_con_partidos_jugados(client, admin, fase_juga
         f"{API}/tournaments/stages/{fase_jugada['id']}/generate_fixture", headers=admin
     )
     assert r.status_code == 400
+
+
+def test_el_fixture_no_pisa_el_cuadro(client, admin, torneo, fase_jugada):
+    """El botón «Fixture» era un clic de distancia de borrar las eliminatorias.
+
+    `generate_fixture` no miraba el tipo de fase: en una de eliminación borraba
+    los partidos que no estuvieran jugados —o sea el cuadro recién sembrado— y
+    los reemplazaba por un todos contra todos. Y el panel pintaba el botón en
+    la fila de todas las fases.
+    """
+    fase = _crear_fase(client, admin, torneo["id"], "Eliminatoria", "knockout")
+    client.post(
+        f"{API}/tournaments/stages/{fase['id']}/seed_bracket",
+        json={
+            "source_stage_id": fase_jugada["id"],
+            "round1": [
+                {"home_group": "A", "home_position": 1,
+                 "away_group": "B", "away_position": 2},
+                {"home_group": "B", "home_position": 1,
+                 "away_group": "A", "away_position": 2},
+            ],
+        },
+        headers=admin,
+    )
+    antes = client.get(f"{API}/tournaments/stages/{fase['id']}/matches").json()
+    assert len(antes) == 3  # dos semis y la final
+
+    r = client.post(
+        f"{API}/tournaments/stages/{fase['id']}/generate_fixture", headers=admin
+    )
+    assert r.status_code == 400
+    assert "Cuadro" in r.json()["detail"]
+
+    despues = client.get(f"{API}/tournaments/stages/{fase['id']}/matches").json()
+    assert [m["id"] for m in despues] == [m["id"] for m in antes]
+
+
+def test_el_suizo_se_empareja_ronda_por_ronda(client, admin, torneo, equipos):
+    """Un todos contra todos es lo contrario de un suizo: tiene su propia ruta."""
+    fase = _crear_fase(client, admin, torneo["id"], "Suizo", "swiss")
+    r = client.post(
+        f"{API}/tournaments/stages/{fase['id']}/generate_fixture", headers=admin
+    )
+    assert r.status_code == 400
+    assert "Ronda suiza" in r.json()["detail"]
+    # Y la ruta que sí es suya sigue funcionando.
+    r = client.post(f"{API}/tournaments/stages/{fase['id']}/swiss_round", headers=admin)
+    assert r.status_code == 200, r.text
+    assert client.get(f"{API}/tournaments/stages/{fase['id']}/matches").json()

@@ -12,6 +12,12 @@ import pytest
 
 _TMP_DB = os.path.join(tempfile.mkdtemp(prefix="champion-hive-tests-"), "test.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DB}"
+# Los clips de las mejores jugadas van a disco, así que la suite necesita su
+# propia carpeta: también antes de importar la app, porque `app.main` monta los
+# archivos estáticos al importarse y ahí ya resuelve MEDIA_ROOT.
+os.environ["MEDIA_ROOT"] = os.path.join(
+    tempfile.mkdtemp(prefix="champion-hive-media-"), "media"
+)
 os.environ.setdefault("ADMIN_EMAIL", "super@example.com")
 os.environ.setdefault("ADMIN_PASSWORD", "super1234")
 

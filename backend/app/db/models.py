@@ -439,6 +439,72 @@ class TournamentPhoto(Base):
     tournament = relationship("Tournament", back_populates="photos")
 
 
+class MatchHighlight(Base):
+    """Una mejor jugada: el clip de un gol, un regate, una atajada.
+
+    **El video no vive aquí.** El escudo del equipo sí se guarda en la base
+    como data URI (pesa 2-10 KB y así viaja con el backup), pero una jugada de
+    veinte segundos pesa megabytes: el archivo va a disco bajo `MEDIA_ROOT` y
+    esta fila guarda la ficha —de qué partido es, qué jugada fue, de quién— más
+    la ruta. `media_path` existe para poder borrar el archivo cuando se borra
+    la jugada; sin ella el disco se llenaría de clips huérfanos.
+
+    `storage` dice de dónde sale el video, y son tres casos reales: `local` es
+    el archivo que subió el organizador, `link` es la jugada que la liga ya
+    tiene publicada en YouTube o Instagram (pegar el enlace no cuesta nada y
+    cubre a quien no quiere pagar almacenamiento) y `contentful` es el espejo
+    en el CDN, que es opcional y viene apagado.
+
+    `play_type` está acoplado a la disciplina del torneo: las jugadas de fútbol
+    son gol, regate y atajada, y las de tejo son moñona, embocinada y mecha.
+    El catálogo y la validación están en `services/strategy.py`
+    (`JUGADAS_POR_DEPORTE`), que es donde ya viven los demás hechos por
+    disciplina.
+    """
+
+    __tablename__ = "match_highlights"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    tournament_id = Column(GUID(), ForeignKey("tournaments.id"), index=True)
+    # El partido del que es la jugada. Nullable porque hay clips que son del
+    # campeonato y no de un partido (el resumen de la jornada, la premiación).
+    match_id = Column(GUID(), ForeignKey("matches.id", ondelete="SET NULL"), index=True)
+    team_id = Column(GUID(), ForeignKey("teams.id"))
+    player_id = Column(GUID(), ForeignKey("players.id"))
+    # Tipo de jugada, de las que tiene la disciplina del torneo.
+    play_type = Column(String)
+    title = Column(String)
+    minute = Column(Integer)
+
+    # De dónde sale el video: local | link | contentful.
+    storage = Column(String, default="local")
+    video_url = Column(String)
+    # Ruta relativa dentro de MEDIA_ROOT (solo cuando storage = local). Es lo
+    # que permite borrar el archivo al borrar la jugada.
+    media_path = Column(String)
+    mime_type = Column(String)
+    size_bytes = Column(Integer)
+    duration_seconds = Column(Integer)
+    # Portada: un fotograma reducido, en data URI, como los escudos. Pesa poco
+    # y es lo que deja que la grilla del reel cargue sin bajar un solo video.
+    poster_url = Column(String)
+
+    # Espejo en Contentful (opcional). Vacío = no se subió, que es el caso por
+    # defecto porque la integración viene apagada.
+    external_id = Column(String)
+    external_url = Column(String)
+
+    # El organizador decide qué sale al marcador público. Arranca publicada:
+    # quien la sube es quien la quiere mostrar.
+    published = Column(Boolean, default=True)
+    # Orden en el reel. Se llama order_index y no "order" por lo mismo que en
+    # Stage: "order" es palabra reservada y el shim de migración genera el
+    # ALTER TABLE sin comillas.
+    order_index = Column(Integer, default=0)
+    created_by_id = Column(GUID(), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class TeamManager(Base):
     """Capitán o delegado a cargo de un equipo.
 

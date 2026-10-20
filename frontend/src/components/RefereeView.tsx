@@ -3,6 +3,7 @@ import { api, syncOutbox } from '../services/api'
 import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
+import JugadasPanel from './JugadasPanel'
 import { useAppSelector } from '../hooks'
 import {
   esAnotacion,
@@ -968,6 +969,21 @@ export default function RefereeView() {
             ))}
           </div>
         </Card>
+
+        {/* Mejores jugadas. El que tiene el video en el teléfono es el árbitro,
+            y pedirle que se lo mande al organizador para que lo suba es como se
+            pierden los clips. Lo único que NO se puede hacer sin señal es esto:
+            un clip de 20 MB en la cola offline corrompe la cola entera, así que
+            en vez de encolarlo se dice. */}
+        <Card className="mt-4 p-4">
+          <JugadasPanel
+            tournament={tournament}
+            matchId={String(match.id)}
+            readOnly={!puedeCorregir}
+            titulo="Mejores jugadas del partido"
+          />
+          <SinSenialParaVideo />
+        </Card>
       </div>
     )
   }
@@ -1503,5 +1519,26 @@ function SubControl({
         <Icon name="check" className="text-sm" />
       </button>
     </div>
+  )
+}
+
+/** Aviso de que subir video es lo único que necesita conexión.
+ *
+ *  Todo lo demás del panel se encola sin señal (goles, tarjetas, marcador,
+ *  planilla) y por eso el árbitro da por hecho que puede trabajar sin red. Un
+ *  clip de decenas de megas no cabe en el almacenamiento del navegador, así
+ *  que esto se dice ANTES de que lo intente y falle con el clip ya elegido.
+ */
+function SinSenialParaVideo() {
+  const { online } = useNet()
+  if (online) return null
+  return (
+    <p className="mt-3 flex items-start gap-2 rounded-lg border border-tertiary/40 bg-tertiary/10 p-3 text-xs text-tertiary">
+      <Icon name="cloud_off" className="mt-0.5 text-base" />
+      <span>
+        Sin conexión. El resto del panel se guarda y se sincroniza solo, pero un video no
+        entra en la cola: guarda el clip en el teléfono y súbelo cuando haya señal.
+      </span>
+    </p>
   )
 }
