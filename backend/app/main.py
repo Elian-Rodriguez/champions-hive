@@ -8,6 +8,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.api import (
     auth_routes,
     captain_routes,
+    datos_routes,
+    gobierno_routes,
     highlight_routes,
     match_routes,
     notification_routes,
@@ -115,6 +117,11 @@ app.include_router(captain_routes.router, prefix="/api/v1/captain", tags=["Capta
 # Mejores jugadas: va en /api/v1 (como teams) porque tiene rutas colgadas de
 # /tournaments/{id}/highlights y de /highlights/{id}.
 app.include_router(highlight_routes.router, prefix="/api/v1", tags=["Highlights"])
+# Sanciones del comité, informe arbitral y reclamos: también en /api/v1 porque
+# cuelgan de torneos, partidos, sanciones y reclamos a la vez.
+app.include_router(gobierno_routes.router, prefix="/api/v1", tags=["Gobierno"])
+# Importar nóminas y exportar tablas en Excel.
+app.include_router(datos_routes.router, prefix="/api/v1", tags=["Datos"])
 
 # Los clips de las mejores jugadas, servidos desde disco. Cuelga de /api/v1 a
 # propósito: así lo cubre el mismo `location /api/` que ya tiene nginx delante

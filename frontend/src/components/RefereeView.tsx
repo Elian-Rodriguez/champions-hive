@@ -4,6 +4,7 @@ import { isOnline, pendingCount, subscribeOffline } from '../services/offline'
 import { Badge, Button, Card, EmptyState, Icon, LiveChip, Spinner } from './ui'
 import { exportMatchReportPDF } from '../utils/pdf'
 import JugadasPanel from './JugadasPanel'
+import InformeArbitral from './InformeArbitral'
 import { useAppSelector } from '../hooks'
 import {
   esAnotacion,
@@ -968,6 +969,18 @@ export default function RefereeView() {
               />
             ))}
           </div>
+        </Card>
+
+        {/* Informe arbitral: lo que pasó además del marcador. Firmado, es la
+            prueba con la que el comité sanciona. */}
+        <Card className="mt-4 p-4">
+          <InformeArbitral
+            match={match}
+            homePlayers={homePlayers}
+            awayPlayers={awayPlayers}
+            readOnly={!puedeCorregir}
+            minutoActual={running || elapsed ? Math.floor(elapsed / 60) : null}
+          />
         </Card>
 
         {/* Mejores jugadas. El que tiene el video en el teléfono es el árbitro,

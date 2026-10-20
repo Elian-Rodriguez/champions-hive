@@ -280,6 +280,55 @@ export function subirJugada(
   })
 }
 
+/**
+ * Manda un archivo en multipart a una ruta JSON (la nómina en Excel, la prueba
+ * de un reclamo). No pasa por `req`: aquel fija `Content-Type: application/json`
+ * y el multipart necesita que el navegador escriba su propio separador. Tampoco
+ * se encola: un archivo en el almacenamiento del navegador es cómo se corrompe
+ * la cola del árbitro (ver isQueueable).
+ */
+async function enviarArchivo(path: string, archivo: File): Promise<any> {
+  if (!isOnline()) throw new Error('Subir un archivo necesita conexión.')
+  const form = new FormData()
+  form.append('file', archivo, archivo.name)
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  const cuerpo = await res.json().catch(() => null)
+  if (!res.ok) {
+    const detalle = cuerpo?.detail
+    throw new Error(
+      typeof detalle === 'string' ? detalle : detalle ? JSON.stringify(detalle) : res.statusText,
+    )
+  }
+  return cuerpo
+}
+
+/**
+ * Descarga un archivo que genera el servidor (las tablas en Excel, la
+ * plantilla de nómina). Va por fetch con el token —y no por un `<a href>`—
+ * porque el Excel del organizador trae lo que el público no ve (la cédula, las
+ * secciones ocultas) y un enlace no manda la cabecera Authorization.
+ */
+export async function descargar(path: string, nombre: string): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, { headers: authHeaders() })
+  if (!res.ok) {
+    const cuerpo = await res.json().catch(() => null)
+    throw new Error(cuerpo?.detail || 'No se pudo descargar el archivo.')
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nombre
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export const api = {
   // ---- Auth ----
   async login(email: string, password: string) {
@@ -656,6 +705,46 @@ export const api = {
     req(`/matches/events/${eventId}`, { method: 'DELETE' }),
   standings: (data: any) =>
     req('/matches/standings', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ---- Gobierno: sanciones del comité, informe arbitral, reclamos ----
+  sanctions: (tid: string) => req(`/tournaments/${tid}/sanctions`),
+  createSanction: (tid: string, data: any) =>
+    req(`/tournaments/${tid}/sanctions`, { method: 'POST', body: JSON.stringify(data) }),
+  updateSanction: (id: string, data: any) =>
+    req(`/sanctions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteSanction: (id: string) => req(`/sanctions/${id}`, { method: 'DELETE' }),
+
+  matchReport: (matchId: string) => req(`/matches/${matchId}/report`),
+  /** Borrador del informe. Se encola sin red, como la planilla. */
+  saveMatchReport: (matchId: string, data: any) =>
+    req(`/matches/${matchId}/report`, { method: 'PUT', body: JSON.stringify(data) }),
+  submitMatchReport: (matchId: string) =>
+    req(`/matches/${matchId}/report/submit`, { method: 'POST' }),
+  reopenMatchReport: (matchId: string) =>
+    req(`/matches/${matchId}/report/reopen`, { method: 'POST' }),
+  tournamentReports: (tid: string) => req(`/tournaments/${tid}/reports`),
+
+  claims: (tid: string) => req(`/tournaments/${tid}/claims`),
+  myClaims: () => req('/claims/mine'),
+  createClaim: (tid: string, data: any) =>
+    req(`/tournaments/${tid}/claims`, { method: 'POST', body: JSON.stringify(data) }),
+  claimEvidence: (claimId: string, archivo: File) =>
+    enviarArchivo(`/claims/${claimId}/evidence`, archivo),
+  withdrawClaim: (claimId: string) => req(`/claims/${claimId}/withdraw`, { method: 'POST' }),
+  decideClaim: (claimId: string, data: any) =>
+    req(`/claims/${claimId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  publishClaim: (claimId: string, published: boolean) =>
+    req(`/claims/${claimId}/publish`, { method: 'PUT', body: JSON.stringify({ published }) }),
+  deleteClaim: (claimId: string) => req(`/claims/${claimId}`, { method: 'DELETE' }),
+  resolutions: (tid: string) => req(`/tournaments/${tid}/resolutions`),
+
+  // ---- Datos: Excel ----
+  /** Valida (dryRun) o importa la nómina. Primero siempre se valida. */
+  importRoster: (tid: string, archivo: File, dryRun = true) =>
+    enviarArchivo(`/tournaments/${tid}/import/roster?dry_run=${dryRun}`, archivo),
+  rosterTemplate: () => descargar('/datos/plantilla_nomina.xlsx', 'plantilla-nomina.xlsx'),
+  exportTournament: (tid: string, nombre: string, scope?: StatScope) =>
+    descargar(`/tournaments/${tid}/export.xlsx${scopeQuery(scope)}`, `${nombre}.xlsx`),
 }
 
 export default api

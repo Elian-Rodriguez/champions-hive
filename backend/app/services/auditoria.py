@@ -36,6 +36,9 @@ ACCION_SANCION = "sancion"
 ACCION_JUGADA = "jugada"
 ACCION_CUENTA = "cuenta"
 ACCION_TORNEO = "torneo"
+ACCION_INFORME = "informe"
+ACCION_RECLAMO = "reclamo"
+ACCION_IMPORTACION = "importacion"
 
 ACCION_LABELS: Dict[str, str] = {
     ACCION_MARCADOR: "Marcador y estado",
@@ -46,6 +49,9 @@ ACCION_LABELS: Dict[str, str] = {
     ACCION_JUGADA: "Mejores jugadas",
     ACCION_CUENTA: "Cuentas",
     ACCION_TORNEO: "Torneo",
+    ACCION_INFORME: "Informe arbitral",
+    ACCION_RECLAMO: "Reclamos",
+    ACCION_IMPORTACION: "Importación de nóminas",
 }
 
 

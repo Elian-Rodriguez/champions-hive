@@ -776,3 +776,78 @@ class StandingsRequest(BaseModel):
     sport_type: SportType
     matches: List[Dict[str, Any]]
     tiebreaker_rules: Optional[List[str]] = None
+
+
+# --------------------------------------------------------------------------- #
+#  Gobierno: sanciones del comité, informe arbitral y reclamos
+# --------------------------------------------------------------------------- #
+class SanctionCreate(BaseModel):
+    """Sanción manual a un jugador. `team_id` se deduce de la nómina si falta;
+    `match_id` es el partido donde ocurrió y de ahí se cuentan las fechas."""
+
+    player_id: UUID
+    team_id: Optional[UUID] = None
+    matches: int = 1
+    reason: str
+    match_id: Optional[UUID] = None
+    incident_id: Optional[str] = None
+
+
+class SanctionUpdate(BaseModel):
+    """Corrección de una sanción; solo se aplica lo que venga. `status:
+    annulled` la revoca sin borrarla."""
+
+    matches: Optional[int] = None
+    reason: Optional[str] = None
+    match_id: Optional[UUID] = None
+    status: Optional[str] = None
+
+
+class IncidentIn(BaseModel):
+    id: Optional[str] = None
+    kind: str
+    minute: Optional[int] = None
+    team: Optional[str] = None  # home | away
+    player_id: Optional[UUID] = None
+    description: Optional[str] = None
+
+
+class MatchReportUpdate(BaseModel):
+    """El informe entero: reemplaza el borrador, como la planilla."""
+
+    observations: Optional[str] = None
+    incidents: List[IncidentIn] = []
+
+
+class ClaimCreate(BaseModel):
+    team_id: UUID
+    kind: str = "otro"
+    description: str
+    match_id: Optional[UUID] = None
+    sanction_id: Optional[UUID] = None
+    # La prueba: una jugada ya cargada o un enlace. El video propio se sube
+    # aparte (multipart) a /claims/{id}/evidence.
+    highlight_id: Optional[UUID] = None
+    evidence_url: Optional[str] = None
+
+    @field_validator("evidence_url")
+    @classmethod
+    def _validar_enlace(cls, v: Optional[str]) -> Optional[str]:
+        return validar_enlace(v)
+
+
+class ClaimDecision(BaseModel):
+    """Lo que hace el organizador con un reclamo.
+
+    `sanction_matches` solo vale si el reclamo apela una sanción manual: la
+    deja en ese número de fechas, y 0 la anula.
+    """
+
+    status: str  # in_review | accepted | rejected
+    resolution: Optional[str] = None
+    published: Optional[bool] = None
+    sanction_matches: Optional[int] = None
+
+
+class ClaimPublish(BaseModel):
+    published: bool
